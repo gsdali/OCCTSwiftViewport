@@ -42,6 +42,7 @@ public struct MetalViewportView: View {
     @State private var lastDragValue: CGSize = .zero
     @State private var lastMagnification: CGFloat = 1.0
     @State private var isPanning: Bool = false
+    @State private var lastRotation: Angle = .zero
 
     // MARK: - Initialization
 
@@ -63,10 +64,12 @@ public struct MetalViewportView: View {
                     .overlay { panGestureOverlay }
                     .gesture(orbitGesture)
                     .gesture(zoomGesture)
+                    .gesture(rollGesture)
                     .gesture(doubleTapGesture)
                     #else
                     .gesture(macGestures)
                     .gesture(macMagnifyGesture)
+                    .gesture(macRotateGesture)
                     #endif
 
                 if controller.showViewCube {
@@ -158,6 +161,18 @@ public struct MetalViewportView: View {
             }
     }
 
+    private var rollGesture: some Gesture {
+        RotateGesture()
+            .onChanged { value in
+                let delta = Float((value.rotation - lastRotation).radians)
+                lastRotation = value.rotation
+                controller.handleRoll(angle: CGFloat(delta))
+            }
+            .onEnded { _ in
+                lastRotation = .zero
+            }
+    }
+
     private var doubleTapGesture: some Gesture {
         TapGesture(count: 2)
             .onEnded {
@@ -183,7 +198,7 @@ public struct MetalViewportView: View {
                 if modifiers.contains(.shift) {
                     controller.handlePan(translation: delta)
                 } else if modifiers.contains(.option) {
-                    let zoomDelta = 1.0 + delta.height * 0.01
+                    let zoomDelta = 1.0 + delta.height * 0.02
                     controller.handleZoom(magnification: zoomDelta)
                 } else {
                     controller.handleOrbit(translation: CGSize(width: -delta.width, height: delta.height))
@@ -204,6 +219,18 @@ public struct MetalViewportView: View {
             }
             .onEnded { _ in
                 lastMagnification = 1.0
+            }
+    }
+
+    private var macRotateGesture: some Gesture {
+        RotateGesture()
+            .onChanged { value in
+                let delta = Float((value.rotation - lastRotation).radians)
+                lastRotation = value.rotation
+                controller.handleRoll(angle: CGFloat(delta))
+            }
+            .onEnded { _ in
+                lastRotation = .zero
             }
     }
     #endif

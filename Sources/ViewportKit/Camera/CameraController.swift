@@ -64,10 +64,10 @@ public final class CameraController: ObservableObject {
     public var maxDistance: Float = 10000
 
     /// Minimum vertical angle for turntable mode (radians from vertical).
-    public var minPhi: Float = 0.05
+    public var minPhi: Float = 0.01
 
     /// Maximum vertical angle for turntable mode (radians from vertical).
-    public var maxPhi: Float = .pi / 2 - 0.05
+    public var maxPhi: Float = .pi - 0.01
 
     /// Damping factor for inertia (0 = no damping, 1 = instant stop).
     public var dampingFactor: Float = 0.1
@@ -111,6 +111,9 @@ public final class CameraController: ObservableObject {
 
     /// Spherical phi (angle from Z axis down).
     private var phi: Float = .pi / 4
+
+    /// Roll angle around the camera's forward axis (turntable mode).
+    private var rollAngle: Float = 0
 
     // MARK: - Initialization
 
@@ -260,6 +263,25 @@ public final class CameraController: ObservableObject {
         zoom(factor: factor)
     }
 
+    // MARK: - Roll
+
+    /// Rolls the camera around its forward axis.
+    ///
+    /// - Parameter deltaAngle: Rotation delta in radians
+    public func roll(deltaAngle: Float) {
+        switch rotationStyle {
+        case .turntable:
+            rollAngle += deltaAngle
+            updateRotationFromSpherical()
+        case .arcball, .firstPerson:
+            let forward = cameraState.viewDirection
+            let rollQuat = simd_quatf(angle: deltaAngle, axis: forward)
+            var newState = cameraState
+            newState.rotation = simd_normalize(rollQuat * cameraState.rotation)
+            cameraState = newState
+        }
+    }
+
     // MARK: - Animation
 
     /// Animates to a target camera state.
@@ -331,6 +353,7 @@ public final class CameraController: ObservableObject {
     /// Resets the camera to the default view.
     public func reset(animated: Bool = true) {
         let target = CameraState()
+        rollAngle = 0
 
         if animated {
             animateTo(target, duration: 0.5)
@@ -368,17 +391,22 @@ public final class CameraController: ObservableObject {
 
         // Theta is angle in XY plane
         theta = atan2(forward.y, forward.x)
+
+        // Reset roll — standard views have no roll, and extracting roll
+        // from an arbitrary quaternion is fragile.
+        rollAngle = 0
     }
 
     /// Updates rotation quaternion from spherical coordinates.
     private func updateRotationFromSpherical() {
         // Build rotation from spherical coordinates
-        // First rotate around Z (horizontal), then tilt down from Z axis
+        // First rotate around Z (horizontal), then tilt down from Z axis, then roll
         let rotZ = simd_quatf(angle: theta, axis: SIMD3<Float>(0, 0, 1))
         let rotX = simd_quatf(angle: phi - .pi / 2, axis: SIMD3<Float>(1, 0, 0))
+        let rotRoll = simd_quatf(angle: rollAngle, axis: SIMD3<Float>(0, 0, 1))
 
         var newState = cameraState
-        newState.rotation = simd_normalize(rotZ * rotX)
+        newState.rotation = simd_normalize(rotZ * rotX * rotRoll)
         cameraState = newState
     }
 

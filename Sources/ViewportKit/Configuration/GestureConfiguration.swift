@@ -75,9 +75,9 @@ public struct GestureConfiguration: Sendable {
     /// Creates a gesture configuration with the specified settings.
     public init(
         orbitSensitivity: Float = 0.005,
-        panSensitivity: Float = 0.002,
+        panSensitivity: Float = 0.005,
         zoomSensitivity: Float = 1.0,
-        scrollZoomSensitivity: Float = 0.1,
+        scrollZoomSensitivity: Float = 0.25,
         enableInertia: Bool = true,
         dampingFactor: Float = 0.1,
         singleFingerDrag: GestureAction = .orbit,

@@ -174,6 +174,11 @@ public final class ViewportController: ObservableObject {
         cameraController.scrollZoom(delta: Float(delta))
     }
 
+    /// Handles roll gesture input.
+    public func handleRoll(angle: CGFloat) {
+        cameraController.roll(deltaAngle: Float(angle))
+    }
+
     /// Focuses on a specific point.
     public func focusOn(point: SIMD3<Float>, distance: Float? = nil, animated: Bool = true) {
         cameraController.focusOn(point: point, distance: distance, animated: animated)
