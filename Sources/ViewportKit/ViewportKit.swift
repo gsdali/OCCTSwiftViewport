@@ -80,6 +80,7 @@ public typealias _ViewCubeFace = ViewCubeFace
 // Views
 public typealias _ViewportView = ViewportView
 public typealias _MetalViewportView = MetalViewportView
+public typealias _AnyViewportView = AnyViewportView
 public typealias _ViewportController = ViewportController
 
 // Metal Renderer
@@ -88,6 +89,7 @@ public typealias _ViewportRenderer = ViewportRenderer
 
 // Configuration
 public typealias _ViewportConfiguration = ViewportConfiguration
+public typealias _RendererBackend = RendererBackend
 public typealias _GestureConfiguration = GestureConfiguration
 public typealias _GestureAction = GestureAction
 public typealias _ViewCubePosition = ViewCubePosition

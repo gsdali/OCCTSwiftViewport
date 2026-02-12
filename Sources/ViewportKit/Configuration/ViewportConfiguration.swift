@@ -6,6 +6,16 @@
 import Foundation
 import simd
 
+// MARK: - Renderer Backend
+
+/// Rendering backend for the viewport.
+public enum RendererBackend: String, CaseIterable, Sendable {
+    /// RealityKit-based rendering (default). Use with `[Entity]` content.
+    case realityKit
+    /// Direct Metal rendering via MTKView. Use with `[ViewportBody]` content.
+    case metal
+}
+
 // MARK: - Axis Style
 
 /// Rendering style for coordinate axes.
@@ -31,6 +41,11 @@ public enum GridStyle: Sendable {
 /// ViewportConfiguration aggregates all settings for camera behavior,
 /// gesture handling, display modes, and lighting.
 public struct ViewportConfiguration: Sendable {
+
+    // MARK: - Renderer
+
+    /// Rendering backend (`.realityKit` or `.metal`).
+    public var rendererBackend: RendererBackend
 
     // MARK: - Camera Settings
 
@@ -102,6 +117,7 @@ public struct ViewportConfiguration: Sendable {
 
     /// Creates a viewport configuration with default settings.
     public init(
+        rendererBackend: RendererBackend = .realityKit,
         initialCameraState: CameraState = .isometric,
         rotationStyle: RotationStyle = .turntable,
         minDistance: Float = 0.1,
@@ -123,6 +139,7 @@ public struct ViewportConfiguration: Sendable {
         gridSubdivisions: Int = 10,
         backgroundColor: SIMD4<Float> = SIMD4<Float>(0.95, 0.95, 0.95, 1.0)
     ) {
+        self.rendererBackend = rendererBackend
         self.initialCameraState = initialCameraState
         self.rotationStyle = rotationStyle
         self.minDistance = minDistance
