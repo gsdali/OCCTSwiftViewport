@@ -79,7 +79,12 @@ public typealias _ViewCubeFace = ViewCubeFace
 
 // Views
 public typealias _ViewportView = ViewportView
+public typealias _MetalViewportView = MetalViewportView
 public typealias _ViewportController = ViewportController
+
+// Metal Renderer
+public typealias _ViewportBody = ViewportBody
+public typealias _ViewportRenderer = ViewportRenderer
 
 // Configuration
 public typealias _ViewportConfiguration = ViewportConfiguration
