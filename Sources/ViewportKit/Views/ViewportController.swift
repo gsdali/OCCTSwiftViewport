@@ -53,6 +53,9 @@ public final class ViewportController: ObservableObject {
     /// Whether an animation is in progress.
     @Published public private(set) var isAnimating: Bool = false
 
+    /// Lighting configuration for live adjustment.
+    @Published public var lightingConfiguration: LightingConfiguration
+
     // MARK: - Configuration
 
     /// Viewport configuration.
@@ -79,6 +82,7 @@ public final class ViewportController: ObservableObject {
         self.showViewCube = configuration.showViewCube
         self.showAxes = configuration.showAxes
         self.showGrid = configuration.showGrid
+        self.lightingConfiguration = configuration.lightingConfiguration
 
         self.cameraController = CameraController(initialState: configuration.initialCameraState)
         cameraController.rotationStyle = configuration.rotationStyle

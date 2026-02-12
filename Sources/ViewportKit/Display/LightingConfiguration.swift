@@ -35,6 +35,27 @@ public struct LightingConfiguration: Sendable {
     /// Shadow softness (0 = hard, 1 = soft).
     public var shadowSoftness: Float
 
+    /// Specular shininess exponent (higher = tighter highlight).
+    public var specularPower: Float
+
+    /// Specular highlight strength (0–1).
+    public var specularIntensity: Float
+
+    /// Fresnel rim falloff exponent.
+    public var fresnelPower: Float
+
+    /// Fresnel rim brightness (0–1).
+    public var fresnelIntensity: Float
+
+    /// Matcap blend factor (0 = pure lighting, 1 = pure matcap).
+    public var matcapBlend: Float
+
+    /// Hemisphere ambient sky color (upper hemisphere).
+    public var ambientSkyColor: SIMD3<Float>
+
+    /// Hemisphere ambient ground color (lower hemisphere).
+    public var ambientGroundColor: SIMD3<Float>
+
     // MARK: - Initialization
 
     public init(
@@ -44,7 +65,14 @@ public struct LightingConfiguration: Sendable {
         ambientIntensity: Float = 0.3,
         ambientColor: SIMD3<Float> = SIMD3<Float>(1, 1, 1),
         shadowsEnabled: Bool = true,
-        shadowSoftness: Float = 0.3
+        shadowSoftness: Float = 0.3,
+        specularPower: Float = 64.0,
+        specularIntensity: Float = 0.5,
+        fresnelPower: Float = 3.0,
+        fresnelIntensity: Float = 0.3,
+        matcapBlend: Float = 0.0,
+        ambientSkyColor: SIMD3<Float> = SIMD3<Float>(0.9, 0.95, 1.0),
+        ambientGroundColor: SIMD3<Float> = SIMD3<Float>(0.3, 0.25, 0.2)
     ) {
         self.keyLight = keyLight
         self.fillLight = fillLight
@@ -53,6 +81,13 @@ public struct LightingConfiguration: Sendable {
         self.ambientColor = ambientColor
         self.shadowsEnabled = shadowsEnabled
         self.shadowSoftness = shadowSoftness
+        self.specularPower = specularPower
+        self.specularIntensity = specularIntensity
+        self.fresnelPower = fresnelPower
+        self.fresnelIntensity = fresnelIntensity
+        self.matcapBlend = matcapBlend
+        self.ambientSkyColor = ambientSkyColor
+        self.ambientGroundColor = ambientGroundColor
     }
 
     // MARK: - Presets
@@ -79,7 +114,10 @@ public struct LightingConfiguration: Sendable {
             intensity: 0.3,
             color: SIMD3<Float>(1.0, 1.0, 1.0)
         ),
-        ambientIntensity: 0.25
+        ambientIntensity: 0.25,
+        specularPower: 64.0,
+        specularIntensity: 0.5,
+        fresnelIntensity: 0.3
     )
 
     /// Soft studio lighting.
@@ -101,7 +139,11 @@ public struct LightingConfiguration: Sendable {
         ),
         ambientIntensity: 0.35,
         shadowsEnabled: true,
-        shadowSoftness: 0.5
+        shadowSoftness: 0.5,
+        specularPower: 32.0,
+        specularIntensity: 0.6,
+        fresnelIntensity: 0.4,
+        matcapBlend: 0.15
     )
 
     /// Architectural visualization lighting (simulates outdoor).
@@ -144,7 +186,9 @@ public struct LightingConfiguration: Sendable {
             color: SIMD3<Float>(1, 1, 1)
         ),
         ambientIntensity: 0.6,
-        shadowsEnabled: false
+        shadowsEnabled: false,
+        specularIntensity: 0.0,
+        fresnelIntensity: 0.0
     )
 }
 

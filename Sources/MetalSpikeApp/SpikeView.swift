@@ -49,6 +49,7 @@ struct SpikeView: View {
             displayModeSection
             overlaysSection
             projectionSection
+            lightingSection
             statusSection
         }
         .navigationTitle("Metal Spike")
@@ -89,6 +90,27 @@ struct SpikeView: View {
         Section("Projection") {
             Button(controller.cameraState.isOrthographic ? "Switch to Perspective" : "Switch to Orthographic") {
                 controller.toggleProjection()
+            }
+        }
+    }
+
+    private var lightingSection: some View {
+        Section("Lighting") {
+            VStack(alignment: .leading) {
+                Text("Specular Intensity: \(controller.lightingConfiguration.specularIntensity, specifier: "%.2f")")
+                Slider(value: $controller.lightingConfiguration.specularIntensity, in: 0...1)
+            }
+            VStack(alignment: .leading) {
+                Text("Shininess: \(controller.lightingConfiguration.specularPower, specifier: "%.0f")")
+                Slider(value: $controller.lightingConfiguration.specularPower, in: 1...256)
+            }
+            VStack(alignment: .leading) {
+                Text("Rim Light: \(controller.lightingConfiguration.fresnelIntensity, specifier: "%.2f")")
+                Slider(value: $controller.lightingConfiguration.fresnelIntensity, in: 0...1)
+            }
+            VStack(alignment: .leading) {
+                Text("Matcap Blend: \(controller.lightingConfiguration.matcapBlend, specifier: "%.2f")")
+                Slider(value: $controller.lightingConfiguration.matcapBlend, in: 0...1)
             }
         }
     }

@@ -8,13 +8,21 @@ using namespace metal;
 
 // MARK: - Uniform Structs
 
+struct LightData {
+    float4 directionAndIntensity;  // xyz = normalized direction, w = intensity
+    float4 colorAndEnabled;        // rgb = color, a = 1.0 if enabled, 0.0 if not
+};
+
 struct Uniforms {
     float4x4 viewProjectionMatrix;
     float4x4 modelMatrix;
-    float3   lightDirection;
-    float    lightIntensity;
-    float    ambientIntensity;
-    float3   cameraPosition;
+    float4x4 viewMatrix;              // needed for matcap UV calculation
+    float4   cameraPosition;           // xyz = position, w = nearPlane
+    LightData lights[3];               // key, fill, back
+    float4   ambientSkyColor;          // rgb = sky color, w = specularPower
+    float4   ambientGroundColor;       // rgb = ground color, w = specularIntensity
+    float4   materialParams;           // x = fresnelPower, y = fresnelIntensity,
+                                       // z = matcapBlend, w = farPlane
 };
 
 struct BodyUniforms {
@@ -32,10 +40,13 @@ struct ShadedVertexOut {
     float4 clipPosition [[position]];
     float3 worldNormal;
     float3 worldPosition;
+    float3 viewNormal;       // for matcap UV
+    float4 clipPositionCopy; // for depth-based effects
 };
 
 struct WireframeVertexOut {
     float4 clipPosition [[position]];
+    float4 clipPositionCopy; // for depth-based edge alpha
 };
 
 // MARK: - Grid / Axis Structs
@@ -64,26 +75,74 @@ vertex ShadedVertexOut shaded_vertex(
     out.clipPosition = uniforms.viewProjectionMatrix * worldPos;
     out.worldNormal = normalize((uniforms.modelMatrix * float4(in.normal, 0.0)).xyz);
     out.worldPosition = worldPos.xyz;
+    // View-space normal for matcap
+    out.viewNormal = normalize((uniforms.viewMatrix * uniforms.modelMatrix * float4(in.normal, 0.0)).xyz);
+    out.clipPositionCopy = out.clipPosition;
     return out;
 }
 
 fragment float4 shaded_fragment(
     ShadedVertexOut in [[stage_in]],
     constant Uniforms &uniforms [[buffer(1)]],
-    constant BodyUniforms &bodyUniforms [[buffer(2)]]
+    constant BodyUniforms &bodyUniforms [[buffer(2)]],
+    texture2d<float> matcapTexture [[texture(0)]]
 ) {
-    float3 normal = normalize(in.worldNormal);
-    float3 lightDir = normalize(-uniforms.lightDirection);
+    float3 N = normalize(in.worldNormal);
+    float3 V = normalize(uniforms.cameraPosition.xyz - in.worldPosition);
 
-    // Diffuse lighting
-    float diff = max(dot(normal, lightDir), 0.0);
-    float3 diffuse = bodyUniforms.color.rgb * diff * uniforms.lightIntensity;
+    float specularPower = uniforms.ambientSkyColor.w;
+    float specularIntensity = uniforms.ambientGroundColor.w;
+    float fresnelPower = uniforms.materialParams.x;
+    float fresnelIntensity = uniforms.materialParams.y;
+    float matcapBlend = uniforms.materialParams.z;
 
-    // Ambient
-    float3 ambient = bodyUniforms.color.rgb * uniforms.ambientIntensity;
+    float3 bodyColor = bodyUniforms.color.rgb;
 
-    float3 finalColor = diffuse + ambient;
-    return float4(finalColor, bodyUniforms.color.a);
+    // Accumulate lighting from up to 3 lights
+    float3 diffuseAccum = float3(0.0);
+    float3 specularAccum = float3(0.0);
+
+    for (int i = 0; i < 3; i++) {
+        float enabled = uniforms.lights[i].colorAndEnabled.a;
+        if (enabled < 0.5) continue;
+
+        float3 lightDir = normalize(-uniforms.lights[i].directionAndIntensity.xyz);
+        float intensity = uniforms.lights[i].directionAndIntensity.w;
+        float3 lightColor = uniforms.lights[i].colorAndEnabled.rgb;
+
+        // Diffuse
+        float diff = max(dot(N, lightDir), 0.0);
+        diffuseAccum += bodyColor * diff * intensity * lightColor;
+
+        // Blinn-Phong specular
+        float3 H = normalize(lightDir + V);
+        float spec = pow(max(dot(N, H), 0.0), specularPower);
+        specularAccum += spec * intensity * lightColor * specularIntensity;
+    }
+
+    // Hemisphere ambient: blend ground→sky based on normal Y
+    float3 skyColor = uniforms.ambientSkyColor.rgb;
+    float3 groundColor = uniforms.ambientGroundColor.rgb;
+    float hemiBlend = N.y * 0.5 + 0.5;
+    float3 ambient = mix(groundColor, skyColor, hemiBlend) * bodyColor;
+
+    // Fresnel rim
+    float fresnel = fresnelIntensity * pow(1.0 - saturate(dot(N, V)), fresnelPower);
+    float3 rimColor = float3(fresnel);
+
+    // Combine lighting
+    float3 litColor = diffuseAccum + specularAccum + ambient + rimColor;
+
+    // Matcap
+    if (matcapBlend > 0.001) {
+        float3 vn = normalize(in.viewNormal);
+        float2 matcapUV = vn.xy * 0.5 + 0.5;
+        constexpr sampler matcapSampler(filter::linear);
+        float3 matcapColor = matcapTexture.sample(matcapSampler, matcapUV).rgb;
+        litColor = mix(litColor, matcapColor * bodyColor, matcapBlend);
+    }
+
+    return float4(litColor, bodyUniforms.color.a);
 }
 
 // MARK: - Wireframe Pipeline
@@ -97,16 +156,27 @@ vertex WireframeVertexOut wireframe_vertex(
     out.clipPosition = uniforms.viewProjectionMatrix * worldPos;
     // Small depth bias to prevent z-fighting over shaded surfaces
     out.clipPosition.z -= 0.0001 * out.clipPosition.w;
+    out.clipPositionCopy = out.clipPosition;
     return out;
 }
 
 fragment float4 wireframe_fragment(
     WireframeVertexOut in [[stage_in]],
+    constant Uniforms &uniforms [[buffer(1)]],
     constant BodyUniforms &bodyUniforms [[buffer(2)]]
 ) {
     // Darker version of body colour for edge lines
     float3 edgeColor = bodyUniforms.color.rgb * 0.3;
-    return float4(edgeColor, 1.0);
+
+    // Depth-based edge alpha: near edges fully opaque, far edges fade
+    float nearPlane = uniforms.cameraPosition.w;
+    float farPlane = uniforms.materialParams.w;
+    float clipZ = in.clipPositionCopy.z;
+    float clipW = in.clipPositionCopy.w;
+    float linearDepth = saturate((clipZ / clipW - nearPlane / farPlane) / (1.0 - nearPlane / farPlane));
+    float edgeAlpha = mix(1.0, 0.3, linearDepth);
+
+    return float4(edgeColor, edgeAlpha);
 }
 
 // MARK: - Grid Pipeline (Instanced Dots)

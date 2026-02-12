@@ -9,13 +9,22 @@ import SwiftUI
 
 // MARK: - Uniform Types (Swift-side, must match Shaders.metal)
 
+struct LightDataSwift {
+    var directionAndIntensity: SIMD4<Float>  // xyz = direction, w = intensity
+    var colorAndEnabled: SIMD4<Float>        // rgb = color, a = enabled flag
+}
+
 struct Uniforms {
     var viewProjectionMatrix: simd_float4x4
     var modelMatrix: simd_float4x4
-    var lightDirection: SIMD3<Float>
-    var lightIntensity: Float
-    var ambientIntensity: Float
-    var cameraPosition: SIMD3<Float>
+    var viewMatrix: simd_float4x4
+    var cameraPosition: SIMD4<Float>          // xyz + nearPlane in w
+    var light0: LightDataSwift
+    var light1: LightDataSwift
+    var light2: LightDataSwift
+    var ambientSkyColor: SIMD4<Float>         // rgb + specularPower in w
+    var ambientGroundColor: SIMD4<Float>      // rgb + specularIntensity in w
+    var materialParams: SIMD4<Float>          // fresnelPower, fresnelIntensity, matcapBlend, farPlane
 }
 
 struct BodyUniforms {
@@ -60,6 +69,7 @@ public final class ViewportRenderer: NSObject, MTKViewDelegate, Sendable {
     private let gridPipeline: MTLRenderPipelineState
     private let axisPipeline: MTLRenderPipelineState
     private let depthState: MTLDepthStencilState
+    private let matcapTexture: MTLTexture
 
     private weak var controller: ViewportController?
     private var bodiesBinding: Binding<[ViewportBody]>
@@ -131,6 +141,11 @@ public final class ViewportRenderer: NSObject, MTKViewDelegate, Sendable {
         wireDesc.vertexFunction = library.makeFunction(name: "wireframe_vertex")
         wireDesc.fragmentFunction = library.makeFunction(name: "wireframe_fragment")
         wireDesc.colorAttachments[0].pixelFormat = .bgra8Unorm
+        wireDesc.colorAttachments[0].isBlendingEnabled = true
+        wireDesc.colorAttachments[0].sourceRGBBlendFactor = .sourceAlpha
+        wireDesc.colorAttachments[0].destinationRGBBlendFactor = .oneMinusSourceAlpha
+        wireDesc.colorAttachments[0].sourceAlphaBlendFactor = .sourceAlpha
+        wireDesc.colorAttachments[0].destinationAlphaBlendFactor = .oneMinusSourceAlpha
         wireDesc.depthAttachmentPixelFormat = .depth32Float
         wireDesc.vertexDescriptor = vertexDesc
 
@@ -209,6 +224,74 @@ public final class ViewportRenderer: NSObject, MTKViewDelegate, Sendable {
         }
         self.axisVertexBuffer = axisVB
 
+        // Generate procedural matcap texture (256x256 RGBA8)
+        let matcapSize = 256
+        let matcapDesc = MTLTextureDescriptor.texture2DDescriptor(
+            pixelFormat: .rgba8Unorm,
+            width: matcapSize,
+            height: matcapSize,
+            mipmapped: false
+        )
+        matcapDesc.usage = [.shaderRead]
+        guard let matcap = device.makeTexture(descriptor: matcapDesc) else {
+            return nil
+        }
+
+        var matcapPixels = [UInt8](repeating: 0, count: matcapSize * matcapSize * 4)
+        for y in 0..<matcapSize {
+            for x in 0..<matcapSize {
+                // Map pixel to [-1, 1] UV space
+                let u = (Float(x) + 0.5) / Float(matcapSize) * 2.0 - 1.0
+                let v = (Float(y) + 0.5) / Float(matcapSize) * 2.0 - 1.0
+                let r2 = u * u + v * v
+
+                var r: Float = 0.1
+                var g: Float = 0.1
+                var b: Float = 0.1
+
+                if r2 <= 1.0 {
+                    // Reconstruct view-space normal from UV
+                    let nz = sqrt(1.0 - r2)
+                    let nx = u
+                    let ny = -v
+
+                    // Studio lighting: key from upper-left, fill from right
+                    let keyDir = simd_normalize(SIMD3<Float>(-0.5, 0.7, 0.5))
+                    let fillDir = simd_normalize(SIMD3<Float>(0.6, 0.2, 0.7))
+                    let normal = SIMD3<Float>(nx, ny, nz)
+
+                    let keyDiff = max(simd_dot(normal, keyDir), 0.0) * 0.8
+                    let fillDiff = max(simd_dot(normal, fillDir), 0.0) * 0.3
+
+                    // Rim highlight
+                    let rim = pow(1.0 - nz, 3.0) * 0.25
+
+                    // Ambient base
+                    let ambient: Float = 0.18
+
+                    let brightness = min(keyDiff + fillDiff + rim + ambient, 1.0)
+                    // Slight warm-cool tint
+                    r = brightness * 1.0
+                    g = brightness * 0.97
+                    b = brightness * 0.95
+                }
+
+                let idx = (y * matcapSize + x) * 4
+                matcapPixels[idx + 0] = UInt8(min(max(r * 255.0, 0), 255))
+                matcapPixels[idx + 1] = UInt8(min(max(g * 255.0, 0), 255))
+                matcapPixels[idx + 2] = UInt8(min(max(b * 255.0, 0), 255))
+                matcapPixels[idx + 3] = 255
+            }
+        }
+
+        matcap.replace(
+            region: MTLRegionMake2D(0, 0, matcapSize, matcapSize),
+            mipmapLevel: 0,
+            withBytes: matcapPixels,
+            bytesPerRow: matcapSize * 4
+        )
+        self.matcapTexture = matcap
+
         super.init()
     }
 
@@ -254,7 +337,19 @@ public final class ViewportRenderer: NSObject, MTKViewDelegate, Sendable {
         let projMatrix = cameraState.projectionMatrix(aspectRatio: aspectRatio, near: 0.01, far: 10000.0)
         let viewProjection = projMatrix * viewMatrix
 
-        let lighting = controller.configuration.lightingConfiguration
+        let lighting = controller.lightingConfiguration
+
+        let nearPlane: Float = 0.01
+        let farPlane: Float = 10000.0
+
+        // Pack lights from lighting configuration
+        let lightSources = [lighting.keyLight, lighting.fillLight, lighting.backLight]
+        func packLight(_ ls: LightSettings) -> LightDataSwift {
+            LightDataSwift(
+                directionAndIntensity: SIMD4<Float>(ls.direction.x, ls.direction.y, ls.direction.z, ls.intensity),
+                colorAndEnabled: SIMD4<Float>(ls.color.x, ls.color.y, ls.color.z, ls.isEnabled ? 1.0 : 0.0)
+            )
+        }
 
         // 1. Draw grid
         if controller.showGrid {
@@ -278,10 +373,14 @@ public final class ViewportRenderer: NSObject, MTKViewDelegate, Sendable {
             var uniforms = Uniforms(
                 viewProjectionMatrix: viewProjection,
                 modelMatrix: matrix_identity_float4x4,
-                lightDirection: lighting.keyLight.direction,
-                lightIntensity: lighting.keyLight.intensity,
-                ambientIntensity: lighting.ambientIntensity,
-                cameraPosition: cameraState.position
+                viewMatrix: viewMatrix,
+                cameraPosition: SIMD4<Float>(cameraState.position.x, cameraState.position.y, cameraState.position.z, nearPlane),
+                light0: packLight(lightSources[0]),
+                light1: packLight(lightSources[1]),
+                light2: packLight(lightSources[2]),
+                ambientSkyColor: SIMD4<Float>(lighting.ambientSkyColor.x, lighting.ambientSkyColor.y, lighting.ambientSkyColor.z, lighting.specularPower),
+                ambientGroundColor: SIMD4<Float>(lighting.ambientGroundColor.x, lighting.ambientGroundColor.y, lighting.ambientGroundColor.z, lighting.specularIntensity),
+                materialParams: SIMD4<Float>(lighting.fresnelPower, lighting.fresnelIntensity, lighting.matcapBlend, farPlane)
             )
 
             var bodyUniforms = BodyUniforms(color: body.color)
@@ -293,6 +392,7 @@ public final class ViewportRenderer: NSObject, MTKViewDelegate, Sendable {
                 encoder.setVertexBytes(&uniforms, length: MemoryLayout<Uniforms>.size, index: 1)
                 encoder.setFragmentBytes(&uniforms, length: MemoryLayout<Uniforms>.size, index: 1)
                 encoder.setFragmentBytes(&bodyUniforms, length: MemoryLayout<BodyUniforms>.size, index: 2)
+                encoder.setFragmentTexture(matcapTexture, index: 0)
                 encoder.drawIndexedPrimitives(
                     type: .triangle,
                     indexCount: buffers.indexCount,
@@ -307,6 +407,7 @@ public final class ViewportRenderer: NSObject, MTKViewDelegate, Sendable {
                 encoder.setRenderPipelineState(wireframePipeline)
                 encoder.setVertexBuffer(edgeVB, offset: 0, index: 0)
                 encoder.setVertexBytes(&uniforms, length: MemoryLayout<Uniforms>.size, index: 1)
+                encoder.setFragmentBytes(&uniforms, length: MemoryLayout<Uniforms>.size, index: 1)
                 encoder.setFragmentBytes(&bodyUniforms, length: MemoryLayout<BodyUniforms>.size, index: 2)
                 encoder.drawPrimitives(type: .line, vertexStart: 0, vertexCount: buffers.edgeVertexCount)
             }
