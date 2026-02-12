@@ -132,12 +132,15 @@ public struct MetalViewportView: View {
                 )
                 lastDragValue = value.translation
 
-                controller.handleOrbit(translation: delta)
+                // Negate horizontal so left/right swipe rotates the object
+                // under the finger (direct manipulation) rather than orbiting
+                // the camera around the object.
+                controller.handleOrbit(translation: CGSize(width: -delta.width, height: delta.height))
             }
             .onEnded { value in
                 lastDragValue = .zero
                 if !isPanning {
-                    controller.endOrbit(velocity: value.velocity)
+                    controller.endOrbit(velocity: CGSize(width: -value.velocity.width, height: value.velocity.height))
                 }
                 isPanning = false
             }
@@ -183,12 +186,12 @@ public struct MetalViewportView: View {
                     let zoomDelta = 1.0 + delta.height * 0.01
                     controller.handleZoom(magnification: zoomDelta)
                 } else {
-                    controller.handleOrbit(translation: delta)
+                    controller.handleOrbit(translation: CGSize(width: -delta.width, height: delta.height))
                 }
             }
             .onEnded { value in
                 lastDragValue = .zero
-                controller.endOrbit(velocity: value.velocity)
+                controller.endOrbit(velocity: CGSize(width: -value.velocity.width, height: value.velocity.height))
             }
     }
 
