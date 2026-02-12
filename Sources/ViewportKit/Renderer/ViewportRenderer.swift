@@ -85,10 +85,17 @@ public final class ViewportRenderer: NSObject, MTKViewDelegate, Sendable {
         self.controller = controller
         self.bodiesBinding = bodies
 
-        // Load shader library from the bundled .metal source file
-        guard let metalURL = Bundle.module.url(forResource: "Shaders", withExtension: "metal"),
-              let shaderSource = try? String(contentsOf: metalURL, encoding: .utf8),
-              let library = try? device.makeLibrary(source: shaderSource, options: nil) else {
+        // Load shader library.
+        // Xcode compiles .metal → default.metallib inside the resource bundle.
+        // Plain SPM copies the .metal source, so fall back to runtime compilation.
+        let library: MTLLibrary
+        if let compiled = try? device.makeDefaultLibrary(bundle: Bundle.module) {
+            library = compiled
+        } else if let metalURL = Bundle.module.url(forResource: "Shaders", withExtension: "metal"),
+                  let src = try? String(contentsOf: metalURL, encoding: .utf8),
+                  let fromSource = try? device.makeLibrary(source: src, options: nil) {
+            library = fromSource
+        } else {
             return nil
         }
 

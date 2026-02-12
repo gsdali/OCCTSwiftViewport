@@ -33,6 +33,7 @@ public struct MetalViewportView: View {
 
     @ObservedObject private var controller: ViewportController
     @Binding private var bodies: [ViewportBody]
+    @Environment(\.colorScheme) private var colorScheme
 
     @State private var renderer: ViewportRenderer?
 
@@ -82,18 +83,24 @@ public struct MetalViewportView: View {
 
     // MARK: - Metal View
 
+    private var canvasBackgroundColor: SIMD4<Float> {
+        colorScheme == .dark
+            ? SIMD4<Float>(0.12, 0.12, 0.12, 1.0)
+            : controller.configuration.backgroundColor
+    }
+
     private var metalView: some View {
         Group {
             if let renderer = renderer {
                 MetalViewRepresentable(
                     renderer: renderer,
-                    backgroundColor: controller.configuration.backgroundColor
+                    backgroundColor: canvasBackgroundColor
                 )
             } else {
                 Color(
-                    red: Double(controller.configuration.backgroundColor.x),
-                    green: Double(controller.configuration.backgroundColor.y),
-                    blue: Double(controller.configuration.backgroundColor.z)
+                    red: Double(canvasBackgroundColor.x),
+                    green: Double(canvasBackgroundColor.y),
+                    blue: Double(canvasBackgroundColor.z)
                 )
             }
         }
@@ -168,7 +175,7 @@ public struct MetalViewportView: View {
                 )
                 lastDragValue = value.translation
 
-                let modifiers = NSEvent.modifierFlags
+                let modifiers = NSApp.currentEvent?.modifierFlags ?? []
 
                 if modifiers.contains(.shift) {
                     controller.handlePan(translation: delta)

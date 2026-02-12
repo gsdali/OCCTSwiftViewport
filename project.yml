@@ -28,6 +28,7 @@ targets:
         CURRENT_PROJECT_VERSION: "1"
         GENERATE_INFOPLIST_FILE: YES
         SWIFT_STRICT_CONCURRENCY: complete
+        OTHER_LDFLAGS: ["-weak_framework", "AVKit"]
       configs:
         debug:
           SWIFT_OPTIMIZATION_LEVEL: "-Onone"
