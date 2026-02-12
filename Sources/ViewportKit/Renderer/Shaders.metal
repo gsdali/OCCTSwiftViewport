@@ -165,8 +165,12 @@ fragment float4 wireframe_fragment(
     constant Uniforms &uniforms [[buffer(1)]],
     constant BodyUniforms &bodyUniforms [[buffer(2)]]
 ) {
-    // Darker version of body colour for edge lines
-    float3 edgeColor = bodyUniforms.color.rgb * 0.3;
+    // Contrast-adaptive edge color: light edges on dark bodies, dark edges on light bodies
+    float3 bodyColor = bodyUniforms.color.rgb;
+    float luminance = dot(bodyColor, float3(0.299, 0.587, 0.114));
+    float3 darkEdge = bodyColor * 0.3;
+    float3 lightEdge = bodyColor * 0.5 + 0.4;
+    float3 edgeColor = mix(lightEdge, darkEdge, smoothstep(0.3, 0.6, luminance));
 
     // Depth-based edge alpha: near edges fully opaque, far edges fade
     float nearPlane = uniforms.cameraPosition.w;
