@@ -79,6 +79,50 @@ public struct CameraState: Hashable, Codable, Sendable {
         return t
     }
 
+    /// View matrix (world-to-camera transform) for Metal rendering.
+    public var viewMatrix: simd_float4x4 {
+        let eye = position
+        let target = pivot
+        let up = upVector
+        return simd_float4x4.lookAt(eye: eye, target: target, up: up)
+    }
+
+    /// Projection matrix for Metal rendering.
+    ///
+    /// Returns a perspective or orthographic matrix depending on `isOrthographic`.
+    ///
+    /// - Parameters:
+    ///   - aspectRatio: Viewport width / height
+    ///   - near: Near clipping plane distance
+    ///   - far: Far clipping plane distance
+    /// - Returns: A projection matrix suitable for Metal NDC (z in [0, 1])
+    public func projectionMatrix(
+        aspectRatio: Float,
+        near: Float = 0.01,
+        far: Float = 1000.0
+    ) -> simd_float4x4 {
+        if isOrthographic {
+            let halfHeight = orthographicScale * 0.5
+            let halfWidth = halfHeight * aspectRatio
+            return simd_float4x4.orthographic(
+                left: -halfWidth,
+                right: halfWidth,
+                bottom: -halfHeight,
+                top: halfHeight,
+                near: near,
+                far: far
+            )
+        } else {
+            let fovRadians = fieldOfView * .pi / 180.0
+            return simd_float4x4.perspective(
+                fovY: fovRadians,
+                aspectRatio: aspectRatio,
+                near: near,
+                far: far
+            )
+        }
+    }
+
     // MARK: - Initializers
 
     /// Creates a camera state with the specified parameters.

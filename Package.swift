@@ -17,6 +17,17 @@ let package = Package(
         .target(
             name: "ViewportKit",
             path: "Sources/ViewportKit",
+            resources: [
+                .process("Renderer/Shaders.metal")
+            ],
+            swiftSettings: [
+                .swiftLanguageMode(.v6)
+            ]
+        ),
+        .executableTarget(
+            name: "MetalSpikeApp",
+            dependencies: ["ViewportKit"],
+            path: "Sources/MetalSpikeApp",
             swiftSettings: [
                 .swiftLanguageMode(.v6)
             ]
