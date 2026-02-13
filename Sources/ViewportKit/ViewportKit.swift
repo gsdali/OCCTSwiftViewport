@@ -99,6 +99,16 @@ public typealias _DisplayMode = DisplayMode
 public typealias _LightingConfiguration = LightingConfiguration
 public typealias _LightSettings = LightSettings
 
+// Math / Raycasting
+public typealias _BoundingBox = BoundingBox
+public typealias _Ray = Ray
+public typealias _RaycastHit = RaycastHit
+public typealias _SceneRaycast = SceneRaycast
+
+// Dynamic Pivot
+public typealias _PivotStrategy = PivotStrategy
+public typealias _DynamicPivotConfiguration = DynamicPivotConfiguration
+
 // ViewCube
 public typealias _ViewCubeView = ViewCubeView
 public typealias _ViewCubeRegion = ViewCubeRegion

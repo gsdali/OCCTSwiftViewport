@@ -32,24 +32,39 @@ struct MetalViewRepresentable: UIViewRepresentable {
 
 #elseif os(macOS)
 
+/// MTKView subclass that captures scroll wheel events on macOS.
+class ScrollCaptureMTKView: MTKView {
+    var onScrollWheel: ((CGFloat, CGPoint, CGSize) -> Void)?
+
+    override func scrollWheel(with event: NSEvent) {
+        let delta = event.scrollingDeltaY
+        let locationInView = convert(event.locationInWindow, from: nil)
+        let viewSize = bounds.size
+        onScrollWheel?(CGFloat(delta), locationInView, viewSize)
+    }
+}
+
 /// macOS wrapper for MTKView.
 struct MetalViewRepresentable: NSViewRepresentable {
     let renderer: ViewportRenderer
     let backgroundColor: SIMD4<Float>
+    var onScrollWheel: ((CGFloat, CGPoint, CGSize) -> Void)?
 
     func makeNSView(context: Context) -> MTKView {
-        let view = MTKView()
+        let view = ScrollCaptureMTKView()
         view.device = renderer.metalDevice
         view.delegate = renderer
         view.colorPixelFormat = .bgra8Unorm
         view.depthStencilPixelFormat = .depth32Float
         view.clearColor = mtlClearColor(from: backgroundColor)
         view.preferredFramesPerSecond = 60
+        view.onScrollWheel = onScrollWheel
         return view
     }
 
     func updateNSView(_ nsView: MTKView, context: Context) {
         nsView.clearColor = mtlClearColor(from: backgroundColor)
+        (nsView as? ScrollCaptureMTKView)?.onScrollWheel = onScrollWheel
     }
 }
 

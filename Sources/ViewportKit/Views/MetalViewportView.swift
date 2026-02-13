@@ -57,7 +57,7 @@ public struct MetalViewportView: View {
     // MARK: - Body
 
     public var body: some View {
-        GeometryReader { _ in
+        GeometryReader { geometry in
             ZStack {
                 metalView
                     #if os(iOS)
@@ -76,11 +76,23 @@ public struct MetalViewportView: View {
                     viewCubeOverlay
                 }
             }
+            .onChange(of: geometry.size) {
+                updateAspectRatio(geometry.size)
+            }
+            .onAppear {
+                updateAspectRatio(geometry.size)
+            }
         }
         .onAppear {
             if renderer == nil {
                 renderer = ViewportRenderer(controller: controller, bodies: $bodies)
             }
+        }
+    }
+
+    private func updateAspectRatio(_ size: CGSize) {
+        if size.width > 0, size.height > 0 {
+            controller.lastAspectRatio = Float(size.width / size.height)
         }
     }
 
@@ -95,10 +107,29 @@ public struct MetalViewportView: View {
     private var metalView: some View {
         Group {
             if let renderer = renderer {
+                #if os(macOS)
+                MetalViewRepresentable(
+                    renderer: renderer,
+                    backgroundColor: canvasBackgroundColor,
+                    onScrollWheel: { delta, cursorInView, viewSize in
+                        guard viewSize.width > 0, viewSize.height > 0 else { return }
+                        let nx = Float((cursorInView.x / viewSize.width) * 2 - 1)
+                        let ny = Float((1 - cursorInView.y / viewSize.height) * 2 - 1)
+                        let aspect = Float(viewSize.width / viewSize.height)
+                        controller.handleScrollZoom(
+                            delta: delta,
+                            cursorNormalized: SIMD2<Float>(nx, ny),
+                            aspectRatio: aspect
+                        )
+                        controller.scheduleDynamicPivotUpdate(bodies: bodies)
+                    }
+                )
+                #else
                 MetalViewRepresentable(
                     renderer: renderer,
                     backgroundColor: canvasBackgroundColor
                 )
+                #endif
             } else {
                 Color(
                     red: Double(canvasBackgroundColor.x),
@@ -146,6 +177,7 @@ public struct MetalViewportView: View {
                     controller.endOrbit(velocity: CGSize(width: -value.velocity.width, height: value.velocity.height))
                 }
                 isPanning = false
+                controller.scheduleDynamicPivotUpdate(bodies: bodies)
             }
     }
 
@@ -158,6 +190,7 @@ public struct MetalViewportView: View {
             }
             .onEnded { _ in
                 lastMagnification = 1.0
+                controller.scheduleDynamicPivotUpdate(bodies: bodies)
             }
     }
 
@@ -207,6 +240,7 @@ public struct MetalViewportView: View {
             .onEnded { value in
                 lastDragValue = .zero
                 controller.endOrbit(velocity: CGSize(width: -value.velocity.width, height: value.velocity.height))
+                controller.scheduleDynamicPivotUpdate(bodies: bodies)
             }
     }
 
@@ -219,6 +253,7 @@ public struct MetalViewportView: View {
             }
             .onEnded { _ in
                 lastMagnification = 1.0
+                controller.scheduleDynamicPivotUpdate(bodies: bodies)
             }
     }
 

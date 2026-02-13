@@ -25,6 +25,9 @@ public struct GestureConfiguration: Sendable {
     /// Scroll wheel zoom sensitivity.
     public var scrollZoomSensitivity: Float
 
+    /// Minimum pan speed floor (prevents pan stalling when zoomed in very close).
+    public var minPanSpeed: Float
+
     // MARK: - Inertia
 
     /// Whether to enable inertia (momentum) after gestures.
@@ -78,6 +81,7 @@ public struct GestureConfiguration: Sendable {
         panSensitivity: Float = 0.005,
         zoomSensitivity: Float = 1.0,
         scrollZoomSensitivity: Float = 0.25,
+        minPanSpeed: Float = 0.001,
         enableInertia: Bool = true,
         dampingFactor: Float = 0.1,
         singleFingerDrag: GestureAction = .orbit,
@@ -96,6 +100,7 @@ public struct GestureConfiguration: Sendable {
         self.panSensitivity = panSensitivity
         self.zoomSensitivity = zoomSensitivity
         self.scrollZoomSensitivity = scrollZoomSensitivity
+        self.minPanSpeed = minPanSpeed
         self.enableInertia = enableInertia
         self.dampingFactor = dampingFactor
         self.singleFingerDrag = singleFingerDrag

@@ -57,6 +57,9 @@ public final class CameraController: ObservableObject {
     /// Scroll wheel zoom sensitivity.
     public var scrollZoomSensitivity: Float = 0.1
 
+    /// Minimum pan speed (prevents pan from becoming imperceptibly slow when zoomed in close).
+    public var minPanSpeed: Float = 0.001
+
     /// Minimum distance from pivot.
     public var minDistance: Float = 0.1
 
@@ -226,7 +229,7 @@ public final class CameraController: ObservableObject {
     ///   - deltaX: Horizontal drag in points
     ///   - deltaY: Vertical drag in points
     public func pan(deltaX: Float, deltaY: Float) {
-        let scaleFactor = cameraState.distance * panSensitivity
+        let scaleFactor = max(minPanSpeed, cameraState.distance * panSensitivity)
 
         // Move in camera's local XY plane
         let right = cameraState.rightVector
@@ -255,12 +258,44 @@ public final class CameraController: ObservableObject {
         cameraState = newState
     }
 
-    /// Zooms using scroll wheel delta.
+    /// Zooms using scroll wheel delta, optionally shifting the pivot toward the cursor.
     ///
-    /// - Parameter delta: Scroll delta (positive = zoom in)
-    public func scrollZoom(delta: Float) {
+    /// - Parameters:
+    ///   - delta: Scroll delta (positive = zoom in)
+    ///   - cursorNormalized: Cursor position in normalized coordinates (−1…+1), or `nil` for center zoom
+    ///   - aspectRatio: View aspect ratio (width / height)
+    public func scrollZoom(delta: Float, cursorNormalized: SIMD2<Float>? = nil, aspectRatio: Float = 1.0) {
         let factor = 1.0 + delta * scrollZoomSensitivity
+        guard factor > 0 else { return }
+
+        let oldDistance = cameraState.distance
+        let oldOrthoScale = cameraState.orthographicScale
+
+        // Apply distance/scale change
         zoom(factor: factor)
+
+        // Shift pivot toward cursor to keep the world point under cursor stationary
+        guard let cursor = cursorNormalized else { return }
+
+        let right = cameraState.rightVector
+        let up = cameraState.upVector
+
+        let cursorOffset: SIMD3<Float>
+        if cameraState.isOrthographic {
+            let halfH = oldOrthoScale / 2
+            let halfW = halfH * aspectRatio
+            cursorOffset = right * cursor.x * halfW + up * cursor.y * halfH
+        } else {
+            let fovRad = cameraState.fieldOfView * .pi / 180.0
+            let halfH = oldDistance * tan(fovRad / 2.0)
+            let halfW = halfH * aspectRatio
+            cursorOffset = right * cursor.x * halfW + up * cursor.y * halfH
+        }
+
+        let zoomRatio = 1.0 - 1.0 / factor
+        var newState = cameraState
+        newState.pivot += cursorOffset * zoomRatio
+        cameraState = newState
     }
 
     // MARK: - Roll
@@ -363,6 +398,23 @@ public final class CameraController: ObservableObject {
         }
     }
 
+    // MARK: - Dynamic Pivot
+
+    /// Animates only the pivot to a new position.
+    ///
+    /// Skips if the delta is negligible or an animation is already running.
+    ///
+    /// - Parameters:
+    ///   - newPivot: Target pivot position.
+    ///   - duration: Animation duration in seconds.
+    public func adjustPivot(to newPivot: SIMD3<Float>, duration: Float = 0.15) {
+        let delta = simd_length(newPivot - cameraState.pivot)
+        guard delta > 0.001, !isAnimating else { return }
+        var target = cameraState
+        target.pivot = newPivot
+        animateTo(target, duration: duration)
+    }
+
     // MARK: - Inertia
 
     /// Sets angular velocity for inertia.
@@ -377,6 +429,30 @@ public final class CameraController: ObservableObject {
         guard enableInertia else { return }
         panVelocity = velocity
         startAnimationTimer()
+    }
+
+    // MARK: - Snap to Standard View
+
+    /// Returns the nearest axis-aligned standard view if within the angular threshold.
+    ///
+    /// - Parameter threshold: Maximum angle in degrees to snap
+    /// - Returns: The nearest standard view, or `nil` if none is close enough
+    func nearestStandardView(threshold: Float = 3.0) -> StandardView? {
+        let thresholdRad = threshold * .pi / 180.0
+        let snapViews: [StandardView] = [.top, .bottom, .front, .back, .right, .left]
+        for view in snapViews {
+            let angle = angleTo(standardView: view)
+            if angle < thresholdRad {
+                return view
+            }
+        }
+        return nil
+    }
+
+    private func angleTo(standardView view: StandardView) -> Float {
+        let targetRotation = view.rotation
+        let dot = abs(simd_dot(simd_normalize(cameraState.rotation), simd_normalize(targetRotation)))
+        return 2.0 * acos(min(1.0, dot))
     }
 
     // MARK: - Private Helpers

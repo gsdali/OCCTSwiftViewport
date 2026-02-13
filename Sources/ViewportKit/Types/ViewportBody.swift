@@ -54,3 +54,29 @@ public struct ViewportBody: Identifiable, Sendable {
         self.isVisible = isVisible
     }
 }
+
+// MARK: - Bounding Box
+
+extension ViewportBody {
+
+    /// Computes the axis-aligned bounding box from vertex positions.
+    ///
+    /// Returns `nil` if the body has no vertex data.
+    public var boundingBox: BoundingBox? {
+        let stride = 6
+        let vertexCount = vertexData.count / stride
+        guard vertexCount > 0 else { return nil }
+
+        var bbMin = SIMD3<Float>(vertexData[0], vertexData[1], vertexData[2])
+        var bbMax = bbMin
+
+        for i in 1..<vertexCount {
+            let base = i * stride
+            let p = SIMD3<Float>(vertexData[base], vertexData[base + 1], vertexData[base + 2])
+            bbMin = simd_min(bbMin, p)
+            bbMax = simd_max(bbMax, p)
+        }
+
+        return BoundingBox(min: bbMin, max: bbMax)
+    }
+}

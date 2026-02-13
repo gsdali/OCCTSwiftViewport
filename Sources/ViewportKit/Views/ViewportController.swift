@@ -72,6 +72,15 @@ public final class ViewportController: ObservableObject {
     /// Cancellables for Combine subscriptions.
     private var cancellables = Set<AnyCancellable>()
 
+    /// Dynamic pivot strategy for automatic orbit center adjustment.
+    private lazy var pivotStrategy = PivotStrategy()
+
+    /// Current aspect ratio (updated by MetalViewportView).
+    internal var lastAspectRatio: Float = 1.0
+
+    /// Coalescing work item for dynamic pivot updates.
+    private var pivotWorkItem: DispatchWorkItem?
+
     // MARK: - Initialization
 
     /// Creates a viewport controller with the specified configuration.
@@ -95,6 +104,7 @@ public final class ViewportController: ObservableObject {
         cameraController.panSensitivity = gc.panSensitivity
         cameraController.zoomSensitivity = gc.zoomSensitivity
         cameraController.scrollZoomSensitivity = gc.scrollZoomSensitivity
+        cameraController.minPanSpeed = gc.minPanSpeed
         cameraController.enableInertia = gc.enableInertia
         cameraController.dampingFactor = gc.dampingFactor
 
@@ -140,8 +150,18 @@ public final class ViewportController: ObservableObject {
         )
     }
 
-    /// Ends orbit with velocity for inertia.
+    /// Ends orbit with velocity for inertia, snapping to a nearby axis view on gentle release.
     public func endOrbit(velocity: CGSize) {
+        let speed = sqrt(velocity.width * velocity.width + velocity.height * velocity.height)
+
+        // If release velocity is low, check for snap to nearby axis view
+        if speed < 200 {
+            if let snapView = cameraController.nearestStandardView(threshold: 3.0) {
+                cameraController.animateTo(snapView, duration: 0.15)
+                return
+            }
+        }
+
         cameraController.setAngularVelocity(SIMD2<Float>(
             Float(velocity.width) * 0.001,
             Float(velocity.height) * 0.001
@@ -172,6 +192,11 @@ public final class ViewportController: ObservableObject {
     /// Handles scroll wheel zoom.
     public func handleScrollZoom(delta: CGFloat) {
         cameraController.scrollZoom(delta: Float(delta))
+    }
+
+    /// Handles scroll wheel zoom toward cursor position.
+    public func handleScrollZoom(delta: CGFloat, cursorNormalized: SIMD2<Float>, aspectRatio: Float) {
+        cameraController.scrollZoom(delta: Float(delta), cursorNormalized: cursorNormalized, aspectRatio: aspectRatio)
     }
 
     /// Handles roll gesture input.
@@ -223,6 +248,38 @@ public final class ViewportController: ObservableObject {
         var state = cameraState
         state.isOrthographic.toggle()
         animateTo(state, duration: 0.3)
+    }
+}
+
+// MARK: - Dynamic Pivot
+
+extension ViewportController {
+
+    /// Computes and applies a dynamic pivot update.
+    internal func updateDynamicPivot(bodies: [ViewportBody]) {
+        let config = configuration.dynamicPivotConfiguration
+        guard config.isEnabled else { return }
+
+        if let newPivot = pivotStrategy.computePivot(
+            cameraState: cameraState,
+            bodies: bodies,
+            aspectRatio: lastAspectRatio,
+            config: config
+        ) {
+            cameraController.adjustPivot(to: newPivot, duration: config.animationDuration)
+        }
+    }
+
+    /// Schedules a dynamic pivot update with a 50ms coalesce delay.
+    internal func scheduleDynamicPivotUpdate(bodies: [ViewportBody]) {
+        pivotWorkItem?.cancel()
+        let item = DispatchWorkItem { [weak self] in
+            Task { @MainActor in
+                self?.updateDynamicPivot(bodies: bodies)
+            }
+        }
+        pivotWorkItem = item
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05, execute: item)
     }
 }
 
