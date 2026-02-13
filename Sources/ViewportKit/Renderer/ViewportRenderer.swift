@@ -76,8 +76,8 @@ public final class ViewportRenderer: NSObject, MTKViewDelegate, Sendable {
 
     /// Cached MTLBuffers keyed by body ID.
     private var bodyBufferCache: [String: BodyBuffers] = [:]
-    /// Generation counter per body ID (vertex count as cheap change detection).
-    private var bodyGeneration: [String: Int] = [:]
+    /// Generation counter per body ID (detects geometry changes).
+    private var bodyGeneration: [String: UInt64] = [:]
 
     /// Axis vertex buffer (6 vertices: 3 line segments with position+color).
     private let axisVertexBuffer: MTLBuffer
@@ -413,6 +413,13 @@ public final class ViewportRenderer: NSObject, MTKViewDelegate, Sendable {
             }
         }
 
+        // Prune cache entries for bodies no longer in the scene.
+        let activeIDs = Set(bodies.map(\.id))
+        for id in bodyBufferCache.keys where !activeIDs.contains(id) {
+            bodyBufferCache.removeValue(forKey: id)
+            bodyGeneration.removeValue(forKey: id)
+        }
+
         encoder.endEncoding()
         commandBuffer.present(drawable)
         commandBuffer.commit()
@@ -481,7 +488,7 @@ public final class ViewportRenderer: NSObject, MTKViewDelegate, Sendable {
     // MARK: - Buffer Management
 
     private func ensureBuffers(for body: ViewportBody) {
-        let currentGen = body.vertexData.count
+        let currentGen = body.generation
         if let cachedGen = bodyGeneration[body.id], cachedGen == currentGen {
             return // buffer still valid
         }

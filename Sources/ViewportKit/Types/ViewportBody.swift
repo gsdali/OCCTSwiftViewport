@@ -11,8 +11,15 @@ import simd
 /// for shaded and wireframe rendering.
 public struct ViewportBody: Identifiable, Sendable {
 
+    // Auto-incrementing generation counter for cache invalidation.
+    private nonisolated(unsafe) static var _nextGeneration: UInt64 = 0
+
     /// Unique identifier for this body.
     public var id: String
+
+    /// Generation tag — each `ViewportBody.init` gets a unique value.
+    /// Used by the renderer to detect geometry changes.
+    public let generation: UInt64
 
     /// Interleaved vertex data: [px, py, pz, nx, ny, nz, ...] with stride 6.
     public var vertexData: [Float]
@@ -37,6 +44,8 @@ public struct ViewportBody: Identifiable, Sendable {
         color: SIMD4<Float>,
         isVisible: Bool = true
     ) {
+        ViewportBody._nextGeneration += 1
+        self.generation = ViewportBody._nextGeneration
         self.id = id
         self.vertexData = vertexData
         self.indices = indices
