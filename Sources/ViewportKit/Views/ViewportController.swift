@@ -5,28 +5,26 @@
 
 import Foundation
 import Combine
-import RealityKit
 import simd
 
 /// Observable controller managing viewport state and interactions.
 ///
 /// ViewportController is the main interface for controlling the viewport.
 /// It manages camera state, handles user input, and coordinates with
-/// the underlying RealityKit scene.
+/// the Metal renderer.
 ///
 /// ## Example
 ///
 /// ```swift
 /// struct MyView: View {
 ///     @StateObject private var controller = ViewportController()
+///     @State private var bodies: [ViewportBody] = [.box()]
 ///
 ///     var body: some View {
-///         ViewportView(controller: controller) { content in
-///             // Add your 3D content here
-///         }
-///         .toolbar {
-///             Button("Top") { controller.goToStandardView(.top) }
-///         }
+///         MetalViewportView(controller: controller, bodies: $bodies)
+///             .toolbar {
+///                 Button("Top") { controller.goToStandardView(.top) }
+///             }
 ///     }
 /// }
 /// ```
@@ -65,9 +63,6 @@ public final class ViewportController: ObservableObject {
 
     /// The camera controller managing movement.
     public let cameraController: CameraController
-
-    /// The RealityKit camera entity (set by ViewportView).
-    internal var cameraEntity: Entity?
 
     /// Cancellables for Combine subscriptions.
     private var cancellables = Set<AnyCancellable>()

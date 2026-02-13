@@ -6,7 +6,6 @@
 
 import Foundation
 import simd
-import RealityKit
 import Combine
 
 /// Controls camera movement in a 3D viewport.

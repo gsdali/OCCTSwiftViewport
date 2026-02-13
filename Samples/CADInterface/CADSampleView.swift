@@ -2,10 +2,9 @@
 // ViewportKit Sample - CAD Interface
 //
 // This sample demonstrates how to build a CAD-like interface using ViewportKit.
-// Based on the RailwayCAD interface structure.
 
 import SwiftUI
-import RealityKit
+import simd
 
 // Note: In a real app, you would import ViewportKit
 // import ViewportKit
@@ -13,7 +12,7 @@ import RealityKit
 /// Sample CAD interface demonstrating ViewportKit integration.
 ///
 /// This view shows how to:
-/// - Set up a ViewportView with custom content
+/// - Set up a MetalViewportView with ViewportBody content
 /// - Add toolbar controls for standard views
 /// - Create a sidebar with display options
 /// - Handle keyboard shortcuts
@@ -38,6 +37,8 @@ public struct CADSampleView: View {
         configuration: .cad
     )
 
+    @State private var bodies: [ViewportBody] = []
+
     @State private var showInspector: Bool = true
 
     // MARK: - Body
@@ -51,9 +52,7 @@ public struct CADSampleView: View {
         } detail: {
             // Main viewport
             ZStack {
-                ViewportView(controller: viewportController) { content in
-                    await addSampleContent(to: &content)
-                }
+                MetalViewportView(controller: viewportController, bodies: $bodies)
 
                 // Top toolbar overlay
                 VStack {
@@ -67,9 +66,86 @@ public struct CADSampleView: View {
             // Right panel - Properties
             propertiesInspector
         }
+        .onAppear { bodies = Self.buildSampleBodies() }
         #if os(macOS)
         .frame(minWidth: 900, minHeight: 600)
         #endif
+    }
+
+    // MARK: - Sample Content
+
+    private static func buildSampleBodies() -> [ViewportBody] {
+        var result: [ViewportBody] = []
+
+        // Track bed
+        var bed = ViewportBody.box(id: "bed", width: 2, height: 0.2, depth: 5,
+                                   color: SIMD4<Float>(0.5, 0.5, 0.5, 1))
+        offsetVertices(&bed, dx: 0, dy: 0.1, dz: 0)
+        result.append(bed)
+
+        // Left rail
+        var leftRail = ViewportBody.cylinder(id: "leftRail", radius: 0.05, height: 5,
+                                             color: SIMD4<Float>(0.5, 0.5, 0.5, 1))
+        rotateVerticesX(&leftRail, angle: .pi / 2)
+        offsetVertices(&leftRail, dx: -0.5, dy: 0.25, dz: 0)
+        result.append(leftRail)
+
+        // Right rail
+        var rightRail = ViewportBody.cylinder(id: "rightRail", radius: 0.05, height: 5,
+                                              color: SIMD4<Float>(0.5, 0.5, 0.5, 1))
+        rotateVerticesX(&rightRail, angle: .pi / 2)
+        offsetVertices(&rightRail, dx: 0.5, dy: 0.25, dz: 0)
+        result.append(rightRail)
+
+        // Sleepers
+        let sleeperColor = SIMD4<Float>(0.4, 0.3, 0.2, 1)
+        var sleeperIndex = 0
+        for i in stride(from: -2.0, through: 2.0, by: 0.5) {
+            var sleeper = ViewportBody.box(id: "sleeper\(sleeperIndex)", width: 1.5, height: 0.1, depth: 0.15,
+                                           color: sleeperColor)
+            offsetVertices(&sleeper, dx: 0, dy: 0.05, dz: Float(i))
+            result.append(sleeper)
+            sleeperIndex += 1
+        }
+
+        return result
+    }
+
+    /// Offsets all vertex positions and edge polylines in-place.
+    private static func offsetVertices(_ body: inout ViewportBody, dx: Float, dy: Float, dz: Float) {
+        let stride = 6
+        for i in Swift.stride(from: 0, to: body.vertexData.count, by: stride) {
+            body.vertexData[i]     += dx
+            body.vertexData[i + 1] += dy
+            body.vertexData[i + 2] += dz
+        }
+        body.edges = body.edges.map { polyline in
+            polyline.map { p in SIMD3<Float>(p.x + dx, p.y + dy, p.z + dz) }
+        }
+    }
+
+    /// Rotates all vertex positions, normals, and edge polylines around the X axis.
+    private static func rotateVerticesX(_ body: inout ViewportBody, angle: Float) {
+        let c = cos(angle)
+        let s = sin(angle)
+        let stride = 6
+        for i in Swift.stride(from: 0, to: body.vertexData.count, by: stride) {
+            // Position
+            let py = body.vertexData[i + 1]
+            let pz = body.vertexData[i + 2]
+            body.vertexData[i + 1] = py * c - pz * s
+            body.vertexData[i + 2] = py * s + pz * c
+            // Normal
+            let ny = body.vertexData[i + 4]
+            let nz = body.vertexData[i + 5]
+            body.vertexData[i + 4] = ny * c - nz * s
+            body.vertexData[i + 5] = ny * s + nz * c
+        }
+        body.edges = body.edges.map { polyline in
+            polyline.map { p in
+                SIMD3<Float>(p.x, p.y * c - p.z * s, p.y * s + p.z * c)
+            }
+        }
     }
 
     // MARK: - Tools Sidebar
@@ -238,49 +314,6 @@ public struct CADSampleView: View {
             }
         }
         .inspectorColumnWidth(min: 200, ideal: 250, max: 300)
-    }
-
-    // MARK: - Sample Content
-
-    @MainActor
-    private func addSampleContent(to content: inout RealityViewContent) async {
-        // Create a sample box (representing track/CAD geometry)
-        let box = ModelEntity(
-            mesh: .generateBox(width: 2, height: 0.2, depth: 5),
-            materials: [SimpleMaterial(color: .gray, isMetallic: true)]
-        )
-        box.position = SIMD3<Float>(0, 0, 0.1)
-        content.add(box)
-
-        // Add some cylinders representing rails
-        let railMaterial = SimpleMaterial(color: .init(white: 0.5, alpha: 1), isMetallic: true)
-
-        let leftRail = ModelEntity(
-            mesh: .generateCylinder(height: 5, radius: 0.05),
-            materials: [railMaterial]
-        )
-        leftRail.position = SIMD3<Float>(-0.5, 0, 0.25)
-        leftRail.orientation = simd_quatf(angle: .pi / 2, axis: SIMD3<Float>(1, 0, 0))
-        content.add(leftRail)
-
-        let rightRail = ModelEntity(
-            mesh: .generateCylinder(height: 5, radius: 0.05),
-            materials: [railMaterial]
-        )
-        rightRail.position = SIMD3<Float>(0.5, 0, 0.25)
-        rightRail.orientation = simd_quatf(angle: .pi / 2, axis: SIMD3<Float>(1, 0, 0))
-        content.add(rightRail)
-
-        // Add sleepers
-        let sleeperMaterial = SimpleMaterial(color: .init(red: 0.4, green: 0.3, blue: 0.2, alpha: 1), isMetallic: false)
-        for i in stride(from: -2.0, through: 2.0, by: 0.5) {
-            let sleeper = ModelEntity(
-                mesh: .generateBox(width: 1.5, height: 0.1, depth: 0.15),
-                materials: [sleeperMaterial]
-            )
-            sleeper.position = SIMD3<Float>(0, Float(i), 0.05)
-            content.add(sleeper)
-        }
     }
 }
 

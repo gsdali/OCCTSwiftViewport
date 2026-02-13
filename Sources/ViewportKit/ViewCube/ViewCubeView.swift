@@ -17,7 +17,7 @@ import simd
 ///
 /// ```swift
 /// ZStack {
-///     ViewportView(controller: controller)
+///     MetalViewportView(controller: controller, bodies: $bodies)
 ///     VStack {
 ///         Spacer()
 ///         HStack {

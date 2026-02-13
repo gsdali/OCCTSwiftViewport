@@ -5,7 +5,6 @@
 
 import Foundation
 import simd
-import RealityKit
 
 /// Immutable camera state representing a viewport orientation.
 ///
@@ -69,14 +68,6 @@ public struct CameraState: Hashable, Codable, Sendable {
     /// Right vector in world coordinates.
     public var rightVector: SIMD3<Float> {
         rotation.act(SIMD3<Float>(1, 0, 0))
-    }
-
-    /// RealityKit Transform for the camera entity.
-    public var transform: Transform {
-        var t = Transform()
-        t.translation = position
-        t.rotation = rotation
-        return t
     }
 
     /// View matrix (world-to-camera transform) for Metal rendering.

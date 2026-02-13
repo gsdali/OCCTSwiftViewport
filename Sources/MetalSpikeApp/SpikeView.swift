@@ -6,7 +6,7 @@ import ViewportKit
 
 struct SpikeView: View {
     @StateObject private var controller = ViewportController(
-        configuration: ViewportConfiguration(rendererBackend: .metal, rotationStyle: .turntable, showViewCube: true, showAxes: true, showGrid: true)
+        configuration: ViewportConfiguration(rotationStyle: .turntable, showViewCube: true, showAxes: true, showGrid: true)
     )
 
     @State private var bodies: [ViewportBody] = [
@@ -31,7 +31,7 @@ struct SpikeView: View {
         NavigationSplitView {
             sidebar
         } detail: {
-            AnyViewportView(controller: controller, bodies: $bodies)
+            MetalViewportView(controller: controller, bodies: $bodies)
         }
         .onAppear {
             // Position primitives so they don't overlap

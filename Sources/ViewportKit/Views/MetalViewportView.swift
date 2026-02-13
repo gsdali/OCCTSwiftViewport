@@ -6,7 +6,7 @@
 import SwiftUI
 import simd
 
-/// A 3D viewport view using Metal (parallel to the RealityKit `ViewportView`).
+/// A 3D viewport view using Metal.
 ///
 /// MetalViewportView provides a complete Metal-based 3D viewing experience with:
 /// - Orbit, pan, and zoom gestures

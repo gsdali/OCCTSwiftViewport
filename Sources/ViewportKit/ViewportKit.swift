@@ -1,5 +1,5 @@
 // ViewportKit
-// A reusable 3D viewport component for CAD applications using RealityKit
+// A reusable 3D viewport component for CAD applications using Metal
 //
 // Copyright (c) 2026. All rights reserved.
 
@@ -7,13 +7,15 @@
 ///
 /// ## Overview
 ///
-/// ViewportKit is built on RealityKit and provides:
+/// ViewportKit is built on Metal and provides:
 /// - Smooth camera controls (orbit, pan, zoom) with inertia
 /// - Arcball and turntable rotation styles
 /// - ViewCube for orientation and quick navigation
 /// - Configurable gestures for iOS and macOS
 /// - Standard view presets (Top, Front, Isometric, etc.)
 /// - Professional three-point lighting
+/// - Wireframe, shaded, and depth-edge display modes
+/// - CPU raycast and dynamic pivot
 ///
 /// ## Quick Start
 ///
@@ -23,15 +25,12 @@
 ///
 /// struct ContentView: View {
 ///     @StateObject private var controller = ViewportController()
+///     @State private var bodies: [ViewportBody] = [
+///         .box(size: 1, color: .gray)
+///     ]
 ///
 ///     var body: some View {
-///         ViewportView(controller: controller) { content in
-///             let box = ModelEntity(
-///                 mesh: .generateBox(size: 1),
-///                 materials: [SimpleMaterial(color: .gray, isMetallic: true)]
-///             )
-///             content.add(box)
-///         }
+///         MetalViewportView(controller: controller, bodies: $bodies)
 ///     }
 /// }
 /// ```
@@ -78,9 +77,7 @@ public typealias _RotationStyle = RotationStyle
 public typealias _ViewCubeFace = ViewCubeFace
 
 // Views
-public typealias _ViewportView = ViewportView
 public typealias _MetalViewportView = MetalViewportView
-public typealias _AnyViewportView = AnyViewportView
 public typealias _ViewportController = ViewportController
 
 // Metal Renderer
@@ -89,7 +86,6 @@ public typealias _ViewportRenderer = ViewportRenderer
 
 // Configuration
 public typealias _ViewportConfiguration = ViewportConfiguration
-public typealias _RendererBackend = RendererBackend
 public typealias _GestureConfiguration = GestureConfiguration
 public typealias _GestureAction = GestureAction
 public typealias _ViewCubePosition = ViewCubePosition
