@@ -1,8 +1,8 @@
 // SpikeView.swift
-// Test UI for Metal renderer spike.
+// Test UI for OCCTSwift Metal Demo.
 
 import SwiftUI
-import ViewportKit
+import OCCTSwiftViewport
 
 struct SpikeView: View {
     @StateObject private var controller = ViewportController(
@@ -120,7 +120,7 @@ struct SpikeView: View {
             lightingSection
             statusSection
         }
-        .navigationTitle("Metal Spike")
+        .navigationTitle("OCCTSwift Metal Demo")
         #if os(macOS)
         .navigationSplitViewColumnWidth(min: 200, ideal: 240)
         #endif

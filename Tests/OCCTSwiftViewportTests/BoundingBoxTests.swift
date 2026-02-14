@@ -1,9 +1,9 @@
 // BoundingBoxTests.swift
-// ViewportKit Tests
+// OCCTSwiftViewport Tests
 
 import Testing
 import simd
-@testable import ViewportKit
+@testable import OCCTSwiftViewport
 
 @Suite("BoundingBox Tests")
 struct BoundingBoxTests {

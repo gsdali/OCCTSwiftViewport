@@ -1,10 +1,10 @@
 // CameraStateTests.swift
-// ViewportKit Tests
+// OCCTSwiftViewport Tests
 
 import Testing
 import Foundation
 import simd
-@testable import ViewportKit
+@testable import OCCTSwiftViewport
 
 @Suite("CameraState Tests")
 struct CameraStateTests {

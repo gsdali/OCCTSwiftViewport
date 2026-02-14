@@ -1,16 +1,18 @@
-# ViewportKit
+# OCCTSwiftViewport
 
-A reusable 3D viewport component for CAD applications using RealityKit.
+A reusable 3D viewport component for CAD applications using Metal, designed to work with [OCCTSwift](https://github.com/gsdali/OCCTSwift).
 
 ## Features
 
-- **RealityKit-based**: Built on Apple's modern 3D framework, future-proof against SceneKit deprecation
+- **Metal-based**: Direct Metal renderer for CAD visualization with full pipeline control
 - **Smooth Camera Controls**: Orbit, pan, and zoom with configurable sensitivity and inertia
 - **Multiple Rotation Styles**: Arcball (free rotation) and turntable (Z-up locked)
 - **ViewCube**: Interactive orientation cube with 26 clickable regions
 - **Standard Views**: Quick access to Top, Front, Right, Isometric views
 - **Configurable Gestures**: Customize gesture mappings for iOS and macOS
 - **Professional Lighting**: Three-point lighting presets for CAD visualization
+- **Display Modes**: Wireframe, shaded, and shaded-with-edges rendering
+- **GPU Picking**: TBDR imageblock-based pick ID buffer for selection
 - **Swift 6 Ready**: Full Sendable conformance and actor isolation
 
 ## Requirements
@@ -21,11 +23,11 @@ A reusable 3D viewport component for CAD applications using RealityKit.
 
 ## Installation
 
-Add ViewportKit to your project using Swift Package Manager:
+Add OCCTSwiftViewport to your project using Swift Package Manager:
 
 ```swift
 dependencies: [
-    .package(url: "https://github.com/gsdali/ViewportKit.git", from: "1.0.0")
+    .package(url: "https://github.com/gsdali/OCCTSwiftViewport.git", from: "0.15.0")
 ]
 ```
 
@@ -33,23 +35,16 @@ dependencies: [
 
 ```swift
 import SwiftUI
-import RealityKit
-import ViewportKit
+import OCCTSwiftViewport
 
 struct ContentView: View {
     @StateObject private var controller = ViewportController()
+    @State private var bodies: [ViewportBody] = [
+        .box(size: 1, color: .gray)
+    ]
 
     var body: some View {
-        ViewportView(controller: controller, entities: [
-            makeBox()
-        ])
-    }
-
-    func makeBox() -> Entity {
-        ModelEntity(
-            mesh: .generateBox(size: 1),
-            materials: [SimpleMaterial(color: .gray, isMetallic: true)]
-        )
+        MetalViewportView(controller: controller, bodies: $bodies)
     }
 }
 ```
@@ -118,13 +113,13 @@ let config = ViewportConfiguration(
 
 ## Architecture
 
-ViewportKit uses a clean separation of concerns:
+OCCTSwiftViewport uses a clean separation of concerns:
 
 - **CameraState**: Immutable value type capturing camera orientation
 - **CameraController**: Handles input and animation
 - **ViewportController**: Observable state management
-- **ViewportView**: SwiftUI view with RealityKit integration
+- **MetalViewportView**: SwiftUI view with Metal integration
 
 ## License
 
-MIT License
+LGPL-2.1-only with Open CASCADE Technology Exception 1.0. See [LICENSE](LICENSE) and [OCCT_LGPL_EXCEPTION.md](OCCT_LGPL_EXCEPTION.md).

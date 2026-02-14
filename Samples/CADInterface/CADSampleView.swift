@@ -1,15 +1,15 @@
 // CADSampleView.swift
-// ViewportKit Sample - CAD Interface
+// OCCTSwiftViewport Sample - CAD Interface
 //
-// This sample demonstrates how to build a CAD-like interface using ViewportKit.
+// This sample demonstrates how to build a CAD-like interface using OCCTSwiftViewport.
 
 import SwiftUI
 import simd
 
-// Note: In a real app, you would import ViewportKit
-// import ViewportKit
+// Note: In a real app, you would import OCCTSwiftViewport
+// import OCCTSwiftViewport
 
-/// Sample CAD interface demonstrating ViewportKit integration.
+/// Sample CAD interface demonstrating OCCTSwiftViewport integration.
 ///
 /// This view shows how to:
 /// - Set up a MetalViewportView with ViewportBody content
