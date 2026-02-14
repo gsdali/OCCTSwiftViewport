@@ -15,6 +15,22 @@ A reusable 3D viewport component for CAD applications using Metal, designed to w
 - **GPU Picking**: TBDR imageblock-based pick ID buffer for selection
 - **Swift 6 Ready**: Full Sendable conformance and actor isolation
 
+## Demo App
+
+The included `OCCTSwiftMetalDemo` app exercises OCCTSwift features through interactive galleries:
+
+| Gallery | OCCTSwift Feature | Demos |
+|---------|-------------------|-------|
+| **Geometry Analysis** | Face/Edge properties, proximity | Surface type, area, curvatures; curve type, length; curvature direction overlays; proximity detection |
+| **Curve2D** | `Curve2D`, `Curve2DGcc` | Showcase, intersections, hatching, tangent circles |
+| **Curve3D** | `Curve3D` | Showcase, helix & spirals, curvature combs, BSpline fitting |
+| **Surface** | `Surface` | Analytic, swept, freeform, pipe surfaces, iso-curves |
+| **Sweeps** | `LawFunction`, `pipeShellWithLaw` | Constant, linear taper, S-curve, interpolated variable-section pipes |
+| **Projection** | `Surface.projectCurve3D`, `projectPoint` | Curve on cylinder/sphere, composite projection, point projection |
+| **Plate** | `Surface.plateThrough`, `nlPlateDeformed` | Plate from points, G0 deformation, G1 tangent deformation |
+| **Medial Axis** | `MedialAxis` (BRepMAT2d) | Rectangle/L-shape/T-shape skeletons, wall thickness map |
+| **GD&T** | `Document` PMI | Dimensions, geometric tolerances, datums from STEP files |
+
 ## Requirements
 
 - iOS 18+ / macOS 15+

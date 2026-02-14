@@ -78,6 +78,14 @@ struct SpikeView: View {
     @State private var showExportDialog = false
     @State private var pendingExportFormat: ExportFormat?
 
+    /// Proximity detection result text.
+    @State private var proximityInfo: String?
+
+    /// GD&T data from STEP files.
+    @State private var dimensions: [DimensionInfo] = []
+    @State private var geomTolerances: [GeomToleranceInfo] = []
+    @State private var datums: [DatumInfo] = []
+
     @State private var columnVisibility: NavigationSplitViewVisibility = .detailOnly
     @State private var showSettings = false
 
@@ -167,7 +175,15 @@ struct SpikeView: View {
             fileSection
             exportSection
             healingSection
+            analysisSection
             curve2DDemoSection
+            curve3DDemoSection
+            surfaceDemoSection
+            sweepDemoSection
+            projectionDemoSection
+            plateDemoSection
+            medialAxisDemoSection
+            gdtSection
             selectionModeSection
             selectionSection
             standardViewsSection
@@ -245,6 +261,32 @@ struct SpikeView: View {
         .disabled(loadedShapes.isEmpty)
     }
 
+    // MARK: - Analysis Section
+
+    private var analysisSection: some View {
+        Section("Analysis") {
+            Toggle("Curvature Overlays", isOn: $selectionManager.showCurvatureOverlays)
+
+            Button("Check Proximity") {
+                let result = selectionManager.checkProximity(
+                    shapes: loadedShapes,
+                    bodies: bodies,
+                    metadata: cadMetadata
+                )
+                proximityInfo = result.info
+                removeHighlights()
+                bodies.append(contentsOf: result.bodies)
+            }
+            .disabled(loadedShapes.count < 2)
+
+            if let info = proximityInfo {
+                Text(info)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
     // MARK: - Curve2D Demo Section
 
     private enum Curve2DDemo {
@@ -258,6 +300,298 @@ struct SpikeView: View {
             Button("Hatching") { loadCurve2DDemo(.hatching) }
             Button("Tangent Circles") { loadCurve2DDemo(.gcc) }
         }
+    }
+
+    // MARK: - Curve3D Demo Section
+
+    private enum Curve3DDemo {
+        case showcase, helixAndSpirals, curvatureCombs, bsplineFitting
+    }
+
+    private var curve3DDemoSection: some View {
+        Section("Curve3D Demos") {
+            Button("3D Curve Showcase") { loadCurve3DDemo(.showcase) }
+            Button("Helix & Spirals") { loadCurve3DDemo(.helixAndSpirals) }
+            Button("Curvature Combs") { loadCurve3DDemo(.curvatureCombs) }
+            Button("BSpline Fitting") { loadCurve3DDemo(.bsplineFitting) }
+        }
+    }
+
+    private func loadCurve3DDemo(_ demo: Curve3DDemo) {
+        let result: Curve2DGallery.GalleryResult
+        switch demo {
+        case .showcase:
+            result = Curve3DGallery.curveShowcase()
+        case .helixAndSpirals:
+            result = Curve3DGallery.helixAndSpirals()
+        case .curvatureCombs:
+            result = Curve3DGallery.curvatureCombs()
+        case .bsplineFitting:
+            result = Curve3DGallery.bsplineFitting()
+        }
+
+        bodies = result.bodies
+        cadMetadata = [:]
+        loadedShapes = []
+        originalColors = [:]
+        for body in bodies {
+            originalColors[body.id] = body.color
+        }
+        selectionManager.clearSelection()
+        controller.clearSelection()
+        operationStatus = nil
+        proximityInfo = nil
+        focusOnBounds()
+        // Use isometric view for 3D curves (not top-down)
+        controller.goToStandardView(.isometricFrontRight)
+    }
+
+    // MARK: - Sweep Demo Section
+
+    private enum SweepDemo {
+        case constant, linearTaper, sCurve, interpolated
+    }
+
+    private var sweepDemoSection: some View {
+        Section("Sweep Demos") {
+            Button("Constant Pipe") { loadSweepDemo(.constant) }
+            Button("Linear Taper") { loadSweepDemo(.linearTaper) }
+            Button("S-Curve Sweep") { loadSweepDemo(.sCurve) }
+            Button("Interpolated Sweep") { loadSweepDemo(.interpolated) }
+        }
+    }
+
+    private func loadSweepDemo(_ demo: SweepDemo) {
+        let result: Curve2DGallery.GalleryResult
+        switch demo {
+        case .constant:
+            result = SweepGallery.constantPipe()
+        case .linearTaper:
+            result = SweepGallery.linearTaper()
+        case .sCurve:
+            result = SweepGallery.sCurveSweep()
+        case .interpolated:
+            result = SweepGallery.interpolatedSweep()
+        }
+
+        bodies = result.bodies
+        cadMetadata = [:]
+        loadedShapes = []
+        originalColors = [:]
+        for body in bodies {
+            originalColors[body.id] = body.color
+        }
+        selectionManager.clearSelection()
+        controller.clearSelection()
+        operationStatus = nil
+        proximityInfo = nil
+        focusOnBounds()
+        controller.goToStandardView(.isometricFrontRight)
+    }
+
+    // MARK: - Medial Axis Demo Section
+
+    private enum MedialAxisDemo {
+        case rectangle, lShape, thicknessMap, customProfile
+    }
+
+    private var medialAxisDemoSection: some View {
+        Section("Medial Axis Demos") {
+            Button("Rectangle Skeleton") { loadMedialAxisDemo(.rectangle) }
+            Button("L-Shape Skeleton") { loadMedialAxisDemo(.lShape) }
+            Button("Thickness Map") { loadMedialAxisDemo(.thicknessMap) }
+            Button("Custom Profile") { loadMedialAxisDemo(.customProfile) }
+        }
+    }
+
+    private func loadMedialAxisDemo(_ demo: MedialAxisDemo) {
+        let result: Curve2DGallery.GalleryResult
+        switch demo {
+        case .rectangle:
+            result = MedialAxisGallery.rectangleSkeleton()
+        case .lShape:
+            result = MedialAxisGallery.lShapeSkeleton()
+        case .thicknessMap:
+            result = MedialAxisGallery.thicknessMap()
+        case .customProfile:
+            result = MedialAxisGallery.customProfileSkeleton()
+        }
+
+        bodies = result.bodies
+        cadMetadata = [:]
+        loadedShapes = []
+        originalColors = [:]
+        for body in bodies {
+            originalColors[body.id] = body.color
+        }
+        selectionManager.clearSelection()
+        controller.clearSelection()
+        operationStatus = result.description
+        proximityInfo = nil
+        focusOnBounds()
+        controller.goToStandardView(.top)
+    }
+
+    // MARK: - Projection Demo Section
+
+    private enum ProjectionDemo {
+        case curveOnCylinder, curveOnSphere, composite, pointProjection
+    }
+
+    private var projectionDemoSection: some View {
+        Section("Projection Demos") {
+            Button("Curve on Cylinder") { loadProjectionDemo(.curveOnCylinder) }
+            Button("Curve on Sphere") { loadProjectionDemo(.curveOnSphere) }
+            Button("Composite Projection") { loadProjectionDemo(.composite) }
+            Button("Point Projection") { loadProjectionDemo(.pointProjection) }
+        }
+    }
+
+    private func loadProjectionDemo(_ demo: ProjectionDemo) {
+        let result: Curve2DGallery.GalleryResult
+        switch demo {
+        case .curveOnCylinder:
+            result = ProjectionGallery.curveOnCylinder()
+        case .curveOnSphere:
+            result = ProjectionGallery.curveOnSphere()
+        case .composite:
+            result = ProjectionGallery.compositeProjection()
+        case .pointProjection:
+            result = ProjectionGallery.pointProjection()
+        }
+
+        bodies = result.bodies
+        cadMetadata = [:]
+        loadedShapes = []
+        originalColors = [:]
+        for body in bodies {
+            originalColors[body.id] = body.color
+        }
+        selectionManager.clearSelection()
+        controller.clearSelection()
+        operationStatus = nil
+        proximityInfo = nil
+        focusOnBounds()
+        controller.goToStandardView(.isometricFrontRight)
+    }
+
+    // MARK: - Plate Demo Section
+
+    private enum PlateDemo {
+        case fromPoints, deformed, tangent
+    }
+
+    private var plateDemoSection: some View {
+        Section("Plate Demos") {
+            Button("Plate from Points") { loadPlateDemo(.fromPoints) }
+            Button("Deformed Plate (G0)") { loadPlateDemo(.deformed) }
+            Button("Tangent Deformation (G1)") { loadPlateDemo(.tangent) }
+        }
+    }
+
+    private func loadPlateDemo(_ demo: PlateDemo) {
+        let result: Curve2DGallery.GalleryResult
+        switch demo {
+        case .fromPoints:
+            result = PlateGallery.plateFromPoints()
+        case .deformed:
+            result = PlateGallery.deformedPlate()
+        case .tangent:
+            result = PlateGallery.tangentDeformation()
+        }
+
+        bodies = result.bodies
+        cadMetadata = [:]
+        loadedShapes = []
+        originalColors = [:]
+        for body in bodies {
+            originalColors[body.id] = body.color
+        }
+        selectionManager.clearSelection()
+        controller.clearSelection()
+        operationStatus = nil
+        proximityInfo = nil
+        focusOnBounds()
+        controller.goToStandardView(.isometricFrontRight)
+    }
+
+    // MARK: - GD&T Section
+
+    private var gdtSection: some View {
+        Section("GD&T") {
+            if dimensions.isEmpty && geomTolerances.isEmpty && datums.isEmpty {
+                Text("No GD&T data (load STEP with PMI)")
+                    .foregroundStyle(.secondary)
+                    .font(.caption)
+            }
+
+            if !dimensions.isEmpty {
+                ForEach(Array(dimensions.enumerated()), id: \.offset) { i, dim in
+                    LabeledContent("Dim \(i)",
+                                   value: String(format: "%.3f [%.3f, +%.3f]",
+                                                 dim.value, dim.lowerTolerance, dim.upperTolerance))
+                }
+            }
+
+            if !geomTolerances.isEmpty {
+                ForEach(Array(geomTolerances.enumerated()), id: \.offset) { i, tol in
+                    LabeledContent("Tol \(i)",
+                                   value: String(format: "%.4f (type %d)", tol.value, tol.type))
+                }
+            }
+
+            if !datums.isEmpty {
+                ForEach(Array(datums.enumerated()), id: \.offset) { i, datum in
+                    LabeledContent("Datum \(i)", value: datum.name)
+                }
+            }
+        }
+    }
+
+    // MARK: - Surface Demo Section
+
+    private enum SurfaceDemo {
+        case analytic, swept, freeform, pipe, isoCurves
+    }
+
+    private var surfaceDemoSection: some View {
+        Section("Surface Demos") {
+            Button("Analytic Surfaces") { loadSurfaceDemo(.analytic) }
+            Button("Swept Surfaces") { loadSurfaceDemo(.swept) }
+            Button("Freeform Surfaces") { loadSurfaceDemo(.freeform) }
+            Button("Pipe Surfaces") { loadSurfaceDemo(.pipe) }
+            Button("Iso Curves") { loadSurfaceDemo(.isoCurves) }
+        }
+    }
+
+    private func loadSurfaceDemo(_ demo: SurfaceDemo) {
+        let result: Curve2DGallery.GalleryResult
+        switch demo {
+        case .analytic:
+            result = SurfaceGallery.analyticSurfaces()
+        case .swept:
+            result = SurfaceGallery.sweptSurfaces()
+        case .freeform:
+            result = SurfaceGallery.freeformSurfaces()
+        case .pipe:
+            result = SurfaceGallery.pipeSurfaces()
+        case .isoCurves:
+            result = SurfaceGallery.isoCurves()
+        }
+
+        bodies = result.bodies
+        cadMetadata = [:]
+        loadedShapes = []
+        originalColors = [:]
+        for body in bodies {
+            originalColors[body.id] = body.color
+        }
+        selectionManager.clearSelection()
+        controller.clearSelection()
+        operationStatus = nil
+        proximityInfo = nil
+        focusOnBounds()
+        controller.goToStandardView(.isometricFrontRight)
     }
 
     private func loadCurve2DDemo(_ demo: Curve2DDemo) {
@@ -283,6 +617,7 @@ struct SpikeView: View {
         selectionManager.clearSelection()
         controller.clearSelection()
         operationStatus = nil
+        proximityInfo = nil
 
         // Focus camera and switch to top-down view for 2D curves
         focusOnBounds()
@@ -484,12 +819,16 @@ struct SpikeView: View {
                 bodies = result.bodies
                 cadMetadata = result.metadata
                 loadedShapes = result.shapes
+                dimensions = result.dimensions
+                geomTolerances = result.geomTolerances
+                datums = result.datums
 
                 originalColors = [:]
                 for body in bodies {
                     originalColors[body.id] = body.color
                 }
 
+                proximityInfo = nil
                 focusOnBounds()
                 isLoadingFile = false
             } catch {

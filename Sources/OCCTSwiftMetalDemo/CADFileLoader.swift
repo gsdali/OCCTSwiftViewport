@@ -26,6 +26,9 @@ struct CADLoadResult: @unchecked Sendable {
     var bodies: [ViewportBody]
     var metadata: [String: CADBodyMetadata]
     var shapes: [Shape]
+    var dimensions: [DimensionInfo] = []
+    var geomTolerances: [GeomToleranceInfo] = []
+    var datums: [DatumInfo] = []
 }
 
 /// Supported CAD file formats.
@@ -105,7 +108,19 @@ enum CADFileLoader {
             }
         }
 
-        return CADLoadResult(bodies: bodies, metadata: metadata, shapes: shapes)
+        // Extract GD&T data from the STEP document
+        let dimensions = doc.dimensions
+        let geomTolerances = doc.geomTolerances
+        let datums = doc.datums
+
+        return CADLoadResult(
+            bodies: bodies,
+            metadata: metadata,
+            shapes: shapes,
+            dimensions: dimensions,
+            geomTolerances: geomTolerances,
+            datums: datums
+        )
     }
 
     // MARK: - STL Loading
