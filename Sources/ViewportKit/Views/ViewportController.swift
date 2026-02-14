@@ -103,16 +103,17 @@ public final class ViewportController: ObservableObject {
         cameraController.enableInertia = gc.enableInertia
         cameraController.dampingFactor = gc.dampingFactor
 
-        // Subscribe to camera controller updates
+        // Subscribe to camera controller updates.
+        // Both objects are @MainActor so @Published already fires on main —
+        // do NOT use .receive(on:) which re-dispatches asynchronously and
+        // causes the renderer to read a stale cameraState for one frame.
         cameraController.$cameraState
-            .receive(on: DispatchQueue.main)
             .sink { [weak self] state in
                 self?.cameraState = state
             }
             .store(in: &cancellables)
 
         cameraController.$isAnimating
-            .receive(on: DispatchQueue.main)
             .sink { [weak self] animating in
                 self?.isAnimating = animating
             }

@@ -44,6 +44,13 @@ public struct MetalViewportView: View {
     @State private var isPanning: Bool = false
     @State private var lastRotation: Angle = .zero
 
+    #if os(macOS)
+    /// Tracks which modifier-based gesture the current drag is performing.
+    @State private var activeDragMode: MacDragMode = .orbit
+
+    private enum MacDragMode { case orbit, pan, zoom }
+    #endif
+
     // MARK: - Initialization
 
     public init(
@@ -229,17 +236,30 @@ public struct MetalViewportView: View {
                 let modifiers = NSApp.currentEvent?.modifierFlags ?? []
 
                 if modifiers.contains(.shift) {
+                    activeDragMode = .pan
                     controller.handlePan(translation: delta)
                 } else if modifiers.contains(.option) {
+                    activeDragMode = .zoom
                     let zoomDelta = 1.0 + delta.height * 0.02
                     controller.handleZoom(magnification: zoomDelta)
                 } else {
+                    activeDragMode = .orbit
                     controller.handleOrbit(translation: CGSize(width: -delta.width, height: delta.height))
                 }
             }
             .onEnded { value in
                 lastDragValue = .zero
-                controller.endOrbit(velocity: CGSize(width: -value.velocity.width, height: value.velocity.height))
+
+                switch activeDragMode {
+                case .orbit:
+                    controller.endOrbit(velocity: CGSize(width: -value.velocity.width, height: value.velocity.height))
+                case .pan:
+                    controller.endPan(velocity: value.velocity)
+                case .zoom:
+                    break
+                }
+                activeDragMode = .orbit
+
                 controller.scheduleDynamicPivotUpdate(bodies: bodies)
             }
     }
