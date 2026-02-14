@@ -32,15 +32,23 @@ struct MetalViewRepresentable: UIViewRepresentable {
 
 #elseif os(macOS)
 
-/// MTKView subclass that captures scroll wheel events on macOS.
+/// MTKView subclass that captures scroll wheel and mouse-down events on macOS.
 class ScrollCaptureMTKView: MTKView {
     var onScrollWheel: ((CGFloat, CGPoint, CGSize) -> Void)?
+    var onMouseDown: ((CGPoint, CGSize) -> Void)?
 
     override func scrollWheel(with event: NSEvent) {
         let delta = event.scrollingDeltaY
         let locationInView = convert(event.locationInWindow, from: nil)
         let viewSize = bounds.size
         onScrollWheel?(CGFloat(delta), locationInView, viewSize)
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        let locationInView = convert(event.locationInWindow, from: nil)
+        let viewSize = bounds.size
+        onMouseDown?(locationInView, viewSize)
+        super.mouseDown(with: event)
     }
 }
 
@@ -49,6 +57,7 @@ struct MetalViewRepresentable: NSViewRepresentable {
     let renderer: ViewportRenderer
     let backgroundColor: SIMD4<Float>
     var onScrollWheel: ((CGFloat, CGPoint, CGSize) -> Void)?
+    var onMouseDown: ((CGPoint, CGSize) -> Void)?
 
     func makeNSView(context: Context) -> MTKView {
         let view = ScrollCaptureMTKView()
@@ -59,12 +68,16 @@ struct MetalViewRepresentable: NSViewRepresentable {
         view.clearColor = mtlClearColor(from: backgroundColor)
         view.preferredFramesPerSecond = 60
         view.onScrollWheel = onScrollWheel
+        view.onMouseDown = onMouseDown
         return view
     }
 
     func updateNSView(_ nsView: MTKView, context: Context) {
         nsView.clearColor = mtlClearColor(from: backgroundColor)
-        (nsView as? ScrollCaptureMTKView)?.onScrollWheel = onScrollWheel
+        if let scView = nsView as? ScrollCaptureMTKView {
+            scView.onScrollWheel = onScrollWheel
+            scView.onMouseDown = onMouseDown
+        }
     }
 }
 

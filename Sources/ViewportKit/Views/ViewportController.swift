@@ -54,6 +54,9 @@ public final class ViewportController: ObservableObject {
     /// Lighting configuration for live adjustment.
     @Published public var lightingConfiguration: LightingConfiguration
 
+    /// The most recent pick result, or nil if nothing is selected.
+    @Published public private(set) var pickResult: PickResult?
+
     // MARK: - Configuration
 
     /// Viewport configuration.
@@ -244,6 +247,23 @@ public final class ViewportController: ObservableObject {
         var state = cameraState
         state.isOrthographic.toggle()
         animateTo(state, duration: 0.3)
+    }
+
+    // MARK: - Picking
+
+    /// Optional callback invoked when a pick occurs.
+    public var onPick: ((PickResult?) -> Void)?
+
+    /// Called by the view layer after a GPU pick readback completes.
+    public func handlePick(result: PickResult?) {
+        pickResult = result
+        onPick?(result)
+    }
+
+    /// Clears the current selection.
+    public func clearSelection() {
+        pickResult = nil
+        onPick?(nil)
     }
 }
 

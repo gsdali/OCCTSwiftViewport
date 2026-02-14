@@ -72,6 +72,12 @@ public struct MetalViewportView: View {
                     .gesture(orbitGesture)
                     .gesture(zoomGesture)
                     .gesture(rollGesture)
+                    .gesture(
+                        SpatialTapGesture()
+                            .onEnded { value in
+                                handlePickAt(value.location, viewSize: geometry.size)
+                            }
+                    )
                     .gesture(doubleTapGesture)
                     #else
                     .gesture(macGestures)
@@ -111,6 +117,42 @@ public struct MetalViewportView: View {
             : controller.configuration.backgroundColor
     }
 
+    // MARK: - Picking Helpers
+
+    /// Converts a view-space point to drawable pixel coordinates.
+    private func viewToPixel(_ point: CGPoint, viewSize: CGSize) -> SIMD2<Int>? {
+        guard viewSize.width > 0, viewSize.height > 0 else { return nil }
+        let scale = nativeScaleFactor
+        let px = Int(point.x * scale)
+        #if os(macOS)
+        // macOS: AppKit origin is bottom-left, flip Y
+        let py = Int((viewSize.height - point.y) * scale)
+        #else
+        // iOS: UIKit origin is top-left, no flip needed
+        let py = Int(point.y * scale)
+        #endif
+        return SIMD2<Int>(px, py)
+    }
+
+    private var nativeScaleFactor: CGFloat {
+        #if os(macOS)
+        NSScreen.main?.backingScaleFactor ?? 2.0
+        #else
+        UIScreen.main.scale
+        #endif
+    }
+
+    private func handlePickAt(_ location: CGPoint, viewSize: CGSize) {
+        guard controller.configuration.pickingConfiguration.isEnabled else { return }
+        guard let pixel = viewToPixel(location, viewSize: viewSize) else { return }
+        let ctrl = controller
+        renderer?.performPick(at: pixel) { result in
+            Task { @MainActor in
+                ctrl.handlePick(result: result)
+            }
+        }
+    }
+
     private var metalView: some View {
         Group {
             if let renderer = renderer {
@@ -129,6 +171,9 @@ public struct MetalViewportView: View {
                             aspectRatio: aspect
                         )
                         controller.scheduleDynamicPivotUpdate(bodies: bodies)
+                    },
+                    onMouseDown: { location, viewSize in
+                        handlePickAt(location, viewSize: viewSize)
                     }
                 )
                 #else

@@ -101,6 +101,10 @@ public typealias _Ray = Ray
 public typealias _RaycastHit = RaycastHit
 public typealias _SceneRaycast = SceneRaycast
 
+// Picking
+public typealias _PickResult = PickResult
+public typealias _PickingConfiguration = PickingConfiguration
+
 // Dynamic Pivot
 public typealias _PivotStrategy = PivotStrategy
 public typealias _DynamicPivotConfiguration = DynamicPivotConfiguration
