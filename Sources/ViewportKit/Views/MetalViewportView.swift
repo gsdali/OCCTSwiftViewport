@@ -72,6 +72,12 @@ public struct MetalViewportView: View {
                     .gesture(orbitGesture)
                     .gesture(zoomGesture)
                     .gesture(rollGesture)
+                    .gesture(
+                        SpatialTapGesture()
+                            .onEnded { value in
+                                handlePickAt(value.location, viewSize: geometry.size)
+                            }
+                    )
                     .gesture(doubleTapGesture)
                     #else
                     .gesture(macGestures)
@@ -173,10 +179,7 @@ public struct MetalViewportView: View {
                 #else
                 MetalViewRepresentable(
                     renderer: renderer,
-                    backgroundColor: canvasBackgroundColor,
-                    onTap: { location, viewSize in
-                        handlePickAt(location, viewSize: viewSize)
-                    }
+                    backgroundColor: canvasBackgroundColor
                 )
                 #endif
             } else {

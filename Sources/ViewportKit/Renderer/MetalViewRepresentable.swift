@@ -7,48 +7,26 @@ import SwiftUI
 import MetalKit
 
 #if os(iOS)
-import UIKit
-
-/// MTKView subclass that captures tap gestures on iOS.
-class TapCaptureMTKView: MTKView {
-    var onTap: ((CGPoint, CGSize) -> Void)?
-
-    override init(frame frameRect: CGRect, device: MTLDevice?) {
-        super.init(frame: frameRect, device: device)
-        let tap = UITapGestureRecognizer(target: self, action: #selector(handleTap(_:)))
-        addGestureRecognizer(tap)
-    }
-
-    @available(*, unavailable)
-    required init(coder: NSCoder) { fatalError() }
-
-    @objc private func handleTap(_ recognizer: UITapGestureRecognizer) {
-        let location = recognizer.location(in: self)
-        onTap?(location, bounds.size)
-    }
-}
 
 /// iOS wrapper for MTKView.
 struct MetalViewRepresentable: UIViewRepresentable {
     let renderer: ViewportRenderer
     let backgroundColor: SIMD4<Float>
-    var onTap: ((CGPoint, CGSize) -> Void)?
 
     func makeUIView(context: Context) -> MTKView {
-        let view = TapCaptureMTKView(frame: .zero, device: renderer.metalDevice)
+        let view = MTKView()
+        view.device = renderer.metalDevice
         view.delegate = renderer
         view.colorPixelFormat = .bgra8Unorm
         view.depthStencilPixelFormat = .depth32Float
         view.clearColor = mtlClearColor(from: backgroundColor)
         view.preferredFramesPerSecond = 60
         view.isMultipleTouchEnabled = true
-        view.onTap = onTap
         return view
     }
 
     func updateUIView(_ uiView: MTKView, context: Context) {
         uiView.clearColor = mtlClearColor(from: backgroundColor)
-        (uiView as? TapCaptureMTKView)?.onTap = onTap
     }
 }
 

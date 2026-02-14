@@ -36,12 +36,11 @@ struct SpikeView: View {
         ),
     ]
 
+    @State private var columnVisibility: NavigationSplitViewVisibility = .detailOnly
+    @State private var showSettings = false
+
     var body: some View {
-        NavigationSplitView {
-            sidebar
-        } detail: {
-            MetalViewportView(controller: controller, bodies: $bodies)
-        }
+        viewportLayout
         .onAppear {
             // Position primitives so they don't overlap
             offsetBody(id: "box", dx: -2.5, dy: 0.75, dz: 0)
@@ -55,6 +54,43 @@ struct SpikeView: View {
         .onChange(of: controller.pickResult) {
             applySelectionHighlight()
         }
+    }
+
+    // MARK: - Layout
+
+    @ViewBuilder
+    private var viewportLayout: some View {
+        #if os(macOS)
+        NavigationSplitView {
+            sidebar
+        } detail: {
+            MetalViewportView(controller: controller, bodies: $bodies)
+        }
+        #else
+        MetalViewportView(controller: controller, bodies: $bodies)
+            .overlay(alignment: .topLeading) {
+                Button {
+                    showSettings = true
+                } label: {
+                    Image(systemName: "gearshape")
+                        .font(.title2)
+                        .padding(10)
+                        .background(.ultraThinMaterial, in: Circle())
+                }
+                .padding(12)
+            }
+            .sheet(isPresented: $showSettings) {
+                NavigationStack {
+                    sidebar
+                        .toolbar {
+                            ToolbarItem(placement: .confirmationAction) {
+                                Button("Done") { showSettings = false }
+                            }
+                        }
+                }
+                .presentationDetents([.medium, .large])
+            }
+        #endif
     }
 
     // MARK: - Sidebar

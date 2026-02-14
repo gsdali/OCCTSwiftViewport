@@ -188,8 +188,8 @@ fragment WireframeFragmentOut wireframe_fragment(
     // Contrast-adaptive edge color: light edges on dark bodies, dark edges on light bodies
     float3 bodyColor = bodyUniforms.color.rgb;
     float luminance = dot(bodyColor, float3(0.299, 0.587, 0.114));
-    float3 darkEdge = bodyColor * 0.3;
-    float3 lightEdge = bodyColor * 0.5 + 0.4;
+    float3 darkEdge = max(bodyColor * 0.4, float3(0.25));
+    float3 lightEdge = bodyColor * 0.5 + 0.5;
     float3 edgeColor = mix(lightEdge, darkEdge, smoothstep(0.3, 0.6, luminance));
 
     // Depth-based edge alpha: near edges fully opaque, far edges fade
