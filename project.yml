@@ -10,6 +10,8 @@ options:
 packages:
   OCCTSwiftViewport:
     path: .
+  OCCTSwift:
+    path: ../OCCTSwift
 
 targets:
   OCCTSwiftMetalDemo:
@@ -19,6 +21,8 @@ targets:
       - path: Sources/OCCTSwiftMetalDemo
     dependencies:
       - package: OCCTSwiftViewport
+      - package: OCCTSwift
+        product: OCCTSwift
     settings:
       base:
         SWIFT_VERSION: "6.0"

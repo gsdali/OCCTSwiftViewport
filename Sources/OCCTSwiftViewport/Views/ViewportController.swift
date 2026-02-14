@@ -57,6 +57,9 @@ public final class ViewportController: ObservableObject {
     /// The most recent pick result, or nil if nothing is selected.
     @Published public private(set) var pickResult: PickResult?
 
+    /// NDC coordinates of the last pick tap (for sub-body selection).
+    @Published public private(set) var lastPickNDC: SIMD2<Float> = .zero
+
     // MARK: - Configuration
 
     /// Viewport configuration.
@@ -74,7 +77,7 @@ public final class ViewportController: ObservableObject {
     private lazy var pivotStrategy = PivotStrategy()
 
     /// Current aspect ratio (updated by MetalViewportView).
-    internal var lastAspectRatio: Float = 1.0
+    public internal(set) var lastAspectRatio: Float = 1.0
 
     /// Coalescing work item for dynamic pivot updates.
     private var pivotWorkItem: DispatchWorkItem?
@@ -256,6 +259,13 @@ public final class ViewportController: ObservableObject {
 
     /// Called by the view layer after a GPU pick readback completes.
     public func handlePick(result: PickResult?) {
+        pickResult = result
+        onPick?(result)
+    }
+
+    /// Called by the view layer after a GPU pick readback completes, with NDC coordinates.
+    public func handlePick(result: PickResult?, ndc: SIMD2<Float>) {
+        lastPickNDC = ndc
         pickResult = result
         onPick?(result)
     }

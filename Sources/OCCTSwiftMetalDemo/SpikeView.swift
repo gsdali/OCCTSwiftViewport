@@ -2,6 +2,8 @@
 // Test UI for OCCTSwift Metal Demo.
 
 import SwiftUI
+import UniformTypeIdentifiers
+import simd
 import OCCTSwiftViewport
 
 struct SpikeView: View {
@@ -14,6 +16,8 @@ struct SpikeView: View {
             pickingConfiguration: PickingConfiguration(isEnabled: true)
         )
     )
+
+    @StateObject private var selectionManager = SelectionManager()
 
     /// Stores the original (unselected) color for each body.
     @State private var originalColors: [String: SIMD4<Float>] = [:]
@@ -51,6 +55,18 @@ struct SpikeView: View {
         ),
     ]
 
+    /// CAD metadata for sub-body selection (populated by STEPLoader or procedural primitives).
+    @State private var cadMetadata: [String: CADBodyMetadata] = [:]
+
+    /// Whether a STEP file is currently loading.
+    @State private var isLoadingSTEP = false
+
+    /// Error message from the last STEP load attempt.
+    @State private var loadError: String?
+
+    /// Controls the file importer sheet.
+    @State private var showFileImporter = false
+
     @State private var columnVisibility: NavigationSplitViewVisibility = .detailOnly
     @State private var showSettings = false
 
@@ -65,10 +81,28 @@ struct SpikeView: View {
             for body in bodies {
                 originalColors[body.id] = body.color
             }
+            // Build procedural metadata for primitive face selection
+            buildProceduralMetadata()
         }
         .onChange(of: controller.pickResult) {
-            applySelectionHighlight()
+            handleSelectionChange()
         }
+        .fileImporter(
+            isPresented: $showFileImporter,
+            allowedContentTypes: stepContentTypes,
+            allowsMultipleSelection: false
+        ) { result in
+            handleFileImport(result)
+        }
+    }
+
+    // MARK: - Content Types
+
+    private var stepContentTypes: [UTType] {
+        // STEP files use .stp / .step extensions
+        let stepType = UTType(filenameExtension: "step") ?? .data
+        let stpType = UTType(filenameExtension: "stp") ?? .data
+        return [stepType, stpType]
     }
 
     // MARK: - Layout
@@ -112,6 +146,8 @@ struct SpikeView: View {
 
     private var sidebar: some View {
         List {
+            fileSection
+            selectionModeSection
             selectionSection
             standardViewsSection
             displayModeSection
@@ -122,17 +158,70 @@ struct SpikeView: View {
         }
         .navigationTitle("OCCTSwift Metal Demo")
         #if os(macOS)
-        .navigationSplitViewColumnWidth(min: 200, ideal: 240)
+        .navigationSplitViewColumnWidth(min: 200, ideal: 260)
         #endif
     }
+
+    // MARK: - File Section
+
+    private var fileSection: some View {
+        Section("File") {
+            Button {
+                showFileImporter = true
+            } label: {
+                Label("Open STEP File...", systemImage: "doc.badge.plus")
+            }
+            .disabled(isLoadingSTEP)
+
+            if isLoadingSTEP {
+                HStack {
+                    ProgressView()
+                        .controlSize(.small)
+                    Text("Loading...")
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            if let error = loadError {
+                Text(error)
+                    .foregroundStyle(.red)
+                    .font(.caption)
+            }
+        }
+    }
+
+    // MARK: - Selection Mode Section
+
+    private var selectionModeSection: some View {
+        Section("Selection Mode") {
+            Picker("Mode", selection: $selectionManager.mode) {
+                ForEach(SelectionMode.allCases, id: \.self) { mode in
+                    Text(mode.rawValue.capitalized).tag(mode)
+                }
+            }
+            .pickerStyle(.segmented)
+        }
+    }
+
+    // MARK: - Selection Section
 
     private var selectionSection: some View {
         Section("Selection") {
             if let pick = controller.pickResult {
                 LabeledContent("Body", value: pick.bodyID)
                 LabeledContent("Triangle", value: "\(pick.triangleIndex)")
+
+                if !selectionManager.selectionInfo.isEmpty {
+                    Text(selectionManager.selectionInfo)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
                 Button("Clear Selection") {
                     controller.clearSelection()
+                    selectionManager.clearSelection()
+                    removeHighlights()
+                    restoreAllColors()
                 }
             } else {
                 Text("Click a body to select")
@@ -203,32 +292,169 @@ struct SpikeView: View {
             LabeledContent("Distance", value: String(format: "%.1f", controller.cameraState.distance))
             LabeledContent("Projection", value: controller.cameraState.isOrthographic ? "Orthographic" : "Perspective")
             LabeledContent("Display", value: controller.displayMode.displayName)
+            LabeledContent("Bodies", value: "\(bodies.filter { !$0.id.hasPrefix("highlight-") }.count)")
         }
     }
 
-    // MARK: - Selection Highlight
+    // MARK: - Selection Handling
 
-    private func applySelectionHighlight() {
-        let selectedID = controller.pickResult?.bodyID
+    private func handleSelectionChange() {
+        // Remove old highlights
+        removeHighlights()
+
+        // Restore all body colors
+        restoreAllColors()
+
+        guard let result = controller.pickResult else { return }
+
+        // Delegate to SelectionManager for sub-body selection
+        selectionManager.handlePick(
+            result: result,
+            ndc: controller.lastPickNDC,
+            bodies: bodies,
+            metadata: cadMetadata,
+            cameraState: controller.cameraState,
+            aspectRatio: controller.lastAspectRatio
+        )
+
+        // In body mode, brighten the selected body
+        if selectionManager.mode == .body {
+            if let idx = bodies.firstIndex(where: { $0.id == result.bodyID }),
+               let orig = originalColors[result.bodyID] {
+                bodies[idx].color = SIMD4<Float>(
+                    min(orig.x + 0.3, 1.0),
+                    min(orig.y + 0.3, 1.0),
+                    min(orig.z + 0.3, 1.0),
+                    orig.w
+                )
+            }
+        }
+
+        // Add highlight overlays
+        bodies.append(contentsOf: selectionManager.highlightBodies)
+    }
+
+    private func removeHighlights() {
+        bodies.removeAll { $0.id.hasPrefix("highlight-") }
+    }
+
+    private func restoreAllColors() {
         for i in bodies.indices {
-            let id = bodies[i].id
-            if id == selectedID {
-                // Brighten the selected body
-                if let orig = originalColors[id] {
-                    bodies[i].color = SIMD4<Float>(
-                        min(orig.x + 0.3, 1.0),
-                        min(orig.y + 0.3, 1.0),
-                        min(orig.z + 0.3, 1.0),
-                        orig.w
-                    )
+            if let orig = originalColors[bodies[i].id] {
+                bodies[i].color = orig
+            }
+        }
+    }
+
+    // MARK: - STEP File Import
+
+    private func handleFileImport(_ result: Result<[URL], Error>) {
+        switch result {
+        case .success(let urls):
+            guard let url = urls.first else { return }
+            loadSTEPFile(url)
+        case .failure(let error):
+            loadError = error.localizedDescription
+        }
+    }
+
+    private func loadSTEPFile(_ url: URL) {
+        guard url.startAccessingSecurityScopedResource() else {
+            loadError = "Cannot access file: permission denied"
+            return
+        }
+
+        isLoadingSTEP = true
+        loadError = nil
+
+        Task {
+            defer {
+                url.stopAccessingSecurityScopedResource()
+            }
+
+            do {
+                let result = try await STEPLoader.load(from: url)
+
+                // Replace bodies with loaded geometry (keep wireframe triangle for testing)
+                bodies = result.bodies
+                cadMetadata = result.metadata
+
+                // Store original colors
+                originalColors = [:]
+                for body in bodies {
+                    originalColors[body.id] = body.color
                 }
-            } else {
-                // Restore original color
-                if let orig = originalColors[id] {
-                    bodies[i].color = orig
+
+                // Focus camera on loaded geometry bounds
+                focusOnBounds()
+
+                isLoadingSTEP = false
+            } catch {
+                loadError = error.localizedDescription
+                isLoadingSTEP = false
+            }
+        }
+    }
+
+    private func focusOnBounds() {
+        var sceneMin = SIMD3<Float>(repeating: .infinity)
+        var sceneMax = SIMD3<Float>(repeating: -.infinity)
+
+        for body in bodies {
+            guard let bb = body.boundingBox else { continue }
+            sceneMin = simd_min(sceneMin, bb.min)
+            sceneMax = simd_max(sceneMax, bb.max)
+        }
+
+        guard sceneMin.x < sceneMax.x else { return }
+
+        let center = (sceneMin + sceneMax) * 0.5
+        let extent = simd_length(sceneMax - sceneMin)
+        let distance = extent * 1.5
+
+        controller.focusOn(point: center, distance: distance, animated: true)
+    }
+
+    // MARK: - Procedural Metadata
+
+    /// Builds CADBodyMetadata for procedural primitives so face/edge/vertex
+    /// selection works on the default scene before any STEP file is loaded.
+    private func buildProceduralMetadata() {
+        for body in bodies {
+            guard !body.faceIndices.isEmpty || !body.edges.isEmpty else { continue }
+
+            let edgePolylines: [(edgeIndex: Int, points: [SIMD3<Float>])] =
+                body.edges.enumerated().map { (idx, polyline) in
+                    (edgeIndex: idx, points: polyline)
+                }
+
+            let vertices = deduplicateEdgeEndpoints(from: edgePolylines)
+
+            cadMetadata[body.id] = CADBodyMetadata(
+                faceIndices: body.faceIndices,
+                edgePolylines: edgePolylines,
+                vertices: vertices
+            )
+        }
+    }
+
+    private func deduplicateEdgeEndpoints(
+        from edgePolylines: [(edgeIndex: Int, points: [SIMD3<Float>])]
+    ) -> [SIMD3<Float>] {
+        let tolerance: Float = 1e-5
+        var unique: [SIMD3<Float>] = []
+        for polyline in edgePolylines {
+            guard let first = polyline.points.first, let last = polyline.points.last else { continue }
+            for endpoint in [first, last] {
+                let isDuplicate = unique.contains { existing in
+                    simd_distance(existing, endpoint) < tolerance
+                }
+                if !isDuplicate {
+                    unique.append(endpoint)
                 }
             }
         }
+        return unique
     }
 
     // MARK: - Helpers

@@ -145,10 +145,22 @@ public struct MetalViewportView: View {
     private func handlePickAt(_ location: CGPoint, viewSize: CGSize) {
         guard controller.configuration.pickingConfiguration.isEnabled else { return }
         guard let pixel = viewToPixel(location, viewSize: viewSize) else { return }
+
+        // Compute NDC from tap location for sub-body selection
+        let ndcX = Float(location.x / viewSize.width) * 2.0 - 1.0
+        #if os(macOS)
+        // macOS: AppKit origin is bottom-left; NDC y already matches
+        let ndcY = Float(location.y / viewSize.height) * 2.0 - 1.0
+        #else
+        // iOS: UIKit origin is top-left; flip y for NDC
+        let ndcY = Float(1.0 - location.y / viewSize.height) * 2.0 - 1.0
+        #endif
+        let ndc = SIMD2<Float>(ndcX, ndcY)
+
         let ctrl = controller
         renderer?.performPick(at: pixel) { result in
             Task { @MainActor in
-                ctrl.handlePick(result: result)
+                ctrl.handlePick(result: result, ndc: ndc)
             }
         }
     }

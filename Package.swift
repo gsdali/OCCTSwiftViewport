@@ -13,6 +13,9 @@ let package = Package(
             targets: ["OCCTSwiftViewport"]
         ),
     ],
+    dependencies: [
+        .package(path: "../OCCTSwift"),
+    ],
     targets: [
         .target(
             name: "OCCTSwiftViewport",
@@ -26,7 +29,10 @@ let package = Package(
         ),
         .executableTarget(
             name: "OCCTSwiftMetalDemo",
-            dependencies: ["OCCTSwiftViewport"],
+            dependencies: [
+                "OCCTSwiftViewport",
+                .product(name: "OCCTSwift", package: "OCCTSwift"),
+            ],
             path: "Sources/OCCTSwiftMetalDemo",
             swiftSettings: [
                 .swiftLanguageMode(.v6)

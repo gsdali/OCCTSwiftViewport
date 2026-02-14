@@ -30,6 +30,10 @@ public struct ViewportBody: Identifiable, Sendable {
     /// Polylines for wireframe rendering. Each inner array is a connected polyline.
     public var edges: [[SIMD3<Float>]]
 
+    /// Per-triangle source face index. Parallel to triangle count (`indices.count / 3`).
+    /// Maps each triangle back to its B-Rep face for sub-body selection. Empty if not applicable.
+    public var faceIndices: [Int32]
+
     /// Body colour (RGBA).
     public var color: SIMD4<Float>
 
@@ -41,6 +45,7 @@ public struct ViewportBody: Identifiable, Sendable {
         vertexData: [Float],
         indices: [UInt32],
         edges: [[SIMD3<Float>]],
+        faceIndices: [Int32] = [],
         color: SIMD4<Float>,
         isVisible: Bool = true
     ) {
@@ -50,6 +55,7 @@ public struct ViewportBody: Identifiable, Sendable {
         self.vertexData = vertexData
         self.indices = indices
         self.edges = edges
+        self.faceIndices = faceIndices
         self.color = color
         self.isVisible = isVisible
     }

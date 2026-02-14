@@ -93,7 +93,10 @@ extension ViewportBody {
         ]
         let edges = edgeIndices.map { (a, b) in [corners[a], corners[b]] }
 
-        return ViewportBody(id: id, vertexData: verts, indices: indices, edges: edges, color: color)
+        // 6 faces, 2 triangles each → face indices [0,0,1,1,2,2,3,3,4,4,5,5]
+        let faceIndices: [Int32] = (0..<6).flatMap { face in [Int32(face), Int32(face)] }
+
+        return ViewportBody(id: id, vertexData: verts, indices: indices, edges: edges, faceIndices: faceIndices, color: color)
     }
 
     // MARK: - Cylinder
@@ -189,7 +192,13 @@ extension ViewportBody {
             edges.append([SIMD3<Float>(x, -hh, z), SIMD3<Float>(x, hh, z)])
         }
 
-        return ViewportBody(id: id, vertexData: verts, indices: indices, edges: edges, color: color)
+        // Face 0 = side (segments quads × 2 tris), face 1 = top cap, face 2 = bottom cap
+        var faceIndices: [Int32] = []
+        faceIndices.append(contentsOf: Array(repeating: Int32(0), count: segments * 2))  // side
+        faceIndices.append(contentsOf: Array(repeating: Int32(1), count: segments))       // top cap
+        faceIndices.append(contentsOf: Array(repeating: Int32(2), count: segments))       // bottom cap
+
+        return ViewportBody(id: id, vertexData: verts, indices: indices, edges: edges, faceIndices: faceIndices, color: color)
     }
 
     // MARK: - Sphere
@@ -272,6 +281,10 @@ extension ViewportBody {
             edges.append(meridianLine)
         }
 
-        return ViewportBody(id: id, vertexData: verts, indices: indices, edges: edges, color: color)
+        // Sphere is a single continuous surface → face 0 for all triangles
+        let triangleCount = indices.count / 3
+        let faceIndices = Array(repeating: Int32(0), count: triangleCount)
+
+        return ViewportBody(id: id, vertexData: verts, indices: indices, edges: edges, faceIndices: faceIndices, color: color)
     }
 }
