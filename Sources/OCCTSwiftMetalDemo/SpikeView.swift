@@ -147,6 +147,7 @@ struct SpikeView: View {
     private var sidebar: some View {
         List {
             fileSection
+            curve2DDemoSection
             selectionModeSection
             selectionSection
             standardViewsSection
@@ -188,6 +189,48 @@ struct SpikeView: View {
                     .font(.caption)
             }
         }
+    }
+
+    // MARK: - Curve2D Demo Section
+
+    private enum Curve2DDemo {
+        case showcase, intersections, hatching, gcc
+    }
+
+    private var curve2DDemoSection: some View {
+        Section("Curve2D Demos") {
+            Button("Curve Showcase") { loadCurve2DDemo(.showcase) }
+            Button("Intersections") { loadCurve2DDemo(.intersections) }
+            Button("Hatching") { loadCurve2DDemo(.hatching) }
+            Button("Tangent Circles") { loadCurve2DDemo(.gcc) }
+        }
+    }
+
+    private func loadCurve2DDemo(_ demo: Curve2DDemo) {
+        let result: Curve2DGallery.GalleryResult
+        switch demo {
+        case .showcase:
+            result = Curve2DGallery.curveShowcase()
+        case .intersections:
+            result = Curve2DGallery.intersectionDemo()
+        case .hatching:
+            result = Curve2DGallery.hatchingDemo()
+        case .gcc:
+            result = Curve2DGallery.gccDemo()
+        }
+
+        bodies = result.bodies
+        cadMetadata = [:]
+        originalColors = [:]
+        for body in bodies {
+            originalColors[body.id] = body.color
+        }
+        selectionManager.clearSelection()
+        controller.clearSelection()
+
+        // Focus camera and switch to top-down view for 2D curves
+        focusOnBounds()
+        controller.goToStandardView(.top)
     }
 
     // MARK: - Selection Mode Section
