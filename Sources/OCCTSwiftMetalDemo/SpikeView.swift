@@ -4,6 +4,7 @@
 import SwiftUI
 import UniformTypeIdentifiers
 import simd
+import OCCTSwift
 import OCCTSwiftViewport
 
 struct SpikeView: View {
@@ -55,17 +56,27 @@ struct SpikeView: View {
         ),
     ]
 
-    /// CAD metadata for sub-body selection (populated by STEPLoader or procedural primitives).
+    /// CAD metadata for sub-body selection (populated by CADFileLoader or procedural primitives).
     @State private var cadMetadata: [String: CADBodyMetadata] = [:]
 
-    /// Whether a STEP file is currently loading.
-    @State private var isLoadingSTEP = false
+    /// Original OCCTSwift shapes for export, healing, and classification.
+    @State private var loadedShapes: [OCCTSwift.Shape] = []
 
-    /// Error message from the last STEP load attempt.
+    /// Whether a file is currently loading.
+    @State private var isLoadingFile = false
+
+    /// Error message from the last load attempt.
     @State private var loadError: String?
+
+    /// Status message for healing/export operations.
+    @State private var operationStatus: String?
 
     /// Controls the file importer sheet.
     @State private var showFileImporter = false
+
+    /// Controls the export file dialog.
+    @State private var showExportDialog = false
+    @State private var pendingExportFormat: ExportFormat?
 
     @State private var columnVisibility: NavigationSplitViewVisibility = .detailOnly
     @State private var showSettings = false
@@ -89,20 +100,27 @@ struct SpikeView: View {
         }
         .fileImporter(
             isPresented: $showFileImporter,
-            allowedContentTypes: stepContentTypes,
+            allowedContentTypes: supportedContentTypes,
             allowsMultipleSelection: false
         ) { result in
             handleFileImport(result)
+        }
+        .onChange(of: showExportDialog) {
+            if showExportDialog, let format = pendingExportFormat {
+                showExportDialog = false
+                exportShapes(format: format)
+            }
         }
     }
 
     // MARK: - Content Types
 
-    private var stepContentTypes: [UTType] {
-        // STEP files use .stp / .step extensions
+    private var supportedContentTypes: [UTType] {
         let stepType = UTType(filenameExtension: "step") ?? .data
         let stpType = UTType(filenameExtension: "stp") ?? .data
-        return [stepType, stpType]
+        let stlType = UTType(filenameExtension: "stl") ?? .data
+        let objType = UTType(filenameExtension: "obj") ?? .data
+        return [stepType, stpType, stlType, objType]
     }
 
     // MARK: - Layout
@@ -147,6 +165,8 @@ struct SpikeView: View {
     private var sidebar: some View {
         List {
             fileSection
+            exportSection
+            healingSection
             curve2DDemoSection
             selectionModeSection
             selectionSection
@@ -170,11 +190,11 @@ struct SpikeView: View {
             Button {
                 showFileImporter = true
             } label: {
-                Label("Open STEP File...", systemImage: "doc.badge.plus")
+                Label("Open File (STEP/STL/OBJ)...", systemImage: "doc.badge.plus")
             }
-            .disabled(isLoadingSTEP)
+            .disabled(isLoadingFile)
 
-            if isLoadingSTEP {
+            if isLoadingFile {
                 HStack {
                     ProgressView()
                         .controlSize(.small)
@@ -188,7 +208,41 @@ struct SpikeView: View {
                     .foregroundStyle(.red)
                     .font(.caption)
             }
+
+            if let status = operationStatus {
+                Text(status)
+                    .foregroundStyle(.green)
+                    .font(.caption)
+            }
         }
+    }
+
+    // MARK: - Export Section
+
+    private var exportSection: some View {
+        Section("Export") {
+            Button("Export as OBJ...") {
+                pendingExportFormat = .obj
+                showExportDialog = true
+            }
+            Button("Export as PLY...") {
+                pendingExportFormat = .ply
+                showExportDialog = true
+            }
+        }
+        .disabled(loadedShapes.isEmpty)
+    }
+
+    // MARK: - Healing Section
+
+    private var healingSection: some View {
+        Section("Healing") {
+            Button("Sew Faces") { applyHealing(.sew) }
+            Button("Upgrade (Full Pipeline)") { applyHealing(.upgrade) }
+            Button("Direct Faces") { applyHealing(.directFaces) }
+            Button("Convert to BSpline") { applyHealing(.toBSpline) }
+        }
+        .disabled(loadedShapes.isEmpty)
     }
 
     // MARK: - Curve2D Demo Section
@@ -221,12 +275,14 @@ struct SpikeView: View {
 
         bodies = result.bodies
         cadMetadata = [:]
+        loadedShapes = []
         originalColors = [:]
         for body in bodies {
             originalColors[body.id] = body.color
         }
         selectionManager.clearSelection()
         controller.clearSelection()
+        operationStatus = nil
 
         // Focus camera and switch to top-down view for 2D curves
         focusOnBounds()
@@ -357,7 +413,8 @@ struct SpikeView: View {
             bodies: bodies,
             metadata: cadMetadata,
             cameraState: controller.cameraState,
-            aspectRatio: controller.lastAspectRatio
+            aspectRatio: controller.lastAspectRatio,
+            shapes: loadedShapes
         )
 
         // In body mode, brighten the selected body
@@ -389,26 +446,32 @@ struct SpikeView: View {
         }
     }
 
-    // MARK: - STEP File Import
+    // MARK: - File Import
 
     private func handleFileImport(_ result: Result<[URL], Error>) {
         switch result {
         case .success(let urls):
             guard let url = urls.first else { return }
-            loadSTEPFile(url)
+            loadCADFile(url)
         case .failure(let error):
             loadError = error.localizedDescription
         }
     }
 
-    private func loadSTEPFile(_ url: URL) {
+    private func loadCADFile(_ url: URL) {
+        guard let format = CADFileFormat(fileExtension: url.pathExtension) else {
+            loadError = "Unsupported file format: .\(url.pathExtension)"
+            return
+        }
+
         guard url.startAccessingSecurityScopedResource() else {
             loadError = "Cannot access file: permission denied"
             return
         }
 
-        isLoadingSTEP = true
+        isLoadingFile = true
         loadError = nil
+        operationStatus = nil
 
         Task {
             defer {
@@ -416,27 +479,129 @@ struct SpikeView: View {
             }
 
             do {
-                let result = try await STEPLoader.load(from: url)
+                let result = try await CADFileLoader.load(from: url, format: format)
 
-                // Replace bodies with loaded geometry (keep wireframe triangle for testing)
                 bodies = result.bodies
                 cadMetadata = result.metadata
+                loadedShapes = result.shapes
 
-                // Store original colors
                 originalColors = [:]
                 for body in bodies {
                     originalColors[body.id] = body.color
                 }
 
-                // Focus camera on loaded geometry bounds
                 focusOnBounds()
-
-                isLoadingSTEP = false
+                isLoadingFile = false
             } catch {
                 loadError = error.localizedDescription
-                isLoadingSTEP = false
+                isLoadingFile = false
             }
         }
+    }
+
+    // MARK: - Export
+
+    private func exportShapes(format: ExportFormat) {
+        #if os(macOS)
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [UTType(filenameExtension: format.fileExtension) ?? .data]
+        panel.nameFieldStringValue = "export.\(format.fileExtension)"
+        panel.begin { response in
+            guard response == .OK, let url = panel.url else { return }
+            performExport(format: format, to: url)
+        }
+        #else
+        // On iOS, export to a temp file and show share sheet
+        let tempURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("export.\(format.fileExtension)")
+        performExport(format: format, to: tempURL)
+        #endif
+    }
+
+    private func performExport(format: ExportFormat, to url: URL) {
+        operationStatus = nil
+        Task {
+            do {
+                try await ExportManager.export(shapes: loadedShapes, format: format, to: url)
+                operationStatus = "Exported \(format.rawValue) to \(url.lastPathComponent)"
+            } catch {
+                loadError = "Export failed: \(error.localizedDescription)"
+            }
+        }
+    }
+
+    // MARK: - Healing
+
+    private enum HealingOperation {
+        case sew, upgrade, directFaces, toBSpline
+    }
+
+    private func applyHealing(_ operation: HealingOperation) {
+        guard !loadedShapes.isEmpty else { return }
+        operationStatus = nil
+
+        var newShapes: [OCCTSwift.Shape] = []
+        var anyChanged = false
+
+        for shape in loadedShapes {
+            let healed: OCCTSwift.Shape?
+            switch operation {
+            case .sew:
+                healed = shape.sewn()
+            case .upgrade:
+                healed = shape.upgraded()
+            case .directFaces:
+                healed = shape.directFaces()
+            case .toBSpline:
+                healed = shape.convertedToBSpline()
+            }
+
+            if let healed {
+                newShapes.append(healed)
+                anyChanged = true
+            } else {
+                newShapes.append(shape)
+            }
+        }
+
+        guard anyChanged else {
+            operationStatus = "Healing had no effect on geometry"
+            return
+        }
+
+        // Re-mesh healed shapes
+        loadedShapes = newShapes
+        var newBodies: [ViewportBody] = []
+        var newMetadata: [String: CADBodyMetadata] = [:]
+
+        for (i, shape) in newShapes.enumerated() {
+            let bodyID = "healed-\(i)"
+            let color = SIMD4<Float>(0.7, 0.7, 0.7, 1.0)
+            let (body, meta) = CADFileLoader.shapeToBodyAndMetadata(shape, id: bodyID, color: color)
+            if let body {
+                newBodies.append(body)
+                if let meta {
+                    newMetadata[bodyID] = meta
+                }
+            }
+        }
+
+        bodies = newBodies
+        cadMetadata = newMetadata
+        originalColors = [:]
+        for body in bodies {
+            originalColors[body.id] = body.color
+        }
+
+        let opName: String
+        switch operation {
+        case .sew: opName = "Sew Faces"
+        case .upgrade: opName = "Upgrade"
+        case .directFaces: opName = "Direct Faces"
+        case .toBSpline: opName = "Convert to BSpline"
+        }
+        operationStatus = "\(opName) applied successfully"
+        focusOnBounds()
     }
 
     private func focusOnBounds() {

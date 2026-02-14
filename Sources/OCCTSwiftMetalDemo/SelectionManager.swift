@@ -5,6 +5,7 @@
 
 import Foundation
 import simd
+import OCCTSwift
 import OCCTSwiftViewport
 
 /// Manages selection state and produces highlight overlay bodies.
@@ -35,7 +36,8 @@ final class SelectionManager: ObservableObject {
         bodies: [ViewportBody],
         metadata: [String: CADBodyMetadata],
         cameraState: CameraState,
-        aspectRatio: Float
+        aspectRatio: Float,
+        shapes: [Shape] = []
     ) {
         highlightBodies = []
         selectionInfo = ""
@@ -56,6 +58,11 @@ final class SelectionManager: ObservableObject {
         case .vertex:
             handleVertexSelection(
                 result: result, body: body, metadata: metadata,
+                ndc: ndc, cameraState: cameraState, aspectRatio: aspectRatio
+            )
+        case .classify:
+            handleClassification(
+                result: result, body: body, shapes: shapes,
                 ndc: ndc, cameraState: cameraState, aspectRatio: aspectRatio
             )
         }
@@ -264,6 +271,94 @@ final class SelectionManager: ObservableObject {
             offsetVerts.append(sphere.vertexData[i] + bestVertex.x)
             offsetVerts.append(sphere.vertexData[i + 1] + bestVertex.y)
             offsetVerts.append(sphere.vertexData[i + 2] + bestVertex.z)
+            offsetVerts.append(sphere.vertexData[i + 3])
+            offsetVerts.append(sphere.vertexData[i + 4])
+            offsetVerts.append(sphere.vertexData[i + 5])
+        }
+        sphere.vertexData = offsetVerts
+
+        highlightBodies = [sphere]
+    }
+
+    // MARK: - Classification
+
+    private func handleClassification(
+        result: PickResult,
+        body: ViewportBody,
+        shapes: [Shape],
+        ndc: SIMD2<Float>,
+        cameraState: CameraState,
+        aspectRatio: Float
+    ) {
+        guard !shapes.isEmpty else {
+            selectionInfo = "Classify: no shapes loaded (import a STEP/STL/OBJ file first)"
+            return
+        }
+
+        // Get 3D hit point from the picked triangle
+        let ray = Ray.fromCamera(ndc: ndc, cameraState: cameraState, aspectRatio: aspectRatio)
+        guard let hitPoint = GeometryUtils.hitPointOnTriangle(
+            ray: ray, body: body, triangleIndex: result.triangleIndex
+        ) else {
+            selectionInfo = "Classify: (no hit point)"
+            return
+        }
+
+        let point3D = SIMD3<Double>(Double(hitPoint.x), Double(hitPoint.y), Double(hitPoint.z))
+
+        // Classify against each loaded shape
+        var results: [String] = []
+        for (i, shape) in shapes.enumerated() {
+            let classification = shape.classify(point: point3D)
+            let label: String
+            switch classification {
+            case .inside:
+                label = "inside"
+            case .outside:
+                label = "outside"
+            case .onBoundary:
+                label = "on boundary"
+            case .unknown:
+                label = "unknown"
+            }
+            results.append("Shape \(i): \(label)")
+        }
+
+        selectionInfo = String(format: "Classify (%.3f, %.3f, %.3f)\n%@",
+                              hitPoint.x, hitPoint.y, hitPoint.z,
+                              results.joined(separator: "\n"))
+
+        // Color-code the marker sphere
+        let firstResult = shapes.first.map { $0.classify(point: point3D) }
+        let markerColor: SIMD4<Float>
+        switch firstResult {
+        case .inside:
+            markerColor = SIMD4(0.0, 0.9, 0.0, 1.0)    // green
+        case .outside:
+            markerColor = SIMD4(0.9, 0.0, 0.0, 1.0)    // red
+        case .onBoundary:
+            markerColor = SIMD4(1.0, 0.9, 0.0, 1.0)    // yellow
+        default:
+            markerColor = SIMD4(0.5, 0.5, 0.5, 1.0)    // gray
+        }
+
+        // Build a small sphere at the hit point
+        let radius = cameraState.distance * 0.008
+        var sphere = ViewportBody.sphere(
+            id: "highlight-classify",
+            radius: radius,
+            segments: 12,
+            rings: 8,
+            color: markerColor
+        )
+
+        let stride = 6
+        var offsetVerts: [Float] = []
+        offsetVerts.reserveCapacity(sphere.vertexData.count)
+        for i in Swift.stride(from: 0, to: sphere.vertexData.count, by: stride) {
+            offsetVerts.append(sphere.vertexData[i] + hitPoint.x)
+            offsetVerts.append(sphere.vertexData[i + 1] + hitPoint.y)
+            offsetVerts.append(sphere.vertexData[i + 2] + hitPoint.z)
             offsetVerts.append(sphere.vertexData[i + 3])
             offsetVerts.append(sphere.vertexData[i + 4])
             offsetVerts.append(sphere.vertexData[i + 5])

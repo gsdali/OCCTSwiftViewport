@@ -9,4 +9,5 @@ enum SelectionMode: String, CaseIterable, Sendable {
     case face
     case edge
     case vertex
+    case classify
 }
