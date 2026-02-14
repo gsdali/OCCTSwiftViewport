@@ -52,8 +52,8 @@ struct AxisUniforms {
 // MARK: - Cached Body Buffers
 
 private struct BodyBuffers {
-    let vertexBuffer: MTLBuffer
-    let indexBuffer: MTLBuffer
+    let vertexBuffer: MTLBuffer?
+    let indexBuffer: MTLBuffer?
     let indexCount: Int
     let edgeVertexBuffer: MTLBuffer?
     let edgeVertexCount: Int
@@ -435,10 +435,14 @@ public final class ViewportRenderer: NSObject, MTKViewDelegate, Sendable {
 
             var bodyUniforms = BodyUniforms(color: body.color, objectIndex: objectIndex)
 
-            // Shaded pass
-            if displayMode.showsSurfaces {
+            let hasMesh = buffers.vertexBuffer != nil && buffers.indexBuffer != nil && buffers.indexCount > 0
+            let hasEdges = buffers.edgeVertexBuffer != nil && buffers.edgeVertexCount > 0
+
+            // Shaded pass (mesh bodies only)
+            if displayMode.showsSurfaces, hasMesh,
+               let vb = buffers.vertexBuffer, let ib = buffers.indexBuffer {
                 encoder.setRenderPipelineState(shadedPipeline)
-                encoder.setVertexBuffer(buffers.vertexBuffer, offset: 0, index: 0)
+                encoder.setVertexBuffer(vb, offset: 0, index: 0)
                 encoder.setVertexBytes(&uniforms, length: MemoryLayout<Uniforms>.size, index: 1)
                 encoder.setFragmentBytes(&uniforms, length: MemoryLayout<Uniforms>.size, index: 1)
                 encoder.setFragmentBytes(&bodyUniforms, length: MemoryLayout<BodyUniforms>.size, index: 2)
@@ -447,13 +451,15 @@ public final class ViewportRenderer: NSObject, MTKViewDelegate, Sendable {
                     type: .triangle,
                     indexCount: buffers.indexCount,
                     indexType: .uint32,
-                    indexBuffer: buffers.indexBuffer,
+                    indexBuffer: ib,
                     indexBufferOffset: 0
                 )
             }
 
-            // Wireframe pass
-            if displayMode.showsEdges, let edgeVB = buffers.edgeVertexBuffer, buffers.edgeVertexCount > 0 {
+            // Wireframe/edge pass — always draw edges for edge-only bodies,
+            // otherwise respect displayMode.showsEdges
+            let shouldDrawEdges = hasEdges && (displayMode.showsEdges || !hasMesh)
+            if shouldDrawEdges, let edgeVB = buffers.edgeVertexBuffer {
                 encoder.setRenderPipelineState(wireframePipeline)
                 encoder.setVertexBuffer(edgeVB, offset: 0, index: 0)
                 encoder.setVertexBytes(&uniforms, length: MemoryLayout<Uniforms>.size, index: 1)
@@ -548,21 +554,26 @@ public final class ViewportRenderer: NSObject, MTKViewDelegate, Sendable {
             return // buffer still valid
         }
 
-        // Build vertex buffer
-        guard !body.vertexData.isEmpty else { return }
-        guard let vertexBuffer = device.makeBuffer(
-            bytes: body.vertexData,
-            length: body.vertexData.count * MemoryLayout<Float>.size,
-            options: .storageModeShared
-        ) else { return }
+        // Build vertex + index buffers (nil for edge-only bodies)
+        var vertexBuffer: MTLBuffer?
+        var indexBuffer: MTLBuffer?
+        var indexCount = 0
+        var vertexCount = 0
 
-        // Build index buffer
-        guard !body.indices.isEmpty else { return }
-        guard let indexBuffer = device.makeBuffer(
-            bytes: body.indices,
-            length: body.indices.count * MemoryLayout<UInt32>.size,
-            options: .storageModeShared
-        ) else { return }
+        if !body.vertexData.isEmpty, !body.indices.isEmpty {
+            vertexBuffer = device.makeBuffer(
+                bytes: body.vertexData,
+                length: body.vertexData.count * MemoryLayout<Float>.size,
+                options: .storageModeShared
+            )
+            indexBuffer = device.makeBuffer(
+                bytes: body.indices,
+                length: body.indices.count * MemoryLayout<UInt32>.size,
+                options: .storageModeShared
+            )
+            indexCount = body.indices.count
+            vertexCount = body.vertexData.count / 6
+        }
 
         // Build edge vertex buffer (convert polylines to line segment pairs)
         var edgeVertices: [Float] = []
@@ -590,13 +601,16 @@ public final class ViewportRenderer: NSObject, MTKViewDelegate, Sendable {
 
         let edgeVertexCount = edgeVertices.count / 6
 
+        // Skip bodies with no renderable data at all
+        guard vertexBuffer != nil || edgeVB != nil else { return }
+
         bodyBufferCache[body.id] = BodyBuffers(
             vertexBuffer: vertexBuffer,
             indexBuffer: indexBuffer,
-            indexCount: body.indices.count,
+            indexCount: indexCount,
             edgeVertexBuffer: edgeVB,
             edgeVertexCount: edgeVertexCount,
-            vertexCount: body.vertexData.count / 6
+            vertexCount: vertexCount
         )
         bodyGeneration[body.id] = currentGen
     }
