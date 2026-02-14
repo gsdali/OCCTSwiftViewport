@@ -34,6 +34,21 @@ struct SpikeView: View {
             radius: 0.7, segments: 32, rings: 16,
             color: SIMD4<Float>(0.3, 0.8, 0.4, 1.0)
         ),
+        // Edge-only body: a wireframe triangle on the ground plane
+        ViewportBody(
+            id: "wire-triangle",
+            vertexData: [],
+            indices: [],
+            edges: [
+                [
+                    SIMD3<Float>(-1.0, 0.0, 2.0),
+                    SIMD3<Float>( 1.0, 0.0, 2.0),
+                    SIMD3<Float>( 0.0, 0.0, 4.0),
+                    SIMD3<Float>(-1.0, 0.0, 2.0),
+                ]
+            ],
+            color: SIMD4<Float>(1.0, 1.0, 0.0, 1.0)
+        ),
     ]
 
     @State private var columnVisibility: NavigationSplitViewVisibility = .detailOnly
