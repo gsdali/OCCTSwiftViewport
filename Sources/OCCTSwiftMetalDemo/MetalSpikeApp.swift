@@ -1,10 +1,10 @@
 // MetalSpikeApp.swift
-// Metal renderer spike for ViewportKit.
+// Metal renderer demo for OCCTSwiftViewport.
 
 import SwiftUI
 
 @main
-struct MetalSpikeApp: App {
+struct OCCTSwiftMetalDemoApp: App {
     var body: some Scene {
         WindowGroup {
             SpikeView()

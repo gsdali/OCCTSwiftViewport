@@ -1,6 +1,6 @@
-name: ViewportKit
+name: OCCTSwiftViewport
 options:
-  bundleIdPrefix: com.viewportkit
+  bundleIdPrefix: com.occtswift
   deploymentTarget:
     iOS: "18.0"
     macOS: "15.0"
@@ -8,21 +8,21 @@ options:
   generateEmptyDirectories: false
 
 packages:
-  ViewportKit:
+  OCCTSwiftViewport:
     path: .
 
 targets:
-  MetalSpikeApp:
+  OCCTSwiftMetalDemo:
     type: application
     platform: [macOS, iOS]
     sources:
-      - path: Sources/MetalSpikeApp
+      - path: Sources/OCCTSwiftMetalDemo
     dependencies:
-      - package: ViewportKit
+      - package: OCCTSwiftViewport
     settings:
       base:
         SWIFT_VERSION: "6.0"
-        PRODUCT_BUNDLE_IDENTIFIER: com.viewportkit.metal-spike
+        PRODUCT_BUNDLE_IDENTIFIER: com.occtswift.metal-demo
         INFOPLIST_GENERATION_MODE: GeneratedFile
         MARKETING_VERSION: "1.0"
         CURRENT_PROJECT_VERSION: "1"

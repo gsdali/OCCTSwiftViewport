@@ -2,21 +2,21 @@
 import PackageDescription
 
 let package = Package(
-    name: "ViewportKit",
+    name: "OCCTSwiftViewport",
     platforms: [
         .iOS(.v18),
         .macOS(.v15)
     ],
     products: [
         .library(
-            name: "ViewportKit",
-            targets: ["ViewportKit"]
+            name: "OCCTSwiftViewport",
+            targets: ["OCCTSwiftViewport"]
         ),
     ],
     targets: [
         .target(
-            name: "ViewportKit",
-            path: "Sources/ViewportKit",
+            name: "OCCTSwiftViewport",
+            path: "Sources/OCCTSwiftViewport",
             resources: [
                 .process("Renderer/Shaders.metal")
             ],
@@ -25,17 +25,17 @@ let package = Package(
             ]
         ),
         .executableTarget(
-            name: "MetalSpikeApp",
-            dependencies: ["ViewportKit"],
-            path: "Sources/MetalSpikeApp",
+            name: "OCCTSwiftMetalDemo",
+            dependencies: ["OCCTSwiftViewport"],
+            path: "Sources/OCCTSwiftMetalDemo",
             swiftSettings: [
                 .swiftLanguageMode(.v6)
             ]
         ),
         .testTarget(
-            name: "ViewportKitTests",
-            dependencies: ["ViewportKit"],
-            path: "Tests/ViewportKitTests"
+            name: "OCCTSwiftViewportTests",
+            dependencies: ["OCCTSwiftViewport"],
+            path: "Tests/OCCTSwiftViewportTests"
         ),
     ]
 )

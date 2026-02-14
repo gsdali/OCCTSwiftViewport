@@ -1,13 +1,14 @@
-// ViewportKit
+// OCCTSwiftViewport
 // A reusable 3D viewport component for CAD applications using Metal
 //
 // Copyright (c) 2026. All rights reserved.
+// SPDX-License-Identifier: LGPL-2.1-only WITH OCCT-exception-1.0
 
-/// ViewportKit provides a complete 3D viewport solution for CAD applications.
+/// OCCTSwiftViewport provides a complete 3D viewport solution for CAD applications.
 ///
 /// ## Overview
 ///
-/// ViewportKit is built on Metal and provides:
+/// OCCTSwiftViewport is built on Metal and provides:
 /// - Smooth camera controls (orbit, pan, zoom) with inertia
 /// - Arcball and turntable rotation styles
 /// - ViewCube for orientation and quick navigation
@@ -21,7 +22,7 @@
 ///
 /// ```swift
 /// import SwiftUI
-/// import ViewportKit
+/// import OCCTSwiftViewport
 ///
 /// struct ContentView: View {
 ///     @StateObject private var controller = ViewportController()
