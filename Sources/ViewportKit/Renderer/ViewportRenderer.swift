@@ -3,7 +3,7 @@
 //
 // MTKViewDelegate that drives Metal rendering for the viewport.
 
-import MetalKit
+@preconcurrency import MetalKit
 import simd
 import SwiftUI
 
@@ -29,6 +29,11 @@ struct Uniforms {
 
 struct BodyUniforms {
     var color: SIMD4<Float>
+    var objectIndex: UInt32 = 0
+    // Padding to 16-byte alignment (SIMD4 = 16 bytes, UInt32 = 4 bytes → need 12 pad)
+    var _pad0: UInt32 = 0
+    var _pad1: UInt32 = 0
+    var _pad2: UInt32 = 0
 }
 
 struct GridUniforms {
@@ -82,6 +87,15 @@ public final class ViewportRenderer: NSObject, MTKViewDelegate, Sendable {
     /// Axis vertex buffer (6 vertices: 3 line segments with position+color).
     private let axisVertexBuffer: MTLBuffer
 
+    // MARK: - Picking
+
+    /// Manages the R32Uint pick ID texture (second color attachment).
+    private let pickTextureManager: PickTextureManager
+    /// Shared-mode buffer for single-pixel readback of pick ID.
+    private let pickReadbackBuffer: MTLBuffer
+    /// Maps objectIndex → bodyID, rebuilt each frame.
+    private var currentIndexMap: [Int: String] = [:]
+
     // MARK: - Initialization
 
     public init?(controller: ViewportController, bodies: Binding<[ViewportBody]>) {
@@ -114,6 +128,7 @@ public final class ViewportRenderer: NSObject, MTKViewDelegate, Sendable {
         shadedDesc.vertexFunction = library.makeFunction(name: "shaded_vertex")
         shadedDesc.fragmentFunction = library.makeFunction(name: "shaded_fragment")
         shadedDesc.colorAttachments[0].pixelFormat = .bgra8Unorm
+        shadedDesc.colorAttachments[1].pixelFormat = .r32Uint
         shadedDesc.depthAttachmentPixelFormat = .depth32Float
 
         // Vertex descriptor for interleaved position + normal (stride 6 floats)
@@ -141,6 +156,7 @@ public final class ViewportRenderer: NSObject, MTKViewDelegate, Sendable {
         wireDesc.vertexFunction = library.makeFunction(name: "wireframe_vertex")
         wireDesc.fragmentFunction = library.makeFunction(name: "wireframe_fragment")
         wireDesc.colorAttachments[0].pixelFormat = .bgra8Unorm
+        wireDesc.colorAttachments[1].pixelFormat = .r32Uint
         wireDesc.colorAttachments[0].isBlendingEnabled = true
         wireDesc.colorAttachments[0].sourceRGBBlendFactor = .sourceAlpha
         wireDesc.colorAttachments[0].destinationRGBBlendFactor = .oneMinusSourceAlpha
@@ -159,6 +175,7 @@ public final class ViewportRenderer: NSObject, MTKViewDelegate, Sendable {
         gridDesc.vertexFunction = library.makeFunction(name: "grid_vertex")
         gridDesc.fragmentFunction = library.makeFunction(name: "grid_fragment")
         gridDesc.colorAttachments[0].pixelFormat = .bgra8Unorm
+        gridDesc.colorAttachments[1].pixelFormat = .r32Uint
         gridDesc.depthAttachmentPixelFormat = .depth32Float
 
         guard let gridPipeline = try? device.makeRenderPipelineState(descriptor: gridDesc) else {
@@ -171,6 +188,7 @@ public final class ViewportRenderer: NSObject, MTKViewDelegate, Sendable {
         axisDesc.vertexFunction = library.makeFunction(name: "axis_vertex")
         axisDesc.fragmentFunction = library.makeFunction(name: "axis_fragment")
         axisDesc.colorAttachments[0].pixelFormat = .bgra8Unorm
+        axisDesc.colorAttachments[1].pixelFormat = .r32Uint
         axisDesc.depthAttachmentPixelFormat = .depth32Float
 
         let axisVertexDesc = MTLVertexDescriptor()
@@ -292,6 +310,13 @@ public final class ViewportRenderer: NSObject, MTKViewDelegate, Sendable {
         )
         self.matcapTexture = matcap
 
+        // Picking: texture manager + 4-byte shared readback buffer
+        self.pickTextureManager = PickTextureManager(device: device)
+        guard let readback = device.makeBuffer(length: MemoryLayout<UInt32>.size, options: .storageModeShared) else {
+            return nil
+        }
+        self.pickReadbackBuffer = readback
+
         super.init()
     }
 
@@ -324,6 +349,25 @@ public final class ViewportRenderer: NSObject, MTKViewDelegate, Sendable {
         guard let controller = controller else { return }
         guard let drawable = view.currentDrawable,
               let renderPassDescriptor = view.currentRenderPassDescriptor else { return }
+
+        // Picking: ensure pick texture matches drawable size and attach as color(1)
+        let pickingEnabled = controller.configuration.pickingConfiguration.isEnabled
+        if pickingEnabled {
+            let w = Int(view.drawableSize.width)
+            let h = Int(view.drawableSize.height)
+            pickTextureManager.ensureSize(width: w, height: h)
+
+            if let pickTex = pickTextureManager.texture {
+                renderPassDescriptor.colorAttachments[1].texture = pickTex
+                renderPassDescriptor.colorAttachments[1].loadAction = .clear
+                renderPassDescriptor.colorAttachments[1].storeAction = .store
+                renderPassDescriptor.colorAttachments[1].clearColor = MTLClearColor(
+                    red: Double(0xFFFF_FFFF),
+                    green: 0, blue: 0, alpha: 0
+                )
+            }
+        }
+
         guard let commandBuffer = commandQueue.makeCommandBuffer(),
               let encoder = commandBuffer.makeRenderCommandEncoder(descriptor: renderPassDescriptor) else { return }
 
@@ -365,10 +409,16 @@ public final class ViewportRenderer: NSObject, MTKViewDelegate, Sendable {
         let bodies = bodiesBinding.wrappedValue
         let displayMode = controller.displayMode
 
+        // Build index map for picking: objectIndex → bodyID
+        var indexMap: [Int: String] = [:]
+        var objectIndex: UInt32 = 0
+
         for body in bodies where body.isVisible {
             ensureBuffers(for: body)
 
             guard let buffers = bodyBufferCache[body.id] else { continue }
+
+            indexMap[Int(objectIndex)] = body.id
 
             var uniforms = Uniforms(
                 viewProjectionMatrix: viewProjection,
@@ -383,7 +433,7 @@ public final class ViewportRenderer: NSObject, MTKViewDelegate, Sendable {
                 materialParams: SIMD4<Float>(lighting.fresnelPower, lighting.fresnelIntensity, lighting.matcapBlend, farPlane)
             )
 
-            var bodyUniforms = BodyUniforms(color: body.color)
+            var bodyUniforms = BodyUniforms(color: body.color, objectIndex: objectIndex)
 
             // Shaded pass
             if displayMode.showsSurfaces {
@@ -411,7 +461,12 @@ public final class ViewportRenderer: NSObject, MTKViewDelegate, Sendable {
                 encoder.setFragmentBytes(&bodyUniforms, length: MemoryLayout<BodyUniforms>.size, index: 2)
                 encoder.drawPrimitives(type: .line, vertexStart: 0, vertexCount: buffers.edgeVertexCount)
             }
+
+            objectIndex += 1
         }
+
+        // Store index map for pick readback
+        currentIndexMap = indexMap
 
         // Prune cache entries for bodies no longer in the scene.
         let activeIDs = Set(bodies.map(\.id))
@@ -544,5 +599,56 @@ public final class ViewportRenderer: NSObject, MTKViewDelegate, Sendable {
             vertexCount: body.vertexData.count / 6
         )
         bodyGeneration[body.id] = currentGen
+    }
+
+    // MARK: - Picking
+
+    /// Reads a single pixel from the pick ID buffer and decodes the result.
+    ///
+    /// - Parameters:
+    ///   - pixel: The pixel coordinate (in drawable pixels) to sample.
+    ///   - completion: Called with the decoded `PickResult`, or `nil` for background/no hit.
+    public func performPick(at pixel: SIMD2<Int>, completion: @escaping @Sendable (PickResult?) -> Void) {
+        guard let pickTexture = pickTextureManager.texture else {
+            completion(nil)
+            return
+        }
+
+        // Clamp to texture bounds
+        let x = max(0, min(pixel.x, pickTextureManager.width - 1))
+        let y = max(0, min(pixel.y, pickTextureManager.height - 1))
+
+        guard let commandBuffer = commandQueue.makeCommandBuffer(),
+              let blitEncoder = commandBuffer.makeBlitCommandEncoder() else {
+            completion(nil)
+            return
+        }
+
+        // Blit 1x1 region from private pick texture to shared readback buffer
+        blitEncoder.copy(
+            from: pickTexture,
+            sourceSlice: 0,
+            sourceLevel: 0,
+            sourceOrigin: MTLOrigin(x: x, y: y, z: 0),
+            sourceSize: MTLSize(width: 1, height: 1, depth: 1),
+            to: pickReadbackBuffer,
+            destinationOffset: 0,
+            destinationBytesPerRow: MemoryLayout<UInt32>.size,
+            destinationBytesPerImage: MemoryLayout<UInt32>.size
+        )
+        blitEncoder.endEncoding()
+
+        let indexMap = currentIndexMap
+        let readbackBuffer = pickReadbackBuffer
+
+        commandBuffer.addCompletedHandler { _ in
+            let rawValue = readbackBuffer.contents().load(as: UInt32.self)
+            let result = PickResult(rawValue: rawValue, indexMap: indexMap)
+            Task { @MainActor in
+                completion(result)
+            }
+        }
+
+        commandBuffer.commit()
     }
 }

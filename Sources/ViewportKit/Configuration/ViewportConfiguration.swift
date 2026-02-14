@@ -98,6 +98,11 @@ public struct ViewportConfiguration: Sendable {
     /// Background color (platform-agnostic).
     public var backgroundColor: SIMD4<Float>
 
+    // MARK: - Picking
+
+    /// Configuration for GPU-accelerated picking.
+    public var pickingConfiguration: PickingConfiguration
+
     // MARK: - Dynamic Pivot
 
     /// Configuration for automatic orbit-pivot adjustment.
@@ -127,6 +132,7 @@ public struct ViewportConfiguration: Sendable {
         gridBaseSpacing: Float = 1.0,
         gridSubdivisions: Int = 10,
         backgroundColor: SIMD4<Float> = SIMD4<Float>(0.95, 0.95, 0.95, 1.0),
+        pickingConfiguration: PickingConfiguration = .init(),
         dynamicPivotConfiguration: DynamicPivotConfiguration = .default
     ) {
         self.initialCameraState = initialCameraState
@@ -149,6 +155,7 @@ public struct ViewportConfiguration: Sendable {
         self.gridBaseSpacing = gridBaseSpacing
         self.gridSubdivisions = gridSubdivisions
         self.backgroundColor = backgroundColor
+        self.pickingConfiguration = pickingConfiguration
         self.dynamicPivotConfiguration = dynamicPivotConfiguration
     }
 

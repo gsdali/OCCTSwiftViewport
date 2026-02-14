@@ -6,8 +6,17 @@ import ViewportKit
 
 struct SpikeView: View {
     @StateObject private var controller = ViewportController(
-        configuration: ViewportConfiguration(rotationStyle: .turntable, showViewCube: true, showAxes: true, showGrid: true)
+        configuration: ViewportConfiguration(
+            rotationStyle: .turntable,
+            showViewCube: true,
+            showAxes: true,
+            showGrid: true,
+            pickingConfiguration: PickingConfiguration(isEnabled: true)
+        )
     )
+
+    /// Stores the original (unselected) color for each body.
+    @State private var originalColors: [String: SIMD4<Float>] = [:]
 
     @State private var bodies: [ViewportBody] = [
         .box(
@@ -38,6 +47,13 @@ struct SpikeView: View {
             offsetBody(id: "box", dx: -2.5, dy: 0.75, dz: 0)
             offsetBody(id: "cylinder", dx: 0, dy: 1.0, dz: 0)
             offsetBody(id: "sphere", dx: 2.5, dy: 0.7, dz: 0)
+            // Store original colors for selection highlighting
+            for body in bodies {
+                originalColors[body.id] = body.color
+            }
+        }
+        .onChange(of: controller.pickResult) {
+            applySelectionHighlight()
         }
     }
 
@@ -45,6 +61,7 @@ struct SpikeView: View {
 
     private var sidebar: some View {
         List {
+            selectionSection
             standardViewsSection
             displayModeSection
             overlaysSection
@@ -56,6 +73,21 @@ struct SpikeView: View {
         #if os(macOS)
         .navigationSplitViewColumnWidth(min: 200, ideal: 240)
         #endif
+    }
+
+    private var selectionSection: some View {
+        Section("Selection") {
+            if let pick = controller.pickResult {
+                LabeledContent("Body", value: pick.bodyID)
+                LabeledContent("Triangle", value: "\(pick.triangleIndex)")
+                Button("Clear Selection") {
+                    controller.clearSelection()
+                }
+            } else {
+                Text("Click a body to select")
+                    .foregroundStyle(.secondary)
+            }
+        }
     }
 
     private var standardViewsSection: some View {
@@ -120,6 +152,31 @@ struct SpikeView: View {
             LabeledContent("Distance", value: String(format: "%.1f", controller.cameraState.distance))
             LabeledContent("Projection", value: controller.cameraState.isOrthographic ? "Orthographic" : "Perspective")
             LabeledContent("Display", value: controller.displayMode.displayName)
+        }
+    }
+
+    // MARK: - Selection Highlight
+
+    private func applySelectionHighlight() {
+        let selectedID = controller.pickResult?.bodyID
+        for i in bodies.indices {
+            let id = bodies[i].id
+            if id == selectedID {
+                // Brighten the selected body
+                if let orig = originalColors[id] {
+                    bodies[i].color = SIMD4<Float>(
+                        min(orig.x + 0.3, 1.0),
+                        min(orig.y + 0.3, 1.0),
+                        min(orig.z + 0.3, 1.0),
+                        orig.w
+                    )
+                }
+            } else {
+                // Restore original color
+                if let orig = originalColors[id] {
+                    bodies[i].color = orig
+                }
+            }
         }
     }
 

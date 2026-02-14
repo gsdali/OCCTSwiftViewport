@@ -27,6 +27,17 @@ struct Uniforms {
 
 struct BodyUniforms {
     float4 color;
+    uint   objectIndex;
+    uint   _pad0;
+    uint   _pad1;
+    uint   _pad2;
+};
+
+// MARK: - Fragment Output (dual color attachment for pick ID)
+
+struct ShadedFragmentOut {
+    float4 color  [[color(0)]];
+    uint   pickID [[color(1)]];
 };
 
 // MARK: - Vertex Structs
@@ -81,11 +92,12 @@ vertex ShadedVertexOut shaded_vertex(
     return out;
 }
 
-fragment float4 shaded_fragment(
+fragment ShadedFragmentOut shaded_fragment(
     ShadedVertexOut in [[stage_in]],
     constant Uniforms &uniforms [[buffer(1)]],
     constant BodyUniforms &bodyUniforms [[buffer(2)]],
-    texture2d<float> matcapTexture [[texture(0)]]
+    texture2d<float> matcapTexture [[texture(0)]],
+    uint primitiveID [[primitive_id]]
 ) {
     float3 N = normalize(in.worldNormal);
     float3 V = normalize(uniforms.cameraPosition.xyz - in.worldPosition);
@@ -142,7 +154,10 @@ fragment float4 shaded_fragment(
         litColor = mix(litColor, matcapColor * bodyColor, matcapBlend);
     }
 
-    return float4(litColor, bodyUniforms.color.a);
+    ShadedFragmentOut out;
+    out.color = float4(litColor, bodyUniforms.color.a);
+    out.pickID = bodyUniforms.objectIndex | (primitiveID << 16);
+    return out;
 }
 
 // MARK: - Wireframe Pipeline
@@ -160,7 +175,12 @@ vertex WireframeVertexOut wireframe_vertex(
     return out;
 }
 
-fragment float4 wireframe_fragment(
+struct WireframeFragmentOut {
+    float4 color  [[color(0)]];
+    uint   pickID [[color(1)]];
+};
+
+fragment WireframeFragmentOut wireframe_fragment(
     WireframeVertexOut in [[stage_in]],
     constant Uniforms &uniforms [[buffer(1)]],
     constant BodyUniforms &bodyUniforms [[buffer(2)]]
@@ -180,7 +200,10 @@ fragment float4 wireframe_fragment(
     float linearDepth = saturate((clipZ / clipW - nearPlane / farPlane) / (1.0 - nearPlane / farPlane));
     float edgeAlpha = mix(1.0, 0.3, linearDepth);
 
-    return float4(edgeColor, edgeAlpha);
+    WireframeFragmentOut out;
+    out.color = float4(edgeColor, edgeAlpha);
+    out.pickID = 0xFFFFFFFF; // sentinel — wireframe is not pickable
+    return out;
 }
 
 // MARK: - Grid Pipeline (Instanced Dots)
@@ -210,7 +233,12 @@ vertex GridVertexOut grid_vertex(
     return out;
 }
 
-fragment float4 grid_fragment(
+struct GridFragmentOut {
+    float4 color  [[color(0)]];
+    uint   pickID [[color(1)]];
+};
+
+fragment GridFragmentOut grid_fragment(
     GridVertexOut in [[stage_in]],
     float2 pointCoord [[point_coord]],
     constant GridUniforms &uniforms [[buffer(0)]]
@@ -218,7 +246,11 @@ fragment float4 grid_fragment(
     // Circular dot via distance from center
     float dist = length(pointCoord - float2(0.5));
     if (dist > 0.5) discard_fragment();
-    return uniforms.dotColor;
+
+    GridFragmentOut out;
+    out.color = uniforms.dotColor;
+    out.pickID = 0xFFFFFFFF; // sentinel — grid is not pickable
+    return out;
 }
 
 // MARK: - Axis Pipeline (Coloured Lines)
@@ -247,8 +279,16 @@ vertex AxisVertexOut axis_vertex(
     return out;
 }
 
-fragment float4 axis_fragment(
+struct AxisFragmentOut {
+    float4 color  [[color(0)]];
+    uint   pickID [[color(1)]];
+};
+
+fragment AxisFragmentOut axis_fragment(
     AxisVertexOut in [[stage_in]]
 ) {
-    return in.color;
+    AxisFragmentOut out;
+    out.color = in.color;
+    out.pickID = 0xFFFFFFFF; // sentinel — axes are not pickable
+    return out;
 }
