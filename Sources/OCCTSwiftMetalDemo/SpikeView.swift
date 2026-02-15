@@ -183,6 +183,8 @@ struct SpikeView: View {
             projectionDemoSection
             plateDemoSection
             medialAxisDemoSection
+            namingDemoSection
+            annotationDemoSection
             gdtSection
             selectionModeSection
             selectionSection
@@ -430,6 +432,92 @@ struct SpikeView: View {
         proximityInfo = nil
         focusOnBounds()
         controller.goToStandardView(.top)
+    }
+
+    // MARK: - Naming Demo Section
+
+    private enum NamingDemo {
+        case primitive, modification, tracing, selection
+    }
+
+    private var namingDemoSection: some View {
+        Section("Naming Demos") {
+            Button("Primitive History") { loadNamingDemo(.primitive) }
+            Button("Modification Tracking") { loadNamingDemo(.modification) }
+            Button("Forward/Backward Trace") { loadNamingDemo(.tracing) }
+            Button("Named Selection") { loadNamingDemo(.selection) }
+        }
+    }
+
+    private func loadNamingDemo(_ demo: NamingDemo) {
+        let result: Curve2DGallery.GalleryResult
+        switch demo {
+        case .primitive:
+            result = NamingGallery.primitiveHistory()
+        case .modification:
+            result = NamingGallery.modificationTracking()
+        case .tracing:
+            result = NamingGallery.forwardBackwardTrace()
+        case .selection:
+            result = NamingGallery.namedSelection()
+        }
+
+        bodies = result.bodies
+        cadMetadata = [:]
+        loadedShapes = []
+        originalColors = [:]
+        for body in bodies {
+            originalColors[body.id] = body.color
+        }
+        selectionManager.clearSelection()
+        controller.clearSelection()
+        operationStatus = result.description
+        proximityInfo = nil
+        focusOnBounds()
+        controller.goToStandardView(.isometricFrontRight)
+    }
+
+    // MARK: - Annotation Demo Section
+
+    private enum AnnotationDemo {
+        case length, radial, angle, labelsAndCloud
+    }
+
+    private var annotationDemoSection: some View {
+        Section("Annotation Demos") {
+            Button("Length Dimensions") { loadAnnotationDemo(.length) }
+            Button("Radius & Diameter") { loadAnnotationDemo(.radial) }
+            Button("Angle Dimensions") { loadAnnotationDemo(.angle) }
+            Button("Labels & Point Cloud") { loadAnnotationDemo(.labelsAndCloud) }
+        }
+    }
+
+    private func loadAnnotationDemo(_ demo: AnnotationDemo) {
+        let result: Curve2DGallery.GalleryResult
+        switch demo {
+        case .length:
+            result = AnnotationGallery.lengthDimensions()
+        case .radial:
+            result = AnnotationGallery.radialDimensions()
+        case .angle:
+            result = AnnotationGallery.angleDimensions()
+        case .labelsAndCloud:
+            result = AnnotationGallery.labelsAndPointCloud()
+        }
+
+        bodies = result.bodies
+        cadMetadata = [:]
+        loadedShapes = []
+        originalColors = [:]
+        for body in bodies {
+            originalColors[body.id] = body.color
+        }
+        selectionManager.clearSelection()
+        controller.clearSelection()
+        operationStatus = result.description
+        proximityInfo = nil
+        focusOnBounds()
+        controller.goToStandardView(.isometricFrontRight)
     }
 
     // MARK: - Projection Demo Section

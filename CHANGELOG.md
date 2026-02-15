@@ -2,6 +2,27 @@
 
 All notable changes to OCCTSwiftViewport are documented in this file.
 
+## [0.26.0] — 2026-02-15
+
+### Added
+- **Annotation Gallery** (`AnnotationGallery.swift`): Demonstrates OCCTSwift AIS annotation features — dimension measurements, text labels, and colored point clouds.
+  - Length dimensions (point-to-point) with rendered dimension geometry (extension lines, markers)
+  - Radius & diameter dimensions on cylinders and spheres
+  - Angle dimensions between edges and from three-point configurations
+  - Text labels at 3D positions with marker spheres and leader lines
+  - Colored point cloud (50 points, spherical distribution, height-colored)
+- Sidebar section: **Annotation Demos**
+
+## [0.25.0] — 2026-02-15
+
+### Added
+- **Naming Gallery** (`NamingGallery.swift`): Demonstrates OCCTSwift TNaming — topological naming history tracking on XDE documents.
+  - Primitive history: creates a box, records it as a primitive, queries stored/current shape and naming history
+  - Modification tracking: box → filleted box, records both steps, shows old (dim) vs new (shaded) with history
+  - Forward/backward tracing: box − cylinder boolean, traces the naming graph in both directions
+  - Named selection persistence: selects a face by name and resolves it back from the naming graph
+- Sidebar section: **Naming Demos**
+
 ## [0.24.0] — 2026-02-15
 
 ### Added

@@ -29,6 +29,8 @@ The included `OCCTSwiftMetalDemo` app exercises OCCTSwift features through inter
 | **Projection** | `Surface.projectCurve3D`, `projectPoint` | Curve on cylinder/sphere, composite projection, point projection |
 | **Plate** | `Surface.plateThrough`, `nlPlateDeformed` | Plate from points, G0 deformation, G1 tangent deformation |
 | **Medial Axis** | `MedialAxis` (BRepMAT2d) | Rectangle/L-shape/T-shape skeletons, wall thickness map |
+| **Naming** | TNaming (`Document` naming history) | Primitive history, modification tracking, forward/backward tracing, named selection |
+| **Annotations** | AIS (`LengthDimension`, `RadiusDimension`, `AngleDimension`, `TextLabel`, `PointCloud`) | Length/radius/angle dimensions, text labels, colored point clouds |
 | **GD&T** | `Document` PMI | Dimensions, geometric tolerances, datums from STEP files |
 
 ## Requirements
