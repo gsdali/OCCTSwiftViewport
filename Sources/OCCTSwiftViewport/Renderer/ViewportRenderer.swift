@@ -25,15 +25,19 @@ struct Uniforms {
     var ambientSkyColor: SIMD4<Float>         // rgb + specularPower in w
     var ambientGroundColor: SIMD4<Float>      // rgb + specularIntensity in w
     var materialParams: SIMD4<Float>          // fresnelPower, fresnelIntensity, matcapBlend, farPlane
+    var lightViewProjectionMatrix: simd_float4x4  // for shadow mapping
+    var shadowParams: SIMD4<Float>            // x = bias, y = intensity, z = enabled (1/0), w = unused
+    var clipPlanes: (SIMD4<Float>, SIMD4<Float>, SIMD4<Float>, SIMD4<Float>) = (.zero, .zero, .zero, .zero)
+    var clipPlaneCount: UInt32 = 0
+    var _clipPad: SIMD3<Float> = .zero
 }
 
 struct BodyUniforms {
     var color: SIMD4<Float>
     var objectIndex: UInt32 = 0
-    // Padding to 16-byte alignment (SIMD4 = 16 bytes, UInt32 = 4 bytes → need 12 pad)
-    var _pad0: UInt32 = 0
-    var _pad1: UInt32 = 0
-    var _pad2: UInt32 = 0
+    var roughness: Float = 0.5
+    var metallic: Float = 0.0
+    var isSelected: UInt32 = 0  // 1 = selected, 2 = hovered
 }
 
 struct GridUniforms {
@@ -47,6 +51,28 @@ struct GridUniforms {
 
 struct AxisUniforms {
     var viewProjectionMatrix: simd_float4x4
+}
+
+struct SelectionOutlineParamsSwift {
+    var viewProjectionMatrix: simd_float4x4
+    var modelMatrix: simd_float4x4
+    var outlineColor: SIMD3<Float>
+    var outlineScale: Float
+}
+
+struct ShadowUniformsSwift {
+    var lightViewProjectionMatrix: simd_float4x4
+    var modelMatrix: simd_float4x4
+}
+
+struct SSAOParamsSwift {
+    var texelSize: SIMD2<Float>
+    var radius: Float
+    var intensity: Float
+    var nearPlane: Float
+    var farPlane: Float
+    var silhouetteThickness: Float
+    var silhouetteIntensity: Float
 }
 
 // MARK: - Cached Body Buffers
@@ -69,12 +95,39 @@ public final class ViewportRenderer: NSObject, MTKViewDelegate, Sendable {
 
     private let device: MTLDevice
     private let commandQueue: MTLCommandQueue
+    // MSAA pipelines (sampleCount matches view — 4 or 1)
     private let shadedPipeline: MTLRenderPipelineState
     private let wireframePipeline: MTLRenderPipelineState
     private let gridPipeline: MTLRenderPipelineState
     private let axisPipeline: MTLRenderPipelineState
+    // 1x pick-only pipelines (pick texture is always sampleCount=1)
+    private let pickShadedPipeline: MTLRenderPipelineState
+    // Depth-only pipeline for SSAO depth pass
+    private let depthOnlyPipeline: MTLRenderPipelineState
+    // Shadow mapping
+    private let shadowPipeline: MTLRenderPipelineState
+    private let shadowMapManager: ShadowMapManager
+    // Selection outline
+    private let outlinePipeline: MTLRenderPipelineState
+    private let stencilWriteState: MTLDepthStencilState
+    private let stencilTestState: MTLDepthStencilState
     private let depthState: MTLDepthStencilState
     private let matcapTexture: MTLTexture
+    private let msaaSampleCount: Int
+
+    /// Depth texture for the 1x pick pass (separate from the MSAA depth).
+    private var pickDepthTexture: MTLTexture?
+    private var pickDepthWidth: Int = 0
+    private var pickDepthHeight: Int = 0
+
+    // SSAO post-process
+    private let ssaoPipeline: MTLRenderPipelineState?
+    /// 1x resolved color texture for SSAO input (MSAA resolves into this)
+    private var resolvedColorTexture: MTLTexture?
+    /// 1x resolved depth texture for SSAO depth sampling
+    private var resolvedDepthTexture: MTLTexture?
+    private var resolvedWidth: Int = 0
+    private var resolvedHeight: Int = 0
 
     private weak var controller: ViewportController?
     private var bodiesBinding: Binding<[ViewportBody]>
@@ -109,6 +162,9 @@ public final class ViewportRenderer: NSObject, MTKViewDelegate, Sendable {
         self.controller = controller
         self.bodiesBinding = bodies
 
+        let sampleCount = controller.configuration.msaaSampleCount
+        self.msaaSampleCount = sampleCount
+
         // Load shader library.
         // Xcode compiles .metal → default.metallib inside the resource bundle.
         // Plain SPM copies the .metal source, so fall back to runtime compilation.
@@ -123,27 +179,29 @@ public final class ViewportRenderer: NSObject, MTKViewDelegate, Sendable {
             return nil
         }
 
-        // Shaded pipeline
+        // Vertex descriptor for interleaved position + normal (stride 6 floats)
+        let vertexDesc = MTLVertexDescriptor()
+        vertexDesc.attributes[0].format = .float3
+        vertexDesc.attributes[0].offset = 0
+        vertexDesc.attributes[0].bufferIndex = 0
+        vertexDesc.attributes[1].format = .float3
+        vertexDesc.attributes[1].offset = MemoryLayout<Float>.size * 3
+        vertexDesc.attributes[1].bufferIndex = 0
+        vertexDesc.layouts[0].stride = MemoryLayout<Float>.size * 6
+
+        let depthFormat: MTLPixelFormat = .depth32Float_stencil8
+
+        // --- MSAA pipelines (color-only, no pick texture) ---
+
+        // Shaded pipeline (MSAA)
         let shadedDesc = MTLRenderPipelineDescriptor()
         shadedDesc.vertexFunction = library.makeFunction(name: "shaded_vertex")
         shadedDesc.fragmentFunction = library.makeFunction(name: "shaded_fragment")
         shadedDesc.colorAttachments[0].pixelFormat = .bgra8Unorm
-        shadedDesc.colorAttachments[1].pixelFormat = .r32Uint
-        shadedDesc.depthAttachmentPixelFormat = .depth32Float
-
-        // Vertex descriptor for interleaved position + normal (stride 6 floats)
-        let vertexDesc = MTLVertexDescriptor()
-        // Position: attribute(0), offset 0, 3 floats
-        vertexDesc.attributes[0].format = .float3
-        vertexDesc.attributes[0].offset = 0
-        vertexDesc.attributes[0].bufferIndex = 0
-        // Normal: attribute(1), offset 12 bytes (3 * 4)
-        vertexDesc.attributes[1].format = .float3
-        vertexDesc.attributes[1].offset = MemoryLayout<Float>.size * 3
-        vertexDesc.attributes[1].bufferIndex = 0
-        // Layout: stride = 6 floats = 24 bytes
-        vertexDesc.layouts[0].stride = MemoryLayout<Float>.size * 6
-
+        shadedDesc.colorAttachments[1].pixelFormat = .invalid
+        shadedDesc.depthAttachmentPixelFormat = depthFormat
+        shadedDesc.stencilAttachmentPixelFormat = depthFormat
+        shadedDesc.sampleCount = sampleCount
         shadedDesc.vertexDescriptor = vertexDesc
 
         guard let shadedPipeline = try? device.makeRenderPipelineState(descriptor: shadedDesc) else {
@@ -151,18 +209,20 @@ public final class ViewportRenderer: NSObject, MTKViewDelegate, Sendable {
         }
         self.shadedPipeline = shadedPipeline
 
-        // Wireframe pipeline (same vertex descriptor — uses position, ignores normal)
+        // Wireframe pipeline (MSAA)
         let wireDesc = MTLRenderPipelineDescriptor()
         wireDesc.vertexFunction = library.makeFunction(name: "wireframe_vertex")
         wireDesc.fragmentFunction = library.makeFunction(name: "wireframe_fragment")
         wireDesc.colorAttachments[0].pixelFormat = .bgra8Unorm
-        wireDesc.colorAttachments[1].pixelFormat = .r32Uint
+        wireDesc.colorAttachments[1].pixelFormat = .invalid
         wireDesc.colorAttachments[0].isBlendingEnabled = true
         wireDesc.colorAttachments[0].sourceRGBBlendFactor = .sourceAlpha
         wireDesc.colorAttachments[0].destinationRGBBlendFactor = .oneMinusSourceAlpha
         wireDesc.colorAttachments[0].sourceAlphaBlendFactor = .sourceAlpha
         wireDesc.colorAttachments[0].destinationAlphaBlendFactor = .oneMinusSourceAlpha
-        wireDesc.depthAttachmentPixelFormat = .depth32Float
+        wireDesc.depthAttachmentPixelFormat = depthFormat
+        wireDesc.stencilAttachmentPixelFormat = depthFormat
+        wireDesc.sampleCount = sampleCount
         wireDesc.vertexDescriptor = vertexDesc
 
         guard let wireframePipeline = try? device.makeRenderPipelineState(descriptor: wireDesc) else {
@@ -170,37 +230,38 @@ public final class ViewportRenderer: NSObject, MTKViewDelegate, Sendable {
         }
         self.wireframePipeline = wireframePipeline
 
-        // Grid pipeline (no vertex descriptor — positions computed in shader)
+        // Grid pipeline (MSAA)
         let gridDesc = MTLRenderPipelineDescriptor()
         gridDesc.vertexFunction = library.makeFunction(name: "grid_vertex")
         gridDesc.fragmentFunction = library.makeFunction(name: "grid_fragment")
         gridDesc.colorAttachments[0].pixelFormat = .bgra8Unorm
-        gridDesc.colorAttachments[1].pixelFormat = .r32Uint
-        gridDesc.depthAttachmentPixelFormat = .depth32Float
+        gridDesc.colorAttachments[1].pixelFormat = .invalid
+        gridDesc.depthAttachmentPixelFormat = depthFormat
+        gridDesc.stencilAttachmentPixelFormat = depthFormat
+        gridDesc.sampleCount = sampleCount
 
         guard let gridPipeline = try? device.makeRenderPipelineState(descriptor: gridDesc) else {
             return nil
         }
         self.gridPipeline = gridPipeline
 
-        // Axis pipeline
+        // Axis pipeline (MSAA)
         let axisDesc = MTLRenderPipelineDescriptor()
         axisDesc.vertexFunction = library.makeFunction(name: "axis_vertex")
         axisDesc.fragmentFunction = library.makeFunction(name: "axis_fragment")
         axisDesc.colorAttachments[0].pixelFormat = .bgra8Unorm
-        axisDesc.colorAttachments[1].pixelFormat = .r32Uint
-        axisDesc.depthAttachmentPixelFormat = .depth32Float
+        axisDesc.colorAttachments[1].pixelFormat = .invalid
+        axisDesc.depthAttachmentPixelFormat = depthFormat
+        axisDesc.stencilAttachmentPixelFormat = depthFormat
+        axisDesc.sampleCount = sampleCount
 
         let axisVertexDesc = MTLVertexDescriptor()
-        // Position: attribute(0), 3 floats
         axisVertexDesc.attributes[0].format = .float3
         axisVertexDesc.attributes[0].offset = 0
         axisVertexDesc.attributes[0].bufferIndex = 0
-        // Color: attribute(1), 4 floats
         axisVertexDesc.attributes[1].format = .float4
         axisVertexDesc.attributes[1].offset = MemoryLayout<Float>.size * 3
         axisVertexDesc.attributes[1].bufferIndex = 0
-        // Stride: 7 floats (px,py,pz, r,g,b,a)
         axisVertexDesc.layouts[0].stride = MemoryLayout<Float>.size * 7
 
         axisDesc.vertexDescriptor = axisVertexDesc
@@ -209,6 +270,80 @@ public final class ViewportRenderer: NSObject, MTKViewDelegate, Sendable {
             return nil
         }
         self.axisPipeline = axisPipeline
+
+        // --- 1x pick-only pipeline (R32Uint, no MSAA) ---
+
+        let pickShadedDesc = MTLRenderPipelineDescriptor()
+        pickShadedDesc.label = "pick_shaded"
+        pickShadedDesc.vertexFunction = library.makeFunction(name: "pick_vertex")
+        pickShadedDesc.fragmentFunction = library.makeFunction(name: "pick_fragment")
+        pickShadedDesc.colorAttachments[0].pixelFormat = .r32Uint
+        pickShadedDesc.depthAttachmentPixelFormat = .depth32Float
+        pickShadedDesc.sampleCount = 1
+        pickShadedDesc.vertexDescriptor = vertexDesc
+
+        guard let pickShadedPipeline = try? device.makeRenderPipelineState(descriptor: pickShadedDesc) else {
+            return nil
+        }
+        self.pickShadedPipeline = pickShadedPipeline
+
+        // Depth-only pipeline (for SSAO depth pass — no color attachments)
+        let depthOnlyDesc = MTLRenderPipelineDescriptor()
+        depthOnlyDesc.label = "depth_only"
+        depthOnlyDesc.vertexFunction = library.makeFunction(name: "depth_only_vertex")
+        depthOnlyDesc.fragmentFunction = library.makeFunction(name: "depth_only_fragment")
+        depthOnlyDesc.depthAttachmentPixelFormat = .depth32Float
+        depthOnlyDesc.sampleCount = 1
+        depthOnlyDesc.vertexDescriptor = vertexDesc
+
+        guard let depthOnlyPipeline = try? device.makeRenderPipelineState(descriptor: depthOnlyDesc) else {
+            return nil
+        }
+        self.depthOnlyPipeline = depthOnlyPipeline
+
+        // Shadow map pipeline (depth-only from light perspective)
+        let shadowDesc = MTLRenderPipelineDescriptor()
+        shadowDesc.label = "shadow_map"
+        shadowDesc.vertexFunction = library.makeFunction(name: "shadow_vertex")
+        shadowDesc.fragmentFunction = library.makeFunction(name: "depth_only_fragment")
+        shadowDesc.depthAttachmentPixelFormat = .depth32Float
+        shadowDesc.sampleCount = 1
+        shadowDesc.vertexDescriptor = vertexDesc
+
+        guard let shadowPipeline = try? device.makeRenderPipelineState(descriptor: shadowDesc) else {
+            return nil
+        }
+        self.shadowPipeline = shadowPipeline
+        self.shadowMapManager = ShadowMapManager(device: device)
+
+        // Selection outline pipeline (MSAA, renders expanded geometry where stencil != 1)
+        let outlineDesc = MTLRenderPipelineDescriptor()
+        outlineDesc.label = "selection_outline"
+        outlineDesc.vertexFunction = library.makeFunction(name: "selection_outline_vertex")
+        outlineDesc.fragmentFunction = library.makeFunction(name: "selection_outline_fragment")
+        outlineDesc.colorAttachments[0].pixelFormat = .bgra8Unorm
+        outlineDesc.colorAttachments[0].isBlendingEnabled = true
+        outlineDesc.colorAttachments[0].sourceRGBBlendFactor = .sourceAlpha
+        outlineDesc.colorAttachments[0].destinationRGBBlendFactor = .oneMinusSourceAlpha
+        outlineDesc.depthAttachmentPixelFormat = depthFormat
+        outlineDesc.stencilAttachmentPixelFormat = depthFormat
+        outlineDesc.sampleCount = sampleCount
+        outlineDesc.vertexDescriptor = vertexDesc
+
+        guard let outlinePipeline = try? device.makeRenderPipelineState(descriptor: outlineDesc) else {
+            return nil
+        }
+        self.outlinePipeline = outlinePipeline
+
+        // SSAO post-process pipeline (1x, renders to drawable)
+        let ssaoDesc = MTLRenderPipelineDescriptor()
+        ssaoDesc.label = "ssao_postprocess"
+        ssaoDesc.vertexFunction = library.makeFunction(name: "fullscreen_vertex")
+        ssaoDesc.fragmentFunction = library.makeFunction(name: "ssao_fragment")
+        ssaoDesc.colorAttachments[0].pixelFormat = .bgra8Unorm
+        // SSAO output goes directly to the MSAA resolve target (drawable), so sampleCount=1
+        // No depth needed for this fullscreen pass
+        self.ssaoPipeline = try? device.makeRenderPipelineState(descriptor: ssaoDesc)
 
         // Depth stencil state
         let depthDesc = MTLDepthStencilDescriptor()
@@ -219,6 +354,40 @@ public final class ViewportRenderer: NSObject, MTKViewDelegate, Sendable {
             return nil
         }
         self.depthState = depthState
+
+        // Stencil write state: write reference value to stencil for selected bodies
+        let stencilWriteDesc = MTLDepthStencilDescriptor()
+        stencilWriteDesc.depthCompareFunction = .less
+        stencilWriteDesc.isDepthWriteEnabled = true
+        let writeStencil = MTLStencilDescriptor()
+        writeStencil.stencilCompareFunction = .always
+        writeStencil.depthStencilPassOperation = .replace
+        writeStencil.stencilFailureOperation = .keep
+        writeStencil.depthFailureOperation = .keep
+        stencilWriteDesc.frontFaceStencil = writeStencil
+        stencilWriteDesc.backFaceStencil = writeStencil
+
+        guard let stencilWriteState = device.makeDepthStencilState(descriptor: stencilWriteDesc) else {
+            return nil
+        }
+        self.stencilWriteState = stencilWriteState
+
+        // Stencil test state: only draw where stencil != reference (the outline ring)
+        let stencilTestDesc = MTLDepthStencilDescriptor()
+        stencilTestDesc.depthCompareFunction = .always
+        stencilTestDesc.isDepthWriteEnabled = false
+        let testStencil = MTLStencilDescriptor()
+        testStencil.stencilCompareFunction = .notEqual
+        testStencil.stencilFailureOperation = .keep
+        testStencil.depthStencilPassOperation = .keep
+        testStencil.depthFailureOperation = .keep
+        stencilTestDesc.frontFaceStencil = testStencil
+        stencilTestDesc.backFaceStencil = testStencil
+
+        guard let stencilTestState = device.makeDepthStencilState(descriptor: stencilTestDesc) else {
+            return nil
+        }
+        self.stencilTestState = stencilTestState
 
         // Build axis vertex buffer (6 vertices for 3 lines)
         let axisLength: Float = 1000.0
@@ -345,33 +514,61 @@ public final class ViewportRenderer: NSObject, MTKViewDelegate, Sendable {
 
     // MARK: - Draw
 
+    /// Ensures 1x resolved color + depth textures for SSAO input.
+    private func ensureResolvedTextures(width: Int, height: Int) {
+        guard width > 0, height > 0 else { return }
+        guard width != resolvedWidth || height != resolvedHeight else { return }
+
+        // 1x color texture that receives the MSAA resolve output
+        let colorDesc = MTLTextureDescriptor.texture2DDescriptor(
+            pixelFormat: .bgra8Unorm,
+            width: width,
+            height: height,
+            mipmapped: false
+        )
+        colorDesc.usage = [.renderTarget, .shaderRead]
+        colorDesc.storageMode = .private
+        resolvedColorTexture = device.makeTexture(descriptor: colorDesc)
+
+        // 1x depth texture for SSAO depth sampling
+        let depthDesc = MTLTextureDescriptor.texture2DDescriptor(
+            pixelFormat: .depth32Float,
+            width: width,
+            height: height,
+            mipmapped: false
+        )
+        depthDesc.usage = [.renderTarget, .shaderRead]
+        depthDesc.storageMode = .private
+        resolvedDepthTexture = device.makeTexture(descriptor: depthDesc)
+
+        resolvedWidth = width
+        resolvedHeight = height
+    }
+
+    /// Ensures the 1x depth texture for the pick pass matches the given size.
+    private func ensurePickDepthTexture(width: Int, height: Int) {
+        guard width > 0, height > 0 else { return }
+        guard width != pickDepthWidth || height != pickDepthHeight else { return }
+
+        let desc = MTLTextureDescriptor.texture2DDescriptor(
+            pixelFormat: .depth32Float,
+            width: width,
+            height: height,
+            mipmapped: false
+        )
+        desc.usage = [.renderTarget]
+        desc.storageMode = .private
+        desc.sampleCount = 1
+
+        pickDepthTexture = device.makeTexture(descriptor: desc)
+        pickDepthWidth = width
+        pickDepthHeight = height
+    }
+
     private func drawOnMainActor(in view: MTKView) {
         guard let controller = controller else { return }
         guard let drawable = view.currentDrawable,
               let renderPassDescriptor = view.currentRenderPassDescriptor else { return }
-
-        // Picking: ensure pick texture matches drawable size and attach as color(1)
-        let pickingEnabled = controller.configuration.pickingConfiguration.isEnabled
-        if pickingEnabled {
-            let w = Int(view.drawableSize.width)
-            let h = Int(view.drawableSize.height)
-            pickTextureManager.ensureSize(width: w, height: h)
-
-            if let pickTex = pickTextureManager.texture {
-                renderPassDescriptor.colorAttachments[1].texture = pickTex
-                renderPassDescriptor.colorAttachments[1].loadAction = .clear
-                renderPassDescriptor.colorAttachments[1].storeAction = .store
-                renderPassDescriptor.colorAttachments[1].clearColor = MTLClearColor(
-                    red: Double(0xFFFF_FFFF),
-                    green: 0, blue: 0, alpha: 0
-                )
-            }
-        }
-
-        guard let commandBuffer = commandQueue.makeCommandBuffer(),
-              let encoder = commandBuffer.makeRenderCommandEncoder(descriptor: renderPassDescriptor) else { return }
-
-        encoder.setDepthStencilState(depthState)
 
         let cameraState = controller.cameraState
         let drawableSize = view.drawableSize
@@ -395,32 +592,32 @@ public final class ViewportRenderer: NSObject, MTKViewDelegate, Sendable {
             )
         }
 
-        // 1. Draw grid
-        if controller.showGrid {
-            drawGrid(encoder: encoder, viewProjection: viewProjection, cameraState: cameraState, config: controller.configuration)
+        // Shadow mapping: compute light VP matrix from key light direction
+        let shadowEnabled = lighting.shadowsEnabled
+        let lightVP: simd_float4x4
+        if shadowEnabled {
+            lightVP = computeLightViewProjection(lightDir: lighting.keyLight.direction, bodies: bodiesBinding.wrappedValue)
+        } else {
+            lightVP = matrix_identity_float4x4
         }
+        let shadowParams = SIMD4<Float>(
+            lighting.shadowBias,
+            lighting.shadowIntensity,
+            shadowEnabled ? 1.0 : 0.0,
+            0.0
+        )
 
-        // 2. Draw axes
-        if controller.showAxes {
-            drawAxes(encoder: encoder, viewProjection: viewProjection)
-        }
+        // Collect active clip planes (up to 4)
+        let activeClipPlanes = Array(controller.clipPlanes.filter { $0.isEnabled }.prefix(4))
+        let clipPlaneVecs: (SIMD4<Float>, SIMD4<Float>, SIMD4<Float>, SIMD4<Float>) = {
+            var planes: [SIMD4<Float>] = activeClipPlanes.map { $0.asFloat4 }
+            while planes.count < 4 { planes.append(.zero) }
+            return (planes[0], planes[1], planes[2], planes[3])
+        }()
+        let clipPlaneCount = UInt32(activeClipPlanes.count)
 
-        // 3. Draw bodies
-        let bodies = bodiesBinding.wrappedValue
-        let displayMode = controller.displayMode
-
-        // Build index map for picking: objectIndex → bodyID
-        var indexMap: [Int: String] = [:]
-        var objectIndex: UInt32 = 0
-
-        for body in bodies where body.isVisible {
-            ensureBuffers(for: body)
-
-            guard let buffers = bodyBufferCache[body.id] else { continue }
-
-            indexMap[Int(objectIndex)] = body.id
-
-            var uniforms = Uniforms(
+        func makeUniforms() -> Uniforms {
+            Uniforms(
                 viewProjectionMatrix: viewProjection,
                 modelMatrix: matrix_identity_float4x4,
                 viewMatrix: viewMatrix,
@@ -430,10 +627,128 @@ public final class ViewportRenderer: NSObject, MTKViewDelegate, Sendable {
                 light2: packLight(lightSources[2]),
                 ambientSkyColor: SIMD4<Float>(lighting.ambientSkyColor.x, lighting.ambientSkyColor.y, lighting.ambientSkyColor.z, lighting.specularPower),
                 ambientGroundColor: SIMD4<Float>(lighting.ambientGroundColor.x, lighting.ambientGroundColor.y, lighting.ambientGroundColor.z, lighting.specularIntensity),
-                materialParams: SIMD4<Float>(lighting.fresnelPower, lighting.fresnelIntensity, lighting.matcapBlend, farPlane)
+                materialParams: SIMD4<Float>(lighting.fresnelPower, lighting.fresnelIntensity, lighting.matcapBlend, farPlane),
+                lightViewProjectionMatrix: lightVP,
+                shadowParams: shadowParams,
+                clipPlanes: clipPlaneVecs,
+                clipPlaneCount: clipPlaneCount
             )
+        }
 
-            var bodyUniforms = BodyUniforms(color: body.color, objectIndex: objectIndex)
+        let bodies = bodiesBinding.wrappedValue
+        let displayMode = controller.displayMode
+
+        // Build index map for picking: objectIndex → bodyID
+        var indexMap: [Int: String] = [:]
+        var objectIndex: UInt32 = 0
+
+        // Ensure buffers for all visible bodies
+        for body in bodies where body.isVisible {
+            ensureBuffers(for: body)
+            indexMap[Int(objectIndex)] = body.id
+            objectIndex += 1
+        }
+        currentIndexMap = indexMap
+
+        let silhouettesEnabled = controller.configuration.enableSilhouettes
+        let ssaoEnabled = (lighting.enableSSAO || silhouettesEnabled) && ssaoPipeline != nil
+        let w = Int(drawableSize.width)
+        let h = Int(drawableSize.height)
+
+        if ssaoEnabled {
+            ensureResolvedTextures(width: w, height: h)
+        }
+
+        guard let commandBuffer = commandQueue.makeCommandBuffer() else { return }
+
+        // =========================================================
+        // Pass 0: Shadow map (if enabled)
+        // =========================================================
+        if shadowEnabled {
+            let mapSize = lighting.shadowMapSize
+            shadowMapManager.ensureSize(mapSize)
+
+            if let shadowTex = shadowMapManager.texture {
+                let shadowPass = MTLRenderPassDescriptor()
+                shadowPass.depthAttachment.texture = shadowTex
+                shadowPass.depthAttachment.loadAction = .clear
+                shadowPass.depthAttachment.storeAction = .store
+                shadowPass.depthAttachment.clearDepth = 1.0
+
+                if let shadowEncoder = commandBuffer.makeRenderCommandEncoder(descriptor: shadowPass) {
+                    shadowEncoder.setDepthStencilState(depthState)
+                    shadowEncoder.setCullMode(.front) // Reduce shadow acne with front-face culling
+                    shadowEncoder.setDepthBias(0.01, slopeScale: 1.5, clamp: 0.02)
+
+                    for body in bodies where body.isVisible {
+                        guard let buffers = bodyBufferCache[body.id] else { continue }
+                        let hasMesh = buffers.vertexBuffer != nil && buffers.indexBuffer != nil && buffers.indexCount > 0
+
+                        if hasMesh, let vb = buffers.vertexBuffer, let ib = buffers.indexBuffer {
+                            var shadowUniforms = ShadowUniformsSwift(
+                                lightViewProjectionMatrix: lightVP,
+                                modelMatrix: matrix_identity_float4x4
+                            )
+                            shadowEncoder.setRenderPipelineState(shadowPipeline)
+                            shadowEncoder.setVertexBuffer(vb, offset: 0, index: 0)
+                            shadowEncoder.setVertexBytes(&shadowUniforms, length: MemoryLayout<ShadowUniformsSwift>.size, index: 1)
+                            shadowEncoder.drawIndexedPrimitives(
+                                type: .triangle,
+                                indexCount: buffers.indexCount,
+                                indexType: .uint32,
+                                indexBuffer: ib,
+                                indexBufferOffset: 0
+                            )
+                        }
+                    }
+                    shadowEncoder.endEncoding()
+                }
+            }
+        }
+
+        // =========================================================
+        // Pass 1: Main MSAA render (color-only, no pick texture)
+        // =========================================================
+        renderPassDescriptor.colorAttachments[1].texture = nil
+
+        // When SSAO is enabled, redirect MSAA resolve to our intermediate texture
+        if ssaoEnabled, let resolvedColor = resolvedColorTexture {
+            if msaaSampleCount > 1 {
+                renderPassDescriptor.colorAttachments[0].resolveTexture = resolvedColor
+            } else {
+                // No MSAA: render directly to resolved color texture
+                renderPassDescriptor.colorAttachments[0].texture = resolvedColor
+            }
+        }
+
+        guard let mainEncoder = commandBuffer.makeRenderCommandEncoder(descriptor: renderPassDescriptor) else { return }
+        mainEncoder.setDepthStencilState(depthState)
+
+        // 1. Draw grid
+        if controller.showGrid {
+            drawGrid(encoder: mainEncoder, viewProjection: viewProjection, cameraState: cameraState, config: controller.configuration)
+        }
+
+        // 2. Draw axes
+        if controller.showAxes {
+            drawAxes(encoder: mainEncoder, viewProjection: viewProjection)
+        }
+
+        // 3. Draw bodies
+        let selectedIDs = controller.selectedBodyIDs
+        let hoveredID = controller.hoveredBodyID
+
+        objectIndex = 0
+        for body in bodies where body.isVisible {
+            guard let buffers = bodyBufferCache[body.id] else {
+                objectIndex += 1
+                continue
+            }
+
+            var uniforms = makeUniforms()
+
+            let selState: UInt32 = selectedIDs.contains(body.id) ? 1 : (hoveredID == body.id ? 2 : 0)
+            var bodyUniforms = BodyUniforms(color: body.color, objectIndex: objectIndex, roughness: body.roughness, metallic: body.metallic, isSelected: selState)
 
             let hasMesh = buffers.vertexBuffer != nil && buffers.indexBuffer != nil && buffers.indexCount > 0
             let hasEdges = buffers.edgeVertexBuffer != nil && buffers.edgeVertexCount > 0
@@ -441,13 +756,24 @@ public final class ViewportRenderer: NSObject, MTKViewDelegate, Sendable {
             // Shaded pass (mesh bodies only)
             if displayMode.showsSurfaces, hasMesh,
                let vb = buffers.vertexBuffer, let ib = buffers.indexBuffer {
-                encoder.setRenderPipelineState(shadedPipeline)
-                encoder.setVertexBuffer(vb, offset: 0, index: 0)
-                encoder.setVertexBytes(&uniforms, length: MemoryLayout<Uniforms>.size, index: 1)
-                encoder.setFragmentBytes(&uniforms, length: MemoryLayout<Uniforms>.size, index: 1)
-                encoder.setFragmentBytes(&bodyUniforms, length: MemoryLayout<BodyUniforms>.size, index: 2)
-                encoder.setFragmentTexture(matcapTexture, index: 0)
-                encoder.drawIndexedPrimitives(
+                // Write stencil=1 for selected bodies
+                if selState > 0 {
+                    mainEncoder.setDepthStencilState(stencilWriteState)
+                    mainEncoder.setStencilReferenceValue(1)
+                } else {
+                    mainEncoder.setDepthStencilState(depthState)
+                }
+
+                mainEncoder.setRenderPipelineState(shadedPipeline)
+                mainEncoder.setVertexBuffer(vb, offset: 0, index: 0)
+                mainEncoder.setVertexBytes(&uniforms, length: MemoryLayout<Uniforms>.size, index: 1)
+                mainEncoder.setFragmentBytes(&uniforms, length: MemoryLayout<Uniforms>.size, index: 1)
+                mainEncoder.setFragmentBytes(&bodyUniforms, length: MemoryLayout<BodyUniforms>.size, index: 2)
+                mainEncoder.setFragmentTexture(matcapTexture, index: 0)
+                if shadowEnabled, let shadowTex = shadowMapManager.texture {
+                    mainEncoder.setFragmentTexture(shadowTex, index: 1)
+                }
+                mainEncoder.drawIndexedPrimitives(
                     type: .triangle,
                     indexCount: buffers.indexCount,
                     indexType: .uint32,
@@ -456,23 +782,190 @@ public final class ViewportRenderer: NSObject, MTKViewDelegate, Sendable {
                 )
             }
 
-            // Wireframe/edge pass — always draw edges for edge-only bodies,
-            // otherwise respect displayMode.showsEdges
+            // Wireframe/edge pass
             let shouldDrawEdges = hasEdges && (displayMode.showsEdges || !hasMesh)
             if shouldDrawEdges, let edgeVB = buffers.edgeVertexBuffer {
-                encoder.setRenderPipelineState(wireframePipeline)
-                encoder.setVertexBuffer(edgeVB, offset: 0, index: 0)
-                encoder.setVertexBytes(&uniforms, length: MemoryLayout<Uniforms>.size, index: 1)
-                encoder.setFragmentBytes(&uniforms, length: MemoryLayout<Uniforms>.size, index: 1)
-                encoder.setFragmentBytes(&bodyUniforms, length: MemoryLayout<BodyUniforms>.size, index: 2)
-                encoder.drawPrimitives(type: .line, vertexStart: 0, vertexCount: buffers.edgeVertexCount)
+                mainEncoder.setRenderPipelineState(wireframePipeline)
+                mainEncoder.setVertexBuffer(edgeVB, offset: 0, index: 0)
+                mainEncoder.setVertexBytes(&uniforms, length: MemoryLayout<Uniforms>.size, index: 1)
+                mainEncoder.setFragmentBytes(&uniforms, length: MemoryLayout<Uniforms>.size, index: 1)
+                mainEncoder.setFragmentBytes(&bodyUniforms, length: MemoryLayout<BodyUniforms>.size, index: 2)
+                mainEncoder.drawPrimitives(type: .line, vertexStart: 0, vertexCount: buffers.edgeVertexCount)
             }
 
             objectIndex += 1
         }
 
-        // Store index map for pick readback
-        currentIndexMap = indexMap
+        // 4. Selection outline pass (stencil test: draw only where stencil != 1)
+        let allSelectedIDs = selectedIDs.union(hoveredID.map { [$0] } ?? [])
+        if !allSelectedIDs.isEmpty {
+            mainEncoder.setRenderPipelineState(outlinePipeline)
+            mainEncoder.setDepthStencilState(stencilTestState)
+            mainEncoder.setStencilReferenceValue(1)
+
+            for body in bodies where body.isVisible && allSelectedIDs.contains(body.id) {
+                guard let buffers = bodyBufferCache[body.id],
+                      let vb = buffers.vertexBuffer,
+                      let ib = buffers.indexBuffer,
+                      buffers.indexCount > 0 else { continue }
+
+                let isHover = (hoveredID == body.id && !selectedIDs.contains(body.id))
+                let outlineColor: SIMD3<Float> = isHover
+                    ? SIMD3<Float>(0.4, 0.7, 1.0)  // light blue for hover
+                    : SIMD3<Float>(0.1, 0.5, 1.0)   // bright blue for selection
+
+                var outlineParams = SelectionOutlineParamsSwift(
+                    viewProjectionMatrix: viewProjection,
+                    modelMatrix: matrix_identity_float4x4,
+                    outlineColor: outlineColor,
+                    outlineScale: 0.015
+                )
+
+                mainEncoder.setVertexBuffer(vb, offset: 0, index: 0)
+                mainEncoder.setVertexBytes(&outlineParams, length: MemoryLayout<SelectionOutlineParamsSwift>.size, index: 1)
+                mainEncoder.setFragmentBytes(&outlineParams, length: MemoryLayout<SelectionOutlineParamsSwift>.size, index: 1)
+                mainEncoder.drawIndexedPrimitives(
+                    type: .triangle,
+                    indexCount: buffers.indexCount,
+                    indexType: .uint32,
+                    indexBuffer: ib,
+                    indexBufferOffset: 0
+                )
+            }
+        }
+
+        mainEncoder.endEncoding()
+
+        // =========================================================
+        // Pass 2: 1x Pick pass (R32Uint, no MSAA)
+        // =========================================================
+        let pickingEnabled = controller.configuration.pickingConfiguration.isEnabled
+        if pickingEnabled {
+            let w = Int(drawableSize.width)
+            let h = Int(drawableSize.height)
+            pickTextureManager.ensureSize(width: w, height: h)
+            ensurePickDepthTexture(width: w, height: h)
+
+            if let pickTex = pickTextureManager.texture, let pickDepth = pickDepthTexture {
+                let pickPass = MTLRenderPassDescriptor()
+                pickPass.colorAttachments[0].texture = pickTex
+                pickPass.colorAttachments[0].loadAction = .clear
+                pickPass.colorAttachments[0].storeAction = .store
+                pickPass.colorAttachments[0].clearColor = MTLClearColor(
+                    red: Double(0xFFFF_FFFF),
+                    green: 0, blue: 0, alpha: 0
+                )
+                pickPass.depthAttachment.texture = pickDepth
+                pickPass.depthAttachment.loadAction = .clear
+                pickPass.depthAttachment.storeAction = .dontCare
+                pickPass.depthAttachment.clearDepth = 1.0
+
+                if let pickEncoder = commandBuffer.makeRenderCommandEncoder(descriptor: pickPass) {
+                    pickEncoder.setDepthStencilState(depthState)
+
+                    objectIndex = 0
+                    for body in bodies where body.isVisible {
+                        guard let buffers = bodyBufferCache[body.id] else {
+                            objectIndex += 1
+                            continue
+                        }
+
+                        let hasMesh = buffers.vertexBuffer != nil && buffers.indexBuffer != nil && buffers.indexCount > 0
+
+                        if hasMesh, let vb = buffers.vertexBuffer, let ib = buffers.indexBuffer {
+                            var uniforms = makeUniforms()
+                            var bodyUniforms = BodyUniforms(color: body.color, objectIndex: objectIndex, roughness: body.roughness, metallic: body.metallic)
+
+                            pickEncoder.setRenderPipelineState(pickShadedPipeline)
+                            pickEncoder.setVertexBuffer(vb, offset: 0, index: 0)
+                            pickEncoder.setVertexBytes(&uniforms, length: MemoryLayout<Uniforms>.size, index: 1)
+                            pickEncoder.setFragmentBytes(&bodyUniforms, length: MemoryLayout<BodyUniforms>.size, index: 2)
+                            pickEncoder.drawIndexedPrimitives(
+                                type: .triangle,
+                                indexCount: buffers.indexCount,
+                                indexType: .uint32,
+                                indexBuffer: ib,
+                                indexBufferOffset: 0
+                            )
+                        }
+
+                        objectIndex += 1
+                    }
+
+                    pickEncoder.endEncoding()
+                }
+            }
+        }
+
+        // =========================================================
+        // Pass 3: SSAO post-process (if enabled)
+        // =========================================================
+        if ssaoEnabled, let ssaoPipeline = ssaoPipeline,
+           let resolvedColor = resolvedColorTexture,
+           let resolvedDepth = resolvedDepthTexture {
+
+            // First: render a 1x depth-only pass for SSAO sampling
+            let depthOnlyPass = MTLRenderPassDescriptor()
+            depthOnlyPass.depthAttachment.texture = resolvedDepth
+            depthOnlyPass.depthAttachment.loadAction = .clear
+            depthOnlyPass.depthAttachment.storeAction = .store
+            depthOnlyPass.depthAttachment.clearDepth = 1.0
+
+            if let depthEncoder = commandBuffer.makeRenderCommandEncoder(descriptor: depthOnlyPass) {
+                depthEncoder.setDepthStencilState(depthState)
+
+                objectIndex = 0
+                for body in bodies where body.isVisible {
+                    guard let buffers = bodyBufferCache[body.id] else {
+                        objectIndex += 1
+                        continue
+                    }
+                    let hasMesh = buffers.vertexBuffer != nil && buffers.indexBuffer != nil && buffers.indexCount > 0
+                    if hasMesh, let vb = buffers.vertexBuffer, let ib = buffers.indexBuffer {
+                        var uniforms = makeUniforms()
+
+                        depthEncoder.setRenderPipelineState(depthOnlyPipeline)
+                        depthEncoder.setVertexBuffer(vb, offset: 0, index: 0)
+                        depthEncoder.setVertexBytes(&uniforms, length: MemoryLayout<Uniforms>.size, index: 1)
+                        depthEncoder.drawIndexedPrimitives(
+                            type: .triangle,
+                            indexCount: buffers.indexCount,
+                            indexType: .uint32,
+                            indexBuffer: ib,
+                            indexBufferOffset: 0
+                        )
+                    }
+                    objectIndex += 1
+                }
+                depthEncoder.endEncoding()
+            }
+
+            // SSAO composite pass: read resolved color + depth, output to drawable
+            let ssaoPass = MTLRenderPassDescriptor()
+            ssaoPass.colorAttachments[0].texture = drawable.texture
+            ssaoPass.colorAttachments[0].loadAction = .dontCare
+            ssaoPass.colorAttachments[0].storeAction = .store
+
+            if let ssaoEncoder = commandBuffer.makeRenderCommandEncoder(descriptor: ssaoPass) {
+                ssaoEncoder.setRenderPipelineState(ssaoPipeline)
+
+                let silhouetteConfig = controller.configuration
+                var ssaoParams = SSAOParamsSwift(
+                    texelSize: SIMD2<Float>(1.0 / Float(w), 1.0 / Float(h)),
+                    radius: lighting.ssaoRadius,
+                    intensity: lighting.ssaoIntensity,
+                    nearPlane: nearPlane,
+                    farPlane: farPlane,
+                    silhouetteThickness: silhouetteConfig.enableSilhouettes ? silhouetteConfig.silhouetteThickness : 0.0,
+                    silhouetteIntensity: silhouetteConfig.enableSilhouettes ? silhouetteConfig.silhouetteIntensity : 0.0
+                )
+                ssaoEncoder.setFragmentTexture(resolvedDepth, index: 0)
+                ssaoEncoder.setFragmentTexture(resolvedColor, index: 1)
+                ssaoEncoder.setFragmentBytes(&ssaoParams, length: MemoryLayout<SSAOParamsSwift>.size, index: 0)
+                ssaoEncoder.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 3)
+                ssaoEncoder.endEncoding()
+            }
+        }
 
         // Prune cache entries for bodies no longer in the scene.
         let activeIDs = Set(bodies.map(\.id))
@@ -481,7 +974,6 @@ public final class ViewportRenderer: NSObject, MTKViewDelegate, Sendable {
             bodyGeneration.removeValue(forKey: id)
         }
 
-        encoder.endEncoding()
         commandBuffer.present(drawable)
         commandBuffer.commit()
     }
@@ -544,6 +1036,58 @@ public final class ViewportRenderer: NSObject, MTKViewDelegate, Sendable {
         encoder.setVertexBuffer(axisVertexBuffer, offset: 0, index: 0)
         encoder.setVertexBytes(&axisUniforms, length: MemoryLayout<AxisUniforms>.size, index: 1)
         encoder.drawPrimitives(type: .line, vertexStart: 0, vertexCount: 6)
+    }
+
+    // MARK: - Shadow Map Helpers
+
+    /// Computes an orthographic light view-projection matrix that encompasses the scene.
+    private func computeLightViewProjection(lightDir: SIMD3<Float>, bodies: [ViewportBody]) -> simd_float4x4 {
+        // Compute scene bounding box
+        var sceneMin = SIMD3<Float>(repeating: Float.greatestFiniteMagnitude)
+        var sceneMax = SIMD3<Float>(repeating: -Float.greatestFiniteMagnitude)
+        var hasGeometry = false
+
+        for body in bodies where body.isVisible {
+            if let bb = body.boundingBox {
+                sceneMin = simd_min(sceneMin, bb.min)
+                sceneMax = simd_max(sceneMax, bb.max)
+                hasGeometry = true
+            }
+        }
+
+        if !hasGeometry {
+            sceneMin = SIMD3<Float>(-5, -5, -5)
+            sceneMax = SIMD3<Float>(5, 5, 5)
+        }
+
+        let center = (sceneMin + sceneMax) * 0.5
+        let extents = sceneMax - sceneMin
+        let radius = simd_length(extents) * 0.5
+
+        // Look-at from light direction
+        let dir = simd_normalize(lightDir)
+        let lightPos = center - dir * (radius * 2.0)
+
+        // Determine up vector (avoid parallel to light direction)
+        let tentativeUp = SIMD3<Float>(0, 1, 0)
+        let up: SIMD3<Float>
+        if abs(simd_dot(dir, tentativeUp)) > 0.99 {
+            up = SIMD3<Float>(0, 0, 1)
+        } else {
+            up = tentativeUp
+        }
+
+        let lightView = simd_float4x4.lookAt(eye: lightPos, target: center, up: up)
+
+        // Orthographic projection that covers the scene sphere
+        let orthoSize = radius * 1.5
+        let lightProj = simd_float4x4.orthographic(
+            left: -orthoSize, right: orthoSize,
+            bottom: -orthoSize, top: orthoSize,
+            near: 0.01, far: radius * 4.0
+        )
+
+        return lightProj * lightView
     }
 
     // MARK: - Buffer Management

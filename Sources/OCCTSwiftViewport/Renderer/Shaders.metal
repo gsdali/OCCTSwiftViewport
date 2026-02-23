@@ -23,21 +23,25 @@ struct Uniforms {
     float4   ambientGroundColor;       // rgb = ground color, w = specularIntensity
     float4   materialParams;           // x = fresnelPower, y = fresnelIntensity,
                                        // z = matcapBlend, w = farPlane
+    float4x4 lightViewProjectionMatrix; // for shadow mapping
+    float4   shadowParams;             // x = bias, y = intensity, z = enabled, w = unused
+    float4   clipPlanes[4];            // xyz = normal, w = distance (dot(N,P)+w < 0 → clip)
+    uint     clipPlaneCount;           // number of active clip planes (0–4)
+    float3   _clipPad;                 // padding to 16-byte alignment
 };
 
 struct BodyUniforms {
     float4 color;
     uint   objectIndex;
-    uint   _pad0;
-    uint   _pad1;
-    uint   _pad2;
+    float  roughness;
+    float  metallic;
+    uint   isSelected;  // 1 = selected, 2 = hovered
 };
 
-// MARK: - Fragment Output (dual color attachment for pick ID)
+// MARK: - Fragment Output (color-only for MSAA pass)
 
 struct ShadedFragmentOut {
-    float4 color  [[color(0)]];
-    uint   pickID [[color(1)]];
+    float4 color [[color(0)]];
 };
 
 // MARK: - Vertex Structs
@@ -58,6 +62,7 @@ struct ShadedVertexOut {
 struct WireframeVertexOut {
     float4 clipPosition [[position]];
     float4 clipPositionCopy; // for depth-based edge alpha
+    float3 worldPosition;    // for clip plane testing
 };
 
 // MARK: - Grid / Axis Structs
@@ -74,6 +79,47 @@ struct GridVertexOut {
 struct LineVertexOut {
     float4 clipPosition [[position]];
 };
+
+// MARK: - PBR Helpers
+
+// GGX/Trowbridge-Reitz normal distribution function
+inline float distributionGGX(float NdotH, float roughness) {
+    float a = roughness * roughness;
+    float a2 = a * a;
+    float denom = NdotH * NdotH * (a2 - 1.0) + 1.0;
+    return a2 / (M_PI_F * denom * denom + 1e-7);
+}
+
+// Schlick-GGX geometry function
+inline float geometrySchlickGGX(float NdotV, float roughness) {
+    float r = roughness + 1.0;
+    float k = (r * r) / 8.0;
+    return NdotV / (NdotV * (1.0 - k) + k);
+}
+
+// Smith's geometry function
+inline float geometrySmith(float NdotV, float NdotL, float roughness) {
+    return geometrySchlickGGX(NdotV, roughness) * geometrySchlickGGX(NdotL, roughness);
+}
+
+// Schlick Fresnel approximation
+inline float3 fresnelSchlick(float cosTheta, float3 F0) {
+    return F0 + (1.0 - F0) * pow(saturate(1.0 - cosTheta), 5.0);
+}
+
+// Procedural environment reflection: sky-ground gradient
+inline float3 sampleEnvironment(float3 direction) {
+    float t = direction.y * 0.5 + 0.5; // 0 = ground, 1 = sky
+    float3 groundColor = float3(0.3, 0.28, 0.25);
+    float3 horizonColor = float3(0.7, 0.72, 0.75);
+    float3 skyColor = float3(0.85, 0.9, 1.0);
+    // Two-segment blend: ground→horizon→sky
+    if (t < 0.5) {
+        return mix(groundColor, horizonColor, smoothstep(0.0, 0.5, t));
+    } else {
+        return mix(horizonColor, skyColor, smoothstep(0.5, 1.0, t));
+    }
+}
 
 // MARK: - Shaded Pipeline
 
@@ -92,58 +138,125 @@ vertex ShadedVertexOut shaded_vertex(
     return out;
 }
 
+// PCF shadow sampling with 4 taps
+inline float sampleShadow(float4 lightSpacePos, depth2d<float> shadowMap, float bias) {
+    // Perspective divide
+    float3 projCoords = lightSpacePos.xyz / lightSpacePos.w;
+    // Transform from [-1,1] to [0,1] UV space
+    float2 shadowUV = projCoords.xy * 0.5 + 0.5;
+    shadowUV.y = 1.0 - shadowUV.y; // Metal texture origin is top-left
+    float currentDepth = projCoords.z;
+
+    // Outside shadow map bounds → no shadow
+    if (shadowUV.x < 0.0 || shadowUV.x > 1.0 || shadowUV.y < 0.0 || shadowUV.y > 1.0) {
+        return 1.0;
+    }
+
+    constexpr sampler shadowSampler(filter::linear, address::clamp_to_edge, compare_func::less);
+
+    // 4-tap PCF
+    float2 texelSize = 1.0 / float2(shadowMap.get_width(), shadowMap.get_height());
+    float shadow = 0.0;
+    const float2 offsets[4] = {
+        float2(-0.5, -0.5), float2( 0.5, -0.5),
+        float2(-0.5,  0.5), float2( 0.5,  0.5)
+    };
+    for (int i = 0; i < 4; i++) {
+        float2 uv = shadowUV + offsets[i] * texelSize;
+        shadow += shadowMap.sample_compare(shadowSampler, uv, currentDepth - bias);
+    }
+    return shadow / 4.0;
+}
+
 fragment ShadedFragmentOut shaded_fragment(
     ShadedVertexOut in [[stage_in]],
     constant Uniforms &uniforms [[buffer(1)]],
     constant BodyUniforms &bodyUniforms [[buffer(2)]],
     texture2d<float> matcapTexture [[texture(0)]],
-    uint primitiveID [[primitive_id]]
+    depth2d<float> shadowMap [[texture(1)]]
 ) {
+    // Clip plane discard
+    for (uint cp = 0; cp < uniforms.clipPlaneCount; cp++) {
+        float4 plane = uniforms.clipPlanes[cp];
+        if (dot(plane.xyz, in.worldPosition) + plane.w < 0.0) {
+            discard_fragment();
+        }
+    }
+
     float3 N = normalize(in.worldNormal);
     float3 V = normalize(uniforms.cameraPosition.xyz - in.worldPosition);
+    float NdotV = max(dot(N, V), 0.001);
 
-    float specularPower = uniforms.ambientSkyColor.w;
-    float specularIntensity = uniforms.ambientGroundColor.w;
     float fresnelPower = uniforms.materialParams.x;
     float fresnelIntensity = uniforms.materialParams.y;
     float matcapBlend = uniforms.materialParams.z;
 
+    float roughness = clamp(bodyUniforms.roughness, 0.04, 1.0);
+    float metallic = saturate(bodyUniforms.metallic);
     float3 bodyColor = bodyUniforms.color.rgb;
 
+    // PBR base reflectance (dielectric = 0.04, metal = body color)
+    float3 F0 = mix(float3(0.04), bodyColor, metallic);
+
     // Accumulate lighting from up to 3 lights
-    float3 diffuseAccum = float3(0.0);
-    float3 specularAccum = float3(0.0);
+    float3 Lo = float3(0.0); // Outgoing radiance
 
     for (int i = 0; i < 3; i++) {
         float enabled = uniforms.lights[i].colorAndEnabled.a;
         if (enabled < 0.5) continue;
 
-        float3 lightDir = normalize(-uniforms.lights[i].directionAndIntensity.xyz);
+        float3 L = normalize(-uniforms.lights[i].directionAndIntensity.xyz);
         float intensity = uniforms.lights[i].directionAndIntensity.w;
         float3 lightColor = uniforms.lights[i].colorAndEnabled.rgb;
+        float3 H = normalize(L + V);
 
-        // Diffuse
-        float diff = max(dot(N, lightDir), 0.0);
-        diffuseAccum += bodyColor * diff * intensity * lightColor;
+        float NdotL = max(dot(N, L), 0.0);
+        float NdotH = max(dot(N, H), 0.0);
+        float HdotV = max(dot(H, V), 0.0);
 
-        // Blinn-Phong specular
-        float3 H = normalize(lightDir + V);
-        float spec = pow(max(dot(N, H), 0.0), specularPower);
-        specularAccum += spec * intensity * lightColor * specularIntensity;
+        // Cook-Torrance BRDF
+        float D = distributionGGX(NdotH, roughness);
+        float G = geometrySmith(NdotV, NdotL, roughness);
+        float3 F = fresnelSchlick(HdotV, F0);
+
+        float3 numerator = D * G * F;
+        float denominator = 4.0 * NdotV * NdotL + 0.0001;
+        float3 specular = numerator / denominator;
+
+        // Energy conservation: diffuse only for non-reflected light
+        float3 kD = (1.0 - F) * (1.0 - metallic);
+        float3 diffuse = kD * bodyColor / M_PI_F;
+
+        Lo += (diffuse + specular) * lightColor * intensity * NdotL;
+    }
+
+    // Shadow mapping: darken key light contribution
+    if (uniforms.shadowParams.z > 0.5) {
+        float4 lightSpacePos = uniforms.lightViewProjectionMatrix * uniforms.modelMatrix * float4(in.worldPosition, 1.0);
+        float shadowFactor = sampleShadow(lightSpacePos, shadowMap, uniforms.shadowParams.x);
+        float shadowDarkness = uniforms.shadowParams.y;
+        Lo *= mix(1.0 - shadowDarkness, 1.0, shadowFactor);
     }
 
     // Hemisphere ambient: blend ground→sky based on normal Y
     float3 skyColor = uniforms.ambientSkyColor.rgb;
     float3 groundColor = uniforms.ambientGroundColor.rgb;
     float hemiBlend = N.y * 0.5 + 0.5;
-    float3 ambient = mix(groundColor, skyColor, hemiBlend) * bodyColor;
+    float3 ambient = mix(groundColor, skyColor, hemiBlend) * bodyColor * (1.0 - metallic * 0.5);
 
-    // Fresnel rim
-    float fresnel = fresnelIntensity * pow(1.0 - saturate(dot(N, V)), fresnelPower);
+    // Environment reflection approximation
+    float3 R = reflect(-V, N);
+    float3 envColor = sampleEnvironment(R);
+    float envFresnel = pow(1.0 - NdotV, 5.0);
+    float envStrength = mix(0.04, 1.0, metallic) * mix(0.3, 1.0, envFresnel) * (1.0 - roughness * 0.7);
+    float3 envContribution = envColor * mix(float3(0.04), bodyColor, metallic) * envStrength;
+
+    // Fresnel rim (reduced for metallic surfaces)
+    float fresnel = fresnelIntensity * (1.0 - metallic * 0.5) * pow(1.0 - NdotV, fresnelPower);
     float3 rimColor = float3(fresnel);
 
     // Combine lighting
-    float3 litColor = diffuseAccum + specularAccum + ambient + rimColor;
+    float3 litColor = Lo + ambient + envContribution + rimColor;
 
     // Matcap
     if (matcapBlend > 0.001) {
@@ -154,10 +267,123 @@ fragment ShadedFragmentOut shaded_fragment(
         litColor = mix(litColor, matcapColor * bodyColor, matcapBlend);
     }
 
+    // Selection tint: subtle blue overlay for selected, lighter for hovered
+    if (bodyUniforms.isSelected == 1) {
+        litColor = mix(litColor, float3(0.3, 0.5, 1.0), 0.15);
+    } else if (bodyUniforms.isSelected == 2) {
+        litColor = mix(litColor, float3(0.4, 0.6, 1.0), 0.08);
+    }
+
     ShadedFragmentOut out;
     out.color = float4(litColor, bodyUniforms.color.a);
+    return out;
+}
+
+// MARK: - Pick-Only Pipeline (1x, no MSAA)
+
+struct PickVertexOut {
+    float4 clipPosition [[position]];
+};
+
+struct PickFragmentOut {
+    uint pickID [[color(0)]];
+};
+
+vertex PickVertexOut pick_vertex(
+    VertexIn in [[stage_in]],
+    constant Uniforms &uniforms [[buffer(1)]]
+) {
+    PickVertexOut out;
+    float4 worldPos = uniforms.modelMatrix * float4(in.position, 1.0);
+    out.clipPosition = uniforms.viewProjectionMatrix * worldPos;
+    return out;
+}
+
+fragment PickFragmentOut pick_fragment(
+    PickVertexOut in [[stage_in]],
+    constant BodyUniforms &bodyUniforms [[buffer(2)]],
+    uint primitiveID [[primitive_id]]
+) {
+    PickFragmentOut out;
     out.pickID = bodyUniforms.objectIndex | (primitiveID << 16);
     return out;
+}
+
+// MARK: - Selection Outline Pipeline
+
+struct SelectionOutlineParams {
+    float4x4 viewProjectionMatrix;
+    float4x4 modelMatrix;
+    float3 outlineColor;
+    float outlineScale;
+};
+
+struct SelectionOutlineVertexOut {
+    float4 clipPosition [[position]];
+};
+
+// Renders geometry slightly scaled along normals for the outline effect
+vertex SelectionOutlineVertexOut selection_outline_vertex(
+    VertexIn in [[stage_in]],
+    constant SelectionOutlineParams &params [[buffer(1)]]
+) {
+    // Scale vertex position along normal to create outline thickness
+    float3 expandedPos = in.position + in.normal * params.outlineScale;
+    float4 worldPos = params.modelMatrix * float4(expandedPos, 1.0);
+
+    SelectionOutlineVertexOut out;
+    out.clipPosition = params.viewProjectionMatrix * worldPos;
+    return out;
+}
+
+struct SelectionOutlineFragmentOut {
+    float4 color [[color(0)]];
+};
+
+fragment SelectionOutlineFragmentOut selection_outline_fragment(
+    SelectionOutlineVertexOut in [[stage_in]],
+    constant SelectionOutlineParams &params [[buffer(1)]]
+) {
+    SelectionOutlineFragmentOut out;
+    out.color = float4(params.outlineColor, 1.0);
+    return out;
+}
+
+// MARK: - Shadow Map Pipeline
+
+struct ShadowUniforms {
+    float4x4 lightViewProjectionMatrix;
+    float4x4 modelMatrix;
+};
+
+struct ShadowVertexOut {
+    float4 clipPosition [[position]];
+};
+
+vertex ShadowVertexOut shadow_vertex(
+    VertexIn in [[stage_in]],
+    constant ShadowUniforms &uniforms [[buffer(1)]]
+) {
+    ShadowVertexOut out;
+    float4 worldPos = uniforms.modelMatrix * float4(in.position, 1.0);
+    out.clipPosition = uniforms.lightViewProjectionMatrix * worldPos;
+    return out;
+}
+
+// MARK: - Depth-Only Pipeline (for SSAO depth pass)
+
+vertex PickVertexOut depth_only_vertex(
+    VertexIn in [[stage_in]],
+    constant Uniforms &uniforms [[buffer(1)]]
+) {
+    PickVertexOut out;
+    float4 worldPos = uniforms.modelMatrix * float4(in.position, 1.0);
+    out.clipPosition = uniforms.viewProjectionMatrix * worldPos;
+    return out;
+}
+
+// Empty fragment — only depth is written
+fragment void depth_only_fragment() {
 }
 
 // MARK: - Wireframe Pipeline
@@ -172,12 +398,12 @@ vertex WireframeVertexOut wireframe_vertex(
     // Small depth bias to prevent z-fighting over shaded surfaces
     out.clipPosition.z -= 0.0001 * out.clipPosition.w;
     out.clipPositionCopy = out.clipPosition;
+    out.worldPosition = worldPos.xyz;
     return out;
 }
 
 struct WireframeFragmentOut {
-    float4 color  [[color(0)]];
-    uint   pickID [[color(1)]];
+    float4 color [[color(0)]];
 };
 
 fragment WireframeFragmentOut wireframe_fragment(
@@ -185,6 +411,14 @@ fragment WireframeFragmentOut wireframe_fragment(
     constant Uniforms &uniforms [[buffer(1)]],
     constant BodyUniforms &bodyUniforms [[buffer(2)]]
 ) {
+    // Clip plane discard
+    for (uint cp = 0; cp < uniforms.clipPlaneCount; cp++) {
+        float4 plane = uniforms.clipPlanes[cp];
+        if (dot(plane.xyz, in.worldPosition) + plane.w < 0.0) {
+            discard_fragment();
+        }
+    }
+
     // Contrast-adaptive edge color: light edges on dark bodies, dark edges on light bodies
     float3 bodyColor = bodyUniforms.color.rgb;
     float luminance = dot(bodyColor, float3(0.299, 0.587, 0.114));
@@ -202,7 +436,6 @@ fragment WireframeFragmentOut wireframe_fragment(
 
     WireframeFragmentOut out;
     out.color = float4(edgeColor, edgeAlpha);
-    out.pickID = 0xFFFFFFFF; // sentinel — wireframe is not pickable
     return out;
 }
 
@@ -234,8 +467,7 @@ vertex GridVertexOut grid_vertex(
 }
 
 struct GridFragmentOut {
-    float4 color  [[color(0)]];
-    uint   pickID [[color(1)]];
+    float4 color [[color(0)]];
 };
 
 fragment GridFragmentOut grid_fragment(
@@ -249,7 +481,6 @@ fragment GridFragmentOut grid_fragment(
 
     GridFragmentOut out;
     out.color = uniforms.dotColor;
-    out.pickID = 0xFFFFFFFF; // sentinel — grid is not pickable
     return out;
 }
 
@@ -280,8 +511,7 @@ vertex AxisVertexOut axis_vertex(
 }
 
 struct AxisFragmentOut {
-    float4 color  [[color(0)]];
-    uint   pickID [[color(1)]];
+    float4 color [[color(0)]];
 };
 
 fragment AxisFragmentOut axis_fragment(
@@ -289,6 +519,117 @@ fragment AxisFragmentOut axis_fragment(
 ) {
     AxisFragmentOut out;
     out.color = in.color;
-    out.pickID = 0xFFFFFFFF; // sentinel — axes are not pickable
     return out;
+}
+
+// MARK: - SSAO Post-Process
+
+struct SSAOParams {
+    float2 texelSize;    // 1.0 / textureSize
+    float  radius;       // sample radius in UV space
+    float  intensity;    // darkness multiplier
+    float  nearPlane;
+    float  farPlane;
+    float  silhouetteThickness; // edge detection spread
+    float  silhouetteIntensity; // edge darkness
+};
+
+struct FullscreenVertexOut {
+    float4 position [[position]];
+    float2 texCoord;
+};
+
+// Fullscreen triangle (3 vertices cover entire screen, no vertex buffer needed)
+vertex FullscreenVertexOut fullscreen_vertex(uint vertexID [[vertex_id]]) {
+    FullscreenVertexOut out;
+    // Generate a fullscreen triangle from vertex ID (0, 1, 2)
+    float2 uv = float2((vertexID << 1) & 2, vertexID & 2);
+    out.position = float4(uv * 2.0 - 1.0, 0.0, 1.0);
+    out.texCoord = float2(uv.x, 1.0 - uv.y);
+    return out;
+}
+
+// Linearize a reverse-Z depth value
+inline float linearizeDepth(float depth, float near, float far) {
+    return near * far / (far - depth * (far - near));
+}
+
+// SSAO-lite + Edge Silhouettes combined post-process
+fragment float4 ssao_fragment(
+    FullscreenVertexOut in [[stage_in]],
+    texture2d<float> depthTexture [[texture(0)]],
+    texture2d<float> colorTexture [[texture(1)]],
+    constant SSAOParams &params [[buffer(0)]]
+) {
+    constexpr sampler texSampler(filter::linear, address::clamp_to_edge);
+    constexpr sampler pointSampler(filter::nearest, address::clamp_to_edge);
+
+    float4 sceneColor = colorTexture.sample(texSampler, in.texCoord);
+    float depth = depthTexture.sample(pointSampler, in.texCoord).r;
+
+    // Skip background (depth at or near 1.0)
+    if (depth > 0.9999) {
+        return sceneColor;
+    }
+
+    float linearDepth = linearizeDepth(depth, params.nearPlane, params.farPlane);
+    float result_ao = 1.0;
+    float result_edge = 0.0;
+
+    // --- SSAO ---
+    if (params.intensity > 0.001) {
+        const float2 offsets[8] = {
+            float2(-1.0,  0.0), float2( 1.0,  0.0),
+            float2( 0.0, -1.0), float2( 0.0,  1.0),
+            float2(-0.707, -0.707), float2( 0.707, -0.707),
+            float2(-0.707,  0.707), float2( 0.707,  0.707)
+        };
+
+        float occlusion = 0.0;
+        float scaledRadius = params.radius / max(linearDepth, 0.1);
+
+        for (int i = 0; i < 8; i++) {
+            float2 sampleUV = in.texCoord + offsets[i] * scaledRadius * params.texelSize * 4.0;
+            float sampleDepth = depthTexture.sample(pointSampler, sampleUV).r;
+            float sampleLinear = linearizeDepth(sampleDepth, params.nearPlane, params.farPlane);
+
+            float diff = linearDepth - sampleLinear;
+            float rangeCheck = smoothstep(0.0, 1.0, scaledRadius / (abs(diff) + 0.001));
+            occlusion += step(0.001, diff) * rangeCheck;
+        }
+
+        result_ao = 1.0 - (occlusion / 8.0) * params.intensity;
+        result_ao = clamp(result_ao, 0.0, 1.0);
+    }
+
+    // --- Edge Silhouettes (Sobel on depth) ---
+    if (params.silhouetteIntensity > 0.001) {
+        float2 ts = params.texelSize * params.silhouetteThickness;
+
+        // Sample 3x3 neighborhood depths
+        float d00 = linearizeDepth(depthTexture.sample(pointSampler, in.texCoord + float2(-ts.x, -ts.y)).r, params.nearPlane, params.farPlane);
+        float d10 = linearizeDepth(depthTexture.sample(pointSampler, in.texCoord + float2(  0.0, -ts.y)).r, params.nearPlane, params.farPlane);
+        float d20 = linearizeDepth(depthTexture.sample(pointSampler, in.texCoord + float2( ts.x, -ts.y)).r, params.nearPlane, params.farPlane);
+        float d01 = linearizeDepth(depthTexture.sample(pointSampler, in.texCoord + float2(-ts.x,   0.0)).r, params.nearPlane, params.farPlane);
+        float d21 = linearizeDepth(depthTexture.sample(pointSampler, in.texCoord + float2( ts.x,   0.0)).r, params.nearPlane, params.farPlane);
+        float d02 = linearizeDepth(depthTexture.sample(pointSampler, in.texCoord + float2(-ts.x,  ts.y)).r, params.nearPlane, params.farPlane);
+        float d12 = linearizeDepth(depthTexture.sample(pointSampler, in.texCoord + float2(  0.0,  ts.y)).r, params.nearPlane, params.farPlane);
+        float d22 = linearizeDepth(depthTexture.sample(pointSampler, in.texCoord + float2( ts.x,  ts.y)).r, params.nearPlane, params.farPlane);
+
+        // Sobel X and Y
+        float sobelX = -d00 + d20 - 2.0*d01 + 2.0*d21 - d02 + d22;
+        float sobelY = -d00 - 2.0*d10 - d20 + d02 + 2.0*d12 + d22;
+
+        // Normalize by center depth to make edges depth-invariant
+        float edgeMag = sqrt(sobelX * sobelX + sobelY * sobelY) / max(linearDepth, 0.01);
+
+        // Threshold and scale
+        result_edge = smoothstep(0.02, 0.15, edgeMag) * params.silhouetteIntensity;
+    }
+
+    // Combine: darken by AO and edge
+    float3 finalColor = sceneColor.rgb * result_ao;
+    finalColor = mix(finalColor, float3(0.1, 0.1, 0.12), result_edge);
+
+    return float4(finalColor, sceneColor.a);
 }

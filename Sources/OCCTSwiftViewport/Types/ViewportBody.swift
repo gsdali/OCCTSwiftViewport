@@ -37,6 +37,12 @@ public struct ViewportBody: Identifiable, Sendable {
     /// Body colour (RGBA).
     public var color: SIMD4<Float>
 
+    /// Surface roughness (0 = mirror, 1 = fully rough). Default 0.5.
+    public var roughness: Float
+
+    /// Metallic factor (0 = dielectric, 1 = metal). Default 0.0.
+    public var metallic: Float
+
     /// Whether this body should be rendered.
     public var isVisible: Bool
 
@@ -47,6 +53,8 @@ public struct ViewportBody: Identifiable, Sendable {
         edges: [[SIMD3<Float>]],
         faceIndices: [Int32] = [],
         color: SIMD4<Float>,
+        roughness: Float = 0.5,
+        metallic: Float = 0.0,
         isVisible: Bool = true
     ) {
         ViewportBody._nextGeneration += 1
@@ -57,6 +65,8 @@ public struct ViewportBody: Identifiable, Sendable {
         self.edges = edges
         self.faceIndices = faceIndices
         self.color = color
+        self.roughness = roughness
+        self.metallic = metallic
         self.isVisible = isVisible
     }
 }
