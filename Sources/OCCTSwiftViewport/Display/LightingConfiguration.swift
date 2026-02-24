@@ -35,6 +35,15 @@ public struct LightingConfiguration: Sendable {
     /// Shadow softness (0 = hard, 1 = soft).
     public var shadowSoftness: Float
 
+    /// Shadow map resolution (width and height in pixels).
+    public var shadowMapSize: Int
+
+    /// Shadow intensity (0 = no shadow, 1 = fully opaque).
+    public var shadowIntensity: Float
+
+    /// Depth bias to prevent shadow acne.
+    public var shadowBias: Float
+
     /// Specular shininess exponent (higher = tighter highlight).
     public var specularPower: Float
 
@@ -56,6 +65,15 @@ public struct LightingConfiguration: Sendable {
     /// Hemisphere ambient ground color (lower hemisphere).
     public var ambientGroundColor: SIMD3<Float>
 
+    /// Whether screen-space ambient occlusion is enabled.
+    public var enableSSAO: Bool
+
+    /// SSAO sampling radius in view-space units.
+    public var ssaoRadius: Float
+
+    /// SSAO darkening intensity (0 = none, 1 = maximum).
+    public var ssaoIntensity: Float
+
     // MARK: - Initialization
 
     public init(
@@ -66,13 +84,19 @@ public struct LightingConfiguration: Sendable {
         ambientColor: SIMD3<Float> = SIMD3<Float>(1, 1, 1),
         shadowsEnabled: Bool = true,
         shadowSoftness: Float = 0.3,
+        shadowMapSize: Int = 2048,
+        shadowIntensity: Float = 0.4,
+        shadowBias: Float = 0.005,
         specularPower: Float = 64.0,
         specularIntensity: Float = 0.5,
         fresnelPower: Float = 3.0,
         fresnelIntensity: Float = 0.3,
         matcapBlend: Float = 0.0,
         ambientSkyColor: SIMD3<Float> = SIMD3<Float>(0.9, 0.95, 1.0),
-        ambientGroundColor: SIMD3<Float> = SIMD3<Float>(0.3, 0.25, 0.2)
+        ambientGroundColor: SIMD3<Float> = SIMD3<Float>(0.3, 0.25, 0.2),
+        enableSSAO: Bool = true,
+        ssaoRadius: Float = 0.5,
+        ssaoIntensity: Float = 0.6
     ) {
         self.keyLight = keyLight
         self.fillLight = fillLight
@@ -81,6 +105,9 @@ public struct LightingConfiguration: Sendable {
         self.ambientColor = ambientColor
         self.shadowsEnabled = shadowsEnabled
         self.shadowSoftness = shadowSoftness
+        self.shadowMapSize = shadowMapSize
+        self.shadowIntensity = shadowIntensity
+        self.shadowBias = shadowBias
         self.specularPower = specularPower
         self.specularIntensity = specularIntensity
         self.fresnelPower = fresnelPower
@@ -88,6 +115,9 @@ public struct LightingConfiguration: Sendable {
         self.matcapBlend = matcapBlend
         self.ambientSkyColor = ambientSkyColor
         self.ambientGroundColor = ambientGroundColor
+        self.enableSSAO = enableSSAO
+        self.ssaoRadius = ssaoRadius
+        self.ssaoIntensity = ssaoIntensity
     }
 
     // MARK: - Presets

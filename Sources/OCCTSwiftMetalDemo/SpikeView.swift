@@ -754,6 +754,7 @@ struct SpikeView: View {
 
     private var standardViewsSection: some View {
         Section("Standard Views") {
+            Button("Fit All") { focusOnBounds(); controller.goToStandardView(.isometricFrontRight) }
             Button("Top") { controller.goToStandardView(.top) }
             Button("Front") { controller.goToStandardView(.front) }
             Button("Right") { controller.goToStandardView(.right) }
@@ -769,6 +770,11 @@ struct SpikeView: View {
                 Text("Shaded + Edges").tag(DisplayMode.shadedWithEdges)
             }
             .pickerStyle(.inline)
+
+            VStack(alignment: .leading) {
+                Text("Edge Intensity: \(controller.edgeIntensity, specifier: "%.1f")")
+                Slider(value: $controller.edgeIntensity, in: 0.5...3.0)
+            }
         }
     }
 

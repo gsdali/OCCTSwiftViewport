@@ -98,6 +98,22 @@ public struct ViewportConfiguration: Sendable {
     /// Background color (platform-agnostic).
     public var backgroundColor: SIMD4<Float>
 
+    // MARK: - Anti-Aliasing
+
+    /// MSAA sample count (1 = no MSAA, 4 = 4x MSAA). Must be 1 or 4.
+    public var msaaSampleCount: Int
+
+    // MARK: - Edge Silhouettes
+
+    /// Whether screen-space edge silhouettes are enabled.
+    public var enableSilhouettes: Bool
+
+    /// Silhouette edge thickness (1.0 = normal, 2.0 = thick).
+    public var silhouetteThickness: Float
+
+    /// Silhouette edge darkness (0 = invisible, 1 = fully dark).
+    public var silhouetteIntensity: Float
+
     // MARK: - Picking
 
     /// Configuration for GPU-accelerated picking.
@@ -132,6 +148,10 @@ public struct ViewportConfiguration: Sendable {
         gridBaseSpacing: Float = 1.0,
         gridSubdivisions: Int = 10,
         backgroundColor: SIMD4<Float> = SIMD4<Float>(0.95, 0.95, 0.95, 1.0),
+        msaaSampleCount: Int = 4,
+        enableSilhouettes: Bool = true,
+        silhouetteThickness: Float = 1.0,
+        silhouetteIntensity: Float = 0.7,
         pickingConfiguration: PickingConfiguration = .init(),
         dynamicPivotConfiguration: DynamicPivotConfiguration = .default
     ) {
@@ -155,6 +175,10 @@ public struct ViewportConfiguration: Sendable {
         self.gridBaseSpacing = gridBaseSpacing
         self.gridSubdivisions = gridSubdivisions
         self.backgroundColor = backgroundColor
+        self.msaaSampleCount = msaaSampleCount
+        self.enableSilhouettes = enableSilhouettes
+        self.silhouetteThickness = silhouetteThickness
+        self.silhouetteIntensity = silhouetteIntensity
         self.pickingConfiguration = pickingConfiguration
         self.dynamicPivotConfiguration = dynamicPivotConfiguration
     }

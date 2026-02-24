@@ -90,6 +90,7 @@ public typealias _ViewportConfiguration = ViewportConfiguration
 public typealias _GestureConfiguration = GestureConfiguration
 public typealias _GestureAction = GestureAction
 public typealias _ViewCubePosition = ViewCubePosition
+public typealias _ClipPlane = ClipPlane
 
 // Display
 public typealias _DisplayMode = DisplayMode
@@ -101,6 +102,14 @@ public typealias _BoundingBox = BoundingBox
 public typealias _Ray = Ray
 public typealias _RaycastHit = RaycastHit
 public typealias _SceneRaycast = SceneRaycast
+public typealias _ProjectionUtility = ProjectionUtility
+
+// Measurements
+public typealias _ViewportMeasurement = ViewportMeasurement
+public typealias _DistanceMeasurement = DistanceMeasurement
+public typealias _AngleMeasurement = AngleMeasurement
+public typealias _RadiusMeasurement = RadiusMeasurement
+public typealias _MeasurementMode = MeasurementMode
 
 // Picking
 public typealias _PickResult = PickResult

@@ -12,13 +12,15 @@ import MetalKit
 struct MetalViewRepresentable: UIViewRepresentable {
     let renderer: ViewportRenderer
     let backgroundColor: SIMD4<Float>
+    var sampleCount: Int = 4
 
     func makeUIView(context: Context) -> MTKView {
         let view = MTKView()
         view.device = renderer.metalDevice
         view.delegate = renderer
         view.colorPixelFormat = .bgra8Unorm
-        view.depthStencilPixelFormat = .depth32Float
+        view.depthStencilPixelFormat = .depth32Float_stencil8
+        view.sampleCount = sampleCount
         view.clearColor = mtlClearColor(from: backgroundColor)
         view.preferredFramesPerSecond = 60
         view.isMultipleTouchEnabled = true
@@ -56,6 +58,7 @@ class ScrollCaptureMTKView: MTKView {
 struct MetalViewRepresentable: NSViewRepresentable {
     let renderer: ViewportRenderer
     let backgroundColor: SIMD4<Float>
+    var sampleCount: Int = 4
     var onScrollWheel: ((CGFloat, CGPoint, CGSize) -> Void)?
     var onMouseDown: ((CGPoint, CGSize) -> Void)?
 
@@ -64,7 +67,8 @@ struct MetalViewRepresentable: NSViewRepresentable {
         view.device = renderer.metalDevice
         view.delegate = renderer
         view.colorPixelFormat = .bgra8Unorm
-        view.depthStencilPixelFormat = .depth32Float
+        view.depthStencilPixelFormat = .depth32Float_stencil8
+        view.sampleCount = sampleCount
         view.clearColor = mtlClearColor(from: backgroundColor)
         view.preferredFramesPerSecond = 60
         view.onScrollWheel = onScrollWheel

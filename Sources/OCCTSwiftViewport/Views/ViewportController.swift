@@ -57,8 +57,26 @@ public final class ViewportController: ObservableObject {
     /// The most recent pick result, or nil if nothing is selected.
     @Published public private(set) var pickResult: PickResult?
 
+    /// Set of currently selected body IDs. Bodies in this set render with a highlight outline.
+    @Published public var selectedBodyIDs: Set<String> = []
+
+    /// ID of the currently hovered body (mouse hover), or nil.
+    @Published public var hoveredBodyID: String?
+
     /// NDC coordinates of the last pick tap (for sub-body selection).
     @Published public private(set) var lastPickNDC: SIMD2<Float> = .zero
+
+    /// Edge/wireframe intensity multiplier (0 = invisible, 1 = default, 2+ = bold).
+    @Published public var edgeIntensity: Float = 1.0
+
+    /// Active clipping planes (up to 4). Only enabled planes are applied.
+    @Published public var clipPlanes: [ClipPlane] = []
+
+    /// Active measurement annotations displayed on the viewport.
+    @Published public var measurements: [ViewportMeasurement] = []
+
+    /// Current measurement interaction mode.
+    @Published public var measurementMode: MeasurementMode = .none
 
     // MARK: - Configuration
 
@@ -273,7 +291,26 @@ public final class ViewportController: ObservableObject {
     /// Clears the current selection.
     public func clearSelection() {
         pickResult = nil
+        selectedBodyIDs.removeAll()
         onPick?(nil)
+    }
+
+    /// Selects a body by ID, optionally toggling (for multi-select).
+    public func selectBody(_ bodyID: String, toggle: Bool = false) {
+        if toggle {
+            if selectedBodyIDs.contains(bodyID) {
+                selectedBodyIDs.remove(bodyID)
+            } else {
+                selectedBodyIDs.insert(bodyID)
+            }
+        } else {
+            selectedBodyIDs = [bodyID]
+        }
+    }
+
+    /// Deselects all bodies.
+    public func deselectAll() {
+        selectedBodyIDs.removeAll()
     }
 }
 

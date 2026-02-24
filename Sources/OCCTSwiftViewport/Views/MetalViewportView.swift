@@ -88,6 +88,10 @@ public struct MetalViewportView: View {
                 if controller.showViewCube {
                     viewCubeOverlay
                 }
+
+                if !controller.measurements.isEmpty {
+                    measurementOverlay(viewportSize: geometry.size)
+                }
             }
             .onChange(of: geometry.size) {
                 updateAspectRatio(geometry.size)
@@ -107,6 +111,21 @@ public struct MetalViewportView: View {
         if size.width > 0, size.height > 0 {
             controller.lastAspectRatio = Float(size.width / size.height)
         }
+    }
+
+    // MARK: - Measurement Overlay
+
+    private func measurementOverlay(viewportSize: CGSize) -> some View {
+        let aspect = viewportSize.width > 0 && viewportSize.height > 0
+            ? Float(viewportSize.width / viewportSize.height)
+            : Float(1.0)
+        let cs = controller.cameraState
+        let vpMatrix = cs.projectionMatrix(aspectRatio: aspect, near: 0.01, far: 10000.0) * cs.viewMatrix
+        return MeasurementOverlay(
+            measurements: controller.measurements,
+            vpMatrix: vpMatrix,
+            viewportSize: viewportSize
+        )
     }
 
     // MARK: - Metal View
@@ -172,6 +191,7 @@ public struct MetalViewportView: View {
                 MetalViewRepresentable(
                     renderer: renderer,
                     backgroundColor: canvasBackgroundColor,
+                    sampleCount: controller.configuration.msaaSampleCount,
                     onScrollWheel: { delta, cursorInView, viewSize in
                         guard viewSize.width > 0, viewSize.height > 0 else { return }
                         let nx = Float((cursorInView.x / viewSize.width) * 2 - 1)
@@ -191,7 +211,8 @@ public struct MetalViewportView: View {
                 #else
                 MetalViewRepresentable(
                     renderer: renderer,
-                    backgroundColor: canvasBackgroundColor
+                    backgroundColor: canvasBackgroundColor,
+                    sampleCount: controller.configuration.msaaSampleCount
                 )
                 #endif
             } else {
