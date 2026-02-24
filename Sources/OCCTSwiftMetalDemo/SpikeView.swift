@@ -206,7 +206,12 @@ struct SpikeView: View {
     private var fileSection: some View {
         Section("File") {
             Button {
-                showFileImporter = true
+                // On iOS, dismiss the settings sheet first so the file
+                // importer can present without conflicting sheets.
+                showSettings = false
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+                    showFileImporter = true
+                }
             } label: {
                 Label("Open File (STEP/STL/OBJ)...", systemImage: "doc.badge.plus")
             }
