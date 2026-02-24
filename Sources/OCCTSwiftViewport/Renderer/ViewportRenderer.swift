@@ -600,11 +600,12 @@ public final class ViewportRenderer: NSObject, MTKViewDelegate, Sendable {
         } else {
             lightVP = matrix_identity_float4x4
         }
+        let edgeIntensity = controller.edgeIntensity
         let shadowParams = SIMD4<Float>(
             lighting.shadowBias,
             lighting.shadowIntensity,
             shadowEnabled ? 1.0 : 0.0,
-            0.0
+            edgeIntensity
         )
 
         // Collect active clip planes (up to 4)

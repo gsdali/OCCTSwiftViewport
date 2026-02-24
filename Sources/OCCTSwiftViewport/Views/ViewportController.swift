@@ -66,6 +66,9 @@ public final class ViewportController: ObservableObject {
     /// NDC coordinates of the last pick tap (for sub-body selection).
     @Published public private(set) var lastPickNDC: SIMD2<Float> = .zero
 
+    /// Edge/wireframe intensity multiplier (0 = invisible, 1 = default, 2+ = bold).
+    @Published public var edgeIntensity: Float = 1.0
+
     /// Active clipping planes (up to 4). Only enabled planes are applied.
     @Published public var clipPlanes: [ClipPlane] = []
 

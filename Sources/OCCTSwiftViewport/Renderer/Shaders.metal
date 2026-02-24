@@ -419,11 +419,17 @@ fragment WireframeFragmentOut wireframe_fragment(
         }
     }
 
+    float edgeIntensity = max(uniforms.shadowParams.w, 0.0); // shadowParams.w = edge intensity
+
     // Contrast-adaptive edge color: light edges on dark bodies, dark edges on light bodies
     float3 bodyColor = bodyUniforms.color.rgb;
     float luminance = dot(bodyColor, float3(0.299, 0.587, 0.114));
-    float3 darkEdge = max(bodyColor * 0.4, float3(0.25));
-    float3 lightEdge = bodyColor * 0.5 + 0.5;
+    // At intensity 1.0: darkEdge = bodyColor*0.4, lightEdge = bodyColor*0.5+0.5 (original)
+    // At higher intensity: push edges darker/more contrasting
+    float darkMul = mix(0.4, 0.15, saturate(edgeIntensity - 1.0));
+    float3 darkEdge = max(bodyColor * darkMul, float3(0.1));
+    float lightMul = mix(0.5, 0.3, saturate(edgeIntensity - 1.0));
+    float3 lightEdge = bodyColor * lightMul + (1.0 - lightMul);
     float3 edgeColor = mix(lightEdge, darkEdge, smoothstep(0.3, 0.6, luminance));
 
     // Depth-based edge alpha: near edges fully opaque, far edges fade
@@ -432,7 +438,10 @@ fragment WireframeFragmentOut wireframe_fragment(
     float clipZ = in.clipPositionCopy.z;
     float clipW = in.clipPositionCopy.w;
     float linearDepth = saturate((clipZ / clipW - nearPlane / farPlane) / (1.0 - nearPlane / farPlane));
-    float edgeAlpha = mix(1.0, 0.3, linearDepth);
+    // At intensity 1.0: alpha fades from 1.0 to 0.3 (original)
+    // At higher intensity: minimum alpha stays higher
+    float minAlpha = mix(0.3, 0.8, saturate(edgeIntensity - 1.0));
+    float edgeAlpha = mix(1.0, minAlpha, linearDepth) * saturate(edgeIntensity);
 
     WireframeFragmentOut out;
     out.color = float4(edgeColor, edgeAlpha);
