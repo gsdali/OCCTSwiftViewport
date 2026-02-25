@@ -530,6 +530,7 @@ struct SpikeView: View {
 
     private enum OCCT8Demo {
         case helixCurves, kdTree, wedges, hatchPatterns, shapeOps, polynomials
+        case transformOps, shapeAnalysis, intersections, volumeOps
     }
 
     private var occt8DemoSection: some View {
@@ -540,6 +541,10 @@ struct SpikeView: View {
             Button("Hatch Patterns") { loadOCCT8Demo(.hatchPatterns) }
             Button("Shape Operations") { loadOCCT8Demo(.shapeOps) }
             Button("Polynomial Roots") { loadOCCT8Demo(.polynomials) }
+            Button("Transforms & Offset") { loadOCCT8Demo(.transformOps) }
+            Button("Shape Analysis") { loadOCCT8Demo(.shapeAnalysis) }
+            Button("Intersection Analysis") { loadOCCT8Demo(.intersections) }
+            Button("Volume & Connected") { loadOCCT8Demo(.volumeOps) }
         }
     }
 
@@ -562,6 +567,14 @@ struct SpikeView: View {
         case .polynomials:
             result = OCCT8Gallery.polynomialRoots()
             useTopView = true
+        case .transformOps:
+            result = OCCT8Gallery.transformOps()
+        case .shapeAnalysis:
+            result = OCCT8Gallery.shapeAnalysis()
+        case .intersections:
+            result = OCCT8Gallery.intersectionAnalysis()
+        case .volumeOps:
+            result = OCCT8Gallery.volumeOps()
         }
 
         bodies = result.bodies
@@ -832,7 +845,7 @@ struct SpikeView: View {
 
             VStack(alignment: .leading) {
                 Text("Edge Intensity: \(controller.edgeIntensity, specifier: "%.1f")")
-                Slider(value: $controller.edgeIntensity, in: 0.5...3.0)
+                Slider(value: $controller.edgeIntensity, in: 0.5...10.0)
             }
         }
     }

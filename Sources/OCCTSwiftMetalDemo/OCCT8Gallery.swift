@@ -387,7 +387,364 @@ enum OCCT8Gallery {
         )
     }
 
+    // MARK: - v0.30: Non-Uniform Scaling & Offset
+
+    /// Demonstrates non-uniform scaling, simple offset, and fused edges.
+    static func transformOps() -> Curve2DGallery.GalleryResult {
+        var bodies: [ViewportBody] = []
+
+        // Original box
+        if let box = Shape.box(width: 2, height: 2, depth: 2) {
+            let (body, _) = CADFileLoader.shapeToBodyAndMetadata(
+                box, id: "xform-original", color: SIMD4(0.6, 0.6, 0.6, 0.5)
+            )
+            if let body { bodies.append(body) }
+
+            // Non-uniform scale: stretch X×3, Y×0.5, Z×1.5
+            if let scaled = box.nonUniformScaled(sx: 3, sy: 0.5, sz: 1.5) {
+                let (body, _) = CADFileLoader.shapeToBodyAndMetadata(
+                    scaled, id: "xform-nuscale", color: SIMD4(0.3, 0.7, 1.0, 1.0)
+                )
+                if var body {
+                    offsetBody(&body, dx: 6, dy: 0, dz: 0)
+                    bodies.append(body)
+                }
+            }
+        }
+
+        // Sphere with simple offset (inflation)
+        if let sphere = Shape.sphere(radius: 1.5) {
+            let (body, _) = CADFileLoader.shapeToBodyAndMetadata(
+                sphere, id: "xform-sphere", color: SIMD4(0.6, 0.6, 0.6, 0.5)
+            )
+            if var body {
+                offsetBody(&body, dx: -6, dy: 0, dz: 0)
+                bodies.append(body)
+            }
+
+            if let inflated = sphere.simpleOffset(by: 0.8) {
+                let (body, _) = CADFileLoader.shapeToBodyAndMetadata(
+                    inflated, id: "xform-offset", color: SIMD4(0.9, 0.5, 0.3, 0.7)
+                )
+                if var body {
+                    offsetBody(&body, dx: -6, dy: 0, dz: 0)
+                    bodies.append(body)
+                }
+            }
+        }
+
+        // Cylinder with fused edges
+        if let cyl = Shape.cylinder(radius: 1, height: 3) {
+            // Boolean union to create extra edges, then fuse
+            if let box = Shape.box(width: 1.5, height: 1.5, depth: 4) {
+                if let fused = cyl.union(with: box) {
+                    let (body1, _) = CADFileLoader.shapeToBodyAndMetadata(
+                        fused, id: "xform-prefuse", color: SIMD4(0.7, 0.7, 0.7, 0.5)
+                    )
+                    if var body1 {
+                        offsetBody(&body1, dx: 0, dy: 6, dz: 0)
+                        bodies.append(body1)
+                    }
+
+                    if let cleaned = fused.fusedEdges() {
+                        let (body2, _) = CADFileLoader.shapeToBodyAndMetadata(
+                            cleaned, id: "xform-fusededges", color: SIMD4(0.5, 0.9, 0.5, 1.0)
+                        )
+                        if var body2 {
+                            offsetBody(&body2, dx: 5, dy: 6, dz: 0)
+                            bodies.append(body2)
+                        }
+                    }
+                }
+            }
+        }
+
+        return Curve2DGallery.GalleryResult(
+            bodies: bodies,
+            description: "v0.30: Non-uniform scale (blue), offset (orange), fused edges (green)"
+        )
+    }
+
+    // MARK: - v0.30: Shape Analysis & Canonical Recognition
+
+    /// Demonstrates shape contents census and canonical form recognition.
+    static func shapeAnalysis() -> Curve2DGallery.GalleryResult {
+        var bodies: [ViewportBody] = []
+        var descriptions: [String] = []
+
+        // Cylinder — should recognize as canonical cylinder
+        if let cyl = Shape.cylinder(radius: 2, height: 4) {
+            let (body, _) = CADFileLoader.shapeToBodyAndMetadata(
+                cyl, id: "analysis-cyl", color: SIMD4(0.3, 0.6, 1.0, 1.0)
+            )
+            if let body { bodies.append(body) }
+
+            let c = cyl.contents
+            descriptions.append("Cyl: \(c.faces)F \(c.edges)E \(c.vertices)V")
+            if let canon = cyl.recognizeCanonical() {
+                descriptions.append("→ \(canon.type) r=\(String(format: "%.1f", canon.radius))")
+            }
+        }
+
+        // Sphere
+        if let sph = Shape.sphere(radius: 1.5) {
+            let (body, _) = CADFileLoader.shapeToBodyAndMetadata(
+                sph, id: "analysis-sph", color: SIMD4(0.3, 0.9, 0.4, 1.0)
+            )
+            if var body {
+                offsetBody(&body, dx: 6, dy: 0, dz: 0)
+                bodies.append(body)
+            }
+
+            let c = sph.contents
+            descriptions.append("Sph: \(c.faces)F \(c.edges)E")
+            if let canon = sph.recognizeCanonical() {
+                descriptions.append("→ \(canon.type) r=\(String(format: "%.1f", canon.radius))")
+            }
+        }
+
+        // Box — should recognize planes
+        if let box = Shape.box(width: 3, height: 2, depth: 2) {
+            let (body, _) = CADFileLoader.shapeToBodyAndMetadata(
+                box, id: "analysis-box", color: SIMD4(0.9, 0.6, 0.3, 1.0)
+            )
+            if var body {
+                offsetBody(&body, dx: -6, dy: 0, dz: 0)
+                bodies.append(body)
+            }
+
+            let c = box.contents
+            descriptions.append("Box: \(c.solids)S \(c.faces)F \(c.edges)E \(c.vertices)V")
+        }
+
+        // Cone
+        if let cone = Shape.cone(bottomRadius: 2, topRadius: 0.5, height: 3) {
+            let (body, _) = CADFileLoader.shapeToBodyAndMetadata(
+                cone, id: "analysis-cone", color: SIMD4(0.8, 0.4, 0.8, 1.0)
+            )
+            if var body {
+                offsetBody(&body, dx: 0, dy: 6, dz: 0)
+                bodies.append(body)
+            }
+
+            let c = cone.contents
+            descriptions.append("Cone: \(c.faces)F \(c.edges)E")
+            if let canon = cone.recognizeCanonical() {
+                descriptions.append("→ \(canon.type)")
+            }
+        }
+
+        // Vertex primitive
+        if let vtx = Shape.vertex(at: SIMD3(3, 6, 1.5)) {
+            let c = vtx.contents
+            descriptions.append("Vertex: \(c.vertices)V")
+            // Visualize as marker
+            bodies.append(makeMarker(
+                at: SIMD3<Float>(3, 6, 1.5),
+                radius: 0.2, id: "analysis-vtx",
+                color: SIMD4(1.0, 1.0, 0.0, 1.0)
+            ))
+        }
+
+        let desc = descriptions.joined(separator: " | ")
+        return Curve2DGallery.GalleryResult(
+            bodies: bodies,
+            description: "v0.30 Analysis: \(desc)"
+        )
+    }
+
+    // MARK: - v0.30: Curve & Surface Intersections
+
+    /// Demonstrates curve-curve extrema, curve-surface intersection, surface-surface intersection.
+    static func intersectionAnalysis() -> Curve2DGallery.GalleryResult {
+        var bodies: [ViewportBody] = []
+
+        // -- Curve-curve extrema --
+        // Two skew lines in 3D
+        if let line1 = Curve3D.line(through: SIMD3(-5, 0, 0), direction: SIMD3(1, 0, 0)),
+           let line2 = Curve3D.line(through: SIMD3(0, -5, 2), direction: SIMD3(0, 1, 0)) {
+
+            // Visualize the lines
+            let l1pts: [SIMD3<Float>] = [SIMD3(-5, 0, 0), SIMD3(5, 0, 0)]
+            let l2pts: [SIMD3<Float>] = [SIMD3(0, -5, 2), SIMD3(0, 5, 2)]
+            bodies.append(ViewportBody(id: "ix-line1", vertexData: [], indices: [], edges: [l1pts],
+                                       color: SIMD4(0.3, 0.6, 1.0, 1.0)))
+            bodies.append(ViewportBody(id: "ix-line2", vertexData: [], indices: [], edges: [l2pts],
+                                       color: SIMD4(1.0, 0.5, 0.2, 1.0)))
+
+            if let dist = line1.minDistance(to: line2) {
+                let extrema = line1.extrema(with: line2)
+                for (i, ext) in extrema.enumerated() {
+                    let p1 = SIMD3<Float>(Float(ext.point1.x), Float(ext.point1.y), Float(ext.point1.z))
+                    let p2 = SIMD3<Float>(Float(ext.point2.x), Float(ext.point2.y), Float(ext.point2.z))
+                    bodies.append(makeMarker(at: p1, radius: 0.15, id: "ix-ext-p1-\(i)",
+                                             color: SIMD4(1.0, 0.2, 0.2, 1.0)))
+                    bodies.append(makeMarker(at: p2, radius: 0.15, id: "ix-ext-p2-\(i)",
+                                             color: SIMD4(0.2, 1.0, 0.2, 1.0)))
+                    // Connector line between closest points
+                    bodies.append(ViewportBody(id: "ix-ext-conn-\(i)", vertexData: [], indices: [], edges: [[p1, p2]],
+                                               color: SIMD4(1.0, 1.0, 0.0, 1.0)))
+                }
+                _ = dist  // used for the description
+            }
+        }
+
+        // -- Curve-surface intersection --
+        // Circle curve intersecting a plane
+        if let circle = Curve3D.circle(center: SIMD3(0, 0, 0), normal: SIMD3(1, 0, 1), radius: 3),
+           let plane = Surface.plane(origin: SIMD3(0, 0, 0), normal: SIMD3(0, 0, 1)) {
+
+            // Visualize the circle using evaluate
+            let cParams = uniformParameters(curve: circle, count: 80)
+            let pts = circle.evaluateGrid(cParams)
+            if !pts.isEmpty {
+                let floatPts = pts.map { SIMD3<Float>(Float($0.x), Float($0.y), Float($0.z)) }
+                var closed = floatPts
+                if let first = closed.first { closed.append(first) }
+                bodies.append(ViewportBody(id: "ix-circle", vertexData: [], indices: [], edges: [closed],
+                                           color: SIMD4(0.5, 0.8, 1.0, 1.0)))
+            }
+
+            // Visualize the plane as a flat quad
+            let planeSize: Float = 5
+            let planeVerts: [SIMD3<Float>] = [
+                SIMD3(-planeSize, -planeSize, 0), SIMD3(planeSize, -planeSize, 0),
+                SIMD3(planeSize, planeSize, 0), SIMD3(-planeSize, planeSize, 0),
+                SIMD3(-planeSize, -planeSize, 0)
+            ]
+            bodies.append(ViewportBody(id: "ix-plane", vertexData: [], indices: [], edges: [planeVerts],
+                                       color: SIMD4(0.5, 0.5, 0.5, 0.3)))
+
+            let hits = circle.intersections(with: plane)
+            for (i, hit) in hits.enumerated() {
+                let p = SIMD3<Float>(Float(hit.point.x), Float(hit.point.y), Float(hit.point.z))
+                bodies.append(makeMarker(at: p, radius: 0.2, id: "ix-cs-hit-\(i)",
+                                         color: SIMD4(1.0, 0.3, 0.3, 1.0)))
+            }
+        }
+
+        // -- Surface-surface intersection --
+        // Cylinder intersecting a sphere
+        if let cylSurf = Surface.cylinder(origin: .zero, axis: SIMD3(0, 0, 1), radius: 2),
+           let sphSurf = Surface.sphere(center: SIMD3(1, 0, 0), radius: 2.5) {
+
+            // Show the shapes for context
+            if let cylShape = Shape.cylinder(radius: 2, height: 4) {
+                let (body, _) = CADFileLoader.shapeToBodyAndMetadata(
+                    cylShape, id: "ix-cyl-shape", color: SIMD4(0.3, 0.6, 1.0, 0.3)
+                )
+                if var body {
+                    offsetBody(&body, dx: 12, dy: 0, dz: 0)
+                    bodies.append(body)
+                }
+            }
+            if let sphShape = Shape.sphere(radius: 2.5) {
+                let (body, _) = CADFileLoader.shapeToBodyAndMetadata(
+                    sphShape, id: "ix-sph-shape", color: SIMD4(0.3, 0.9, 0.4, 0.3)
+                )
+                if var body {
+                    offsetBody(&body, dx: 13, dy: 0, dz: 0)
+                    bodies.append(body)
+                }
+            }
+
+            let ixCurves = cylSurf.intersections(with: sphSurf)
+            for (i, curve) in ixCurves.enumerated() {
+                let ssParams = uniformParameters(curve: curve, count: 100)
+                let pts = curve.evaluateGrid(ssParams)
+                if !pts.isEmpty {
+                    let floatPts = pts.map { SIMD3<Float>(Float($0.x) + 12, Float($0.y), Float($0.z)) }
+                    bodies.append(ViewportBody(id: "ix-ss-\(i)", vertexData: [], indices: [], edges: [floatPts],
+                                               color: SIMD4(1.0, 0.2, 0.2, 1.0)))
+                }
+            }
+        }
+
+        return Curve2DGallery.GalleryResult(
+            bodies: bodies,
+            description: "v0.30 Intersections: curve-curve extrema, curve-surface hits, surface-surface curves"
+        )
+    }
+
+    // MARK: - v0.30: Volume & Connected Shapes
+
+    /// Demonstrates makeVolume from faces and makeConnected.
+    static func volumeOps() -> Curve2DGallery.GalleryResult {
+        var bodies: [ViewportBody] = []
+
+        // Make a volume from overlapping boxes
+        if let box1 = Shape.box(width: 3, height: 3, depth: 3),
+           let box2 = Shape.box(width: 3, height: 3, depth: 3)?.translated(by: SIMD3(1.5, 1.5, 0)) {
+
+            // Show originals semi-transparent
+            let (b1, _) = CADFileLoader.shapeToBodyAndMetadata(
+                box1, id: "vol-box1", color: SIMD4(0.3, 0.6, 1.0, 0.3)
+            )
+            if let b1 { bodies.append(b1) }
+            let (b2, _) = CADFileLoader.shapeToBodyAndMetadata(
+                box2, id: "vol-box2", color: SIMD4(1.0, 0.5, 0.2, 0.3)
+            )
+            if let b2 { bodies.append(b2) }
+
+            // Volume from faces
+            if let volume = Shape.makeVolume(from: [box1, box2]) {
+                let (body, _) = CADFileLoader.shapeToBodyAndMetadata(
+                    volume, id: "vol-result", color: SIMD4(0.5, 0.9, 0.5, 0.8)
+                )
+                if var body {
+                    offsetBody(&body, dx: 8, dy: 0, dz: 0)
+                    bodies.append(body)
+                }
+
+                let c = volume.contents
+                bodies.append(contentsOf: []) // no-op; just use c below
+                _ = c // description will reference it
+            }
+        }
+
+        // MakeConnected — two adjacent boxes sharing a face
+        if let box1 = Shape.box(width: 2, height: 2, depth: 2),
+           let box2 = Shape.box(width: 2, height: 2, depth: 2)?.translated(by: SIMD3(2, 0, 0)) {
+
+            let (b1, _) = CADFileLoader.shapeToBodyAndMetadata(
+                box1, id: "conn-box1", color: SIMD4(0.7, 0.3, 0.8, 0.5)
+            )
+            if var b1 {
+                offsetBody(&b1, dx: 0, dy: 8, dz: 0)
+                bodies.append(b1)
+            }
+            let (b2, _) = CADFileLoader.shapeToBodyAndMetadata(
+                box2, id: "conn-box2", color: SIMD4(0.3, 0.8, 0.7, 0.5)
+            )
+            if var b2 {
+                offsetBody(&b2, dx: 0, dy: 8, dz: 0)
+                bodies.append(b2)
+            }
+
+            if let connected = Shape.makeConnected([box1, box2]) {
+                let (body, _) = CADFileLoader.shapeToBodyAndMetadata(
+                    connected, id: "conn-result", color: SIMD4(0.9, 0.8, 0.3, 1.0)
+                )
+                if var body {
+                    offsetBody(&body, dx: 8, dy: 8, dz: 0)
+                    bodies.append(body)
+                }
+            }
+        }
+
+        return Curve2DGallery.GalleryResult(
+            bodies: bodies,
+            description: "v0.30: makeVolume (green) from overlapping boxes, makeConnected (yellow)"
+        )
+    }
+
     // MARK: - Helpers
+
+    private static func uniformParameters(curve: Curve3D, count: Int) -> [Double] {
+        let d = curve.domain
+        let step = (d.upperBound - d.lowerBound) / Double(count)
+        return (0...count).map { d.lowerBound + Double($0) * step }
+    }
 
     private static func wireToBody(
         _ wire: Wire,
