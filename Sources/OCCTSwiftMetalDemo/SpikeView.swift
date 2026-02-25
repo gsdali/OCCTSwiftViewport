@@ -140,6 +140,7 @@ struct SpikeView: View {
             sidebar
         } detail: {
             MetalViewportView(controller: controller, bodies: $bodies)
+                .overlay(alignment: .bottom) { statusOverlay }
         }
         #else
         MetalViewportView(controller: controller, bodies: $bodies)
@@ -154,6 +155,7 @@ struct SpikeView: View {
                 }
                 .padding(12)
             }
+            .overlay(alignment: .bottom) { statusOverlay }
             .sheet(isPresented: $showSettings) {
                 NavigationStack {
                     sidebar
@@ -166,6 +168,18 @@ struct SpikeView: View {
                 .presentationDetents([.medium, .large])
             }
         #endif
+    }
+
+    @ViewBuilder
+    private var statusOverlay: some View {
+        if let status = operationStatus {
+            Text(status)
+                .font(.caption)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 8))
+                .padding(.bottom, 8)
+        }
     }
 
     // MARK: - Sidebar
