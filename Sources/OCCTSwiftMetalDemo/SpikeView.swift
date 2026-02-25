@@ -545,6 +545,7 @@ struct SpikeView: View {
     private enum OCCT8Demo {
         case helixCurves, kdTree, wedges, hatchPatterns, shapeOps, polynomials
         case transformOps, shapeAnalysis, intersections, volumeOps
+        case quasiUniform, bezierFill, revolution, linearRib
     }
 
     private var occt8DemoSection: some View {
@@ -559,6 +560,10 @@ struct SpikeView: View {
             Button("Shape Analysis") { loadOCCT8Demo(.shapeAnalysis) }
             Button("Intersection Analysis") { loadOCCT8Demo(.intersections) }
             Button("Volume & Connected") { loadOCCT8Demo(.volumeOps) }
+            Button("Curve Sampling") { loadOCCT8Demo(.quasiUniform) }
+            Button("Bezier Surface Fill") { loadOCCT8Demo(.bezierFill) }
+            Button("Revolution from Curve") { loadOCCT8Demo(.revolution) }
+            Button("Linear Rib") { loadOCCT8Demo(.linearRib) }
         }
     }
 
@@ -589,6 +594,14 @@ struct SpikeView: View {
             result = OCCT8Gallery.intersectionAnalysis()
         case .volumeOps:
             result = OCCT8Gallery.volumeOps()
+        case .quasiUniform:
+            result = OCCT8Gallery.quasiUniformSampling()
+        case .bezierFill:
+            result = OCCT8Gallery.bezierSurfaceFill()
+        case .revolution:
+            result = OCCT8Gallery.revolutionDemo()
+        case .linearRib:
+            result = OCCT8Gallery.linearRibDemo()
         }
 
         bodies = result.bodies

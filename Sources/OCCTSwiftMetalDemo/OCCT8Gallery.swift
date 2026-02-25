@@ -738,6 +738,242 @@ enum OCCT8Gallery {
         )
     }
 
+    // MARK: - v0.31: Quasi-Uniform Curve Sampling
+
+    /// Compares uniform vs quasi-uniform (arc-length) sampling on curves.
+    static func quasiUniformSampling() -> Curve2DGallery.GalleryResult {
+        var bodies: [ViewportBody] = []
+
+        // Create a BSpline curve with varying curvature
+        if let curve = Curve3D.bezier(poles: [
+            SIMD3(0, 0, 0), SIMD3(2, 5, 0), SIMD3(5, -3, 2),
+            SIMD3(8, 4, 1), SIMD3(12, 0, 0), SIMD3(15, 2, -1)
+        ]) {
+            // Draw the full curve
+            let fullParams = uniformParameters(curve: curve, count: 200)
+            let fullPts = curve.evaluateGrid(fullParams)
+            let floatFull = fullPts.map { SIMD3<Float>(Float($0.x), Float($0.y), Float($0.z)) }
+            bodies.append(ViewportBody(id: "qu-curve", vertexData: [], indices: [], edges: [floatFull],
+                                       color: SIMD4(0.5, 0.5, 0.5, 0.5)))
+
+            // Uniform parametric sampling (20 points) — clustered in low-curvature areas
+            let uniParams = uniformParameters(curve: curve, count: 20)
+            let uniPts = curve.evaluateGrid(uniParams)
+            for (i, pt) in uniPts.enumerated() {
+                bodies.append(makeMarker(
+                    at: SIMD3<Float>(Float(pt.x), Float(pt.y), Float(pt.z)),
+                    radius: 0.15, id: "qu-uni-\(i)",
+                    color: SIMD4(1.0, 0.3, 0.3, 1.0)
+                ))
+            }
+
+            // Quasi-uniform arc-length sampling (20 points) — evenly spaced along curve
+            let quParams = curve.quasiUniformParameters(count: 20)
+            let quPts = curve.evaluateGrid(quParams)
+            for (i, pt) in quPts.enumerated() {
+                bodies.append(makeMarker(
+                    at: SIMD3<Float>(Float(pt.x), Float(pt.y) - 8, Float(pt.z)),
+                    radius: 0.15, id: "qu-arc-\(i)",
+                    color: SIMD4(0.3, 1.0, 0.3, 1.0)
+                ))
+            }
+
+            // Draw the offset copy for arc-length sampling
+            let offsetFull = fullPts.map { SIMD3<Float>(Float($0.x), Float($0.y) - 8, Float($0.z)) }
+            bodies.append(ViewportBody(id: "qu-curve2", vertexData: [], indices: [], edges: [offsetFull],
+                                       color: SIMD4(0.5, 0.5, 0.5, 0.5)))
+
+            // Deflection-based sampling
+            let deflPts = curve.quasiUniformDeflectionPoints(deflection: 0.5)
+            for (i, pt) in deflPts.enumerated() {
+                bodies.append(makeMarker(
+                    at: SIMD3<Float>(Float(pt.x), Float(pt.y) - 16, Float(pt.z)),
+                    radius: 0.12, id: "qu-defl-\(i)",
+                    color: SIMD4(0.3, 0.5, 1.0, 1.0)
+                ))
+            }
+            let offsetFull2 = fullPts.map { SIMD3<Float>(Float($0.x), Float($0.y) - 16, Float($0.z)) }
+            bodies.append(ViewportBody(id: "qu-curve3", vertexData: [], indices: [], edges: [offsetFull2],
+                                       color: SIMD4(0.5, 0.5, 0.5, 0.5)))
+        }
+
+        return Curve2DGallery.GalleryResult(
+            bodies: bodies,
+            description: "Sampling: uniform-param (red, top) vs arc-length (green, mid) vs deflection (blue, bottom)"
+        )
+    }
+
+    // MARK: - v0.31: Bezier Surface Fill
+
+    /// Creates surfaces from boundary curves using different fill styles.
+    static func bezierSurfaceFill() -> Curve2DGallery.GalleryResult {
+        var bodies: [ViewportBody] = []
+
+        // Define 4 boundary curves forming a twisted quad
+        guard let c1 = Curve3D.bezier(poles: [SIMD3(0, 0, 0), SIMD3(3, 0, 1), SIMD3(6, 0, 0)]),
+              let c2 = Curve3D.bezier(poles: [SIMD3(6, 0, 0), SIMD3(6, 3, 2), SIMD3(6, 6, 0)]),
+              let c3 = Curve3D.bezier(poles: [SIMD3(6, 6, 0), SIMD3(3, 6, -1), SIMD3(0, 6, 0)]),
+              let c4 = Curve3D.bezier(poles: [SIMD3(0, 6, 0), SIMD3(0, 3, 1.5), SIMD3(0, 0, 0)])
+        else {
+            return Curve2DGallery.GalleryResult(bodies: bodies, description: "Curve creation failed")
+        }
+
+        // Draw boundary curves
+        for (i, curve) in [c1, c2, c3, c4].enumerated() {
+            let params = uniformParameters(curve: curve, count: 50)
+            let pts = curve.evaluateGrid(params)
+            let floatPts = pts.map { SIMD3<Float>(Float($0.x), Float($0.y), Float($0.z)) }
+            bodies.append(ViewportBody(id: "bf-edge-\(i)", vertexData: [], indices: [], edges: [floatPts],
+                                       color: SIMD4(1.0, 1.0, 1.0, 1.0)))
+        }
+
+        // Stretch fill
+        if let surf = Surface.bezierFill(c1, c2, c3, c4, style: .stretch),
+           let shell = Shape.shell(from: surf) {
+            let (body, _) = CADFileLoader.shapeToBodyAndMetadata(
+                shell, id: "bf-stretch", color: SIMD4(0.3, 0.6, 1.0, 0.8)
+            )
+            if let body { bodies.append(body) }
+        }
+
+        // Coons fill — offset right
+        if let surf = Surface.bezierFill(c1, c2, c3, c4, style: .coons),
+           let shell = Shape.shell(from: surf) {
+            let (body, _) = CADFileLoader.shapeToBodyAndMetadata(
+                shell, id: "bf-coons", color: SIMD4(0.3, 0.9, 0.4, 0.8)
+            )
+            if var body {
+                offsetBody(&body, dx: 10, dy: 0, dz: 0)
+                bodies.append(body)
+            }
+        }
+
+        // Curved fill — offset further right
+        if let surf = Surface.bezierFill(c1, c2, c3, c4, style: .curved),
+           let shell = Shape.shell(from: surf) {
+            let (body, _) = CADFileLoader.shapeToBodyAndMetadata(
+                shell, id: "bf-curved", color: SIMD4(0.9, 0.5, 0.3, 0.8)
+            )
+            if var body {
+                offsetBody(&body, dx: 20, dy: 0, dz: 0)
+                bodies.append(body)
+            }
+        }
+
+        return Curve2DGallery.GalleryResult(
+            bodies: bodies,
+            description: "Bezier fill: stretch (blue), coons (green), curved (orange). Same boundary, 3 styles."
+        )
+    }
+
+    // MARK: - v0.31: Revolution from Curve
+
+    /// Creates solids of revolution from different meridian curves.
+    static func revolutionDemo() -> Curve2DGallery.GalleryResult {
+        var bodies: [ViewportBody] = []
+
+        // Wine glass profile: BSpline meridian
+        if let profile = Curve3D.bezier(poles: [
+            SIMD3(0.5, 0, 0), SIMD3(1.5, 0, 0), SIMD3(0.3, 0, 2),
+            SIMD3(0.2, 0, 3), SIMD3(0.8, 0, 4), SIMD3(1.5, 0, 4.5)
+        ]) {
+            if let glass = Shape.revolution(meridian: profile) {
+                let (body, _) = CADFileLoader.shapeToBodyAndMetadata(
+                    glass, id: "rev-glass", color: SIMD4(0.4, 0.7, 1.0, 0.8)
+                )
+                if let body { bodies.append(body) }
+            }
+
+            // Show the meridian curve
+            let params = uniformParameters(curve: profile, count: 100)
+            let pts = profile.evaluateGrid(params)
+            let floatPts = pts.map { SIMD3<Float>(Float($0.x), Float($0.y), Float($0.z)) }
+            bodies.append(ViewportBody(id: "rev-meridian1", vertexData: [], indices: [], edges: [floatPts],
+                                       color: SIMD4(1.0, 1.0, 0.0, 1.0)))
+        }
+
+        // Vase profile
+        if let profile = Curve3D.bezier(poles: [
+            SIMD3(1.0, 0, 0), SIMD3(2.0, 0, 1), SIMD3(0.8, 0, 3),
+            SIMD3(1.5, 0, 5), SIMD3(1.2, 0, 6)
+        ]) {
+            if let vase = Shape.revolution(meridian: profile) {
+                let (body, _) = CADFileLoader.shapeToBodyAndMetadata(
+                    vase, id: "rev-vase", color: SIMD4(0.9, 0.5, 0.3, 0.8)
+                )
+                if var body {
+                    offsetBody(&body, dx: 8, dy: 0, dz: 0)
+                    bodies.append(body)
+                }
+            }
+        }
+
+        // Partial revolution (half turn) of a circle arc — creates a dome
+        if let arc = Curve3D.line(through: SIMD3(0, 0, 0), direction: SIMD3(1, 0, 1)) {
+            if let half = Shape.revolution(
+                meridian: arc,
+                axisOrigin: SIMD3(-6, 0, 0),
+                axisDirection: SIMD3(0, 0, 1),
+                angle: .pi
+            ) {
+                let (body, _) = CADFileLoader.shapeToBodyAndMetadata(
+                    half, id: "rev-half", color: SIMD4(0.5, 0.9, 0.5, 0.8)
+                )
+                if var body {
+                    offsetBody(&body, dx: -6, dy: 0, dz: 0)
+                    bodies.append(body)
+                }
+            }
+        }
+
+        return Curve2DGallery.GalleryResult(
+            bodies: bodies,
+            description: "Revolution from curves: wine glass (blue), vase (orange), half-turn (green)"
+        )
+    }
+
+    // MARK: - v0.31: Linear Rib Feature
+
+    /// Adds reinforcing ribs to a base shape.
+    static func linearRibDemo() -> Curve2DGallery.GalleryResult {
+        var bodies: [ViewportBody] = []
+
+        // Base plate
+        if let plate = Shape.box(width: 10, height: 2, depth: 8) {
+            // Show original
+            let (body, _) = CADFileLoader.shapeToBodyAndMetadata(
+                plate, id: "rib-base", color: SIMD4(0.6, 0.6, 0.6, 0.4)
+            )
+            if let body { bodies.append(body) }
+
+            // Add a rib profile along the top face
+            if let ribProfile = Wire.line(
+                from: SIMD3(1, 2, 1),
+                to: SIMD3(9, 2, 1)
+            ) {
+                if let ribbed = plate.addingLinearRib(
+                    profile: ribProfile,
+                    direction: SIMD3(0, 0, 1),
+                    draftDirection: SIMD3(0, 1, 0),
+                    fuse: true
+                ) {
+                    let (body, _) = CADFileLoader.shapeToBodyAndMetadata(
+                        ribbed, id: "rib-result", color: SIMD4(0.3, 0.7, 1.0, 1.0)
+                    )
+                    if var body {
+                        offsetBody(&body, dx: 14, dy: 0, dz: 0)
+                        bodies.append(body)
+                    }
+                }
+            }
+        }
+
+        return Curve2DGallery.GalleryResult(
+            bodies: bodies,
+            description: "v0.31 Linear rib: base plate (gray) → with rib (blue)"
+        )
+    }
+
     // MARK: - Helpers
 
     private static func uniformParameters(curve: Curve3D, count: Int) -> [Double] {
