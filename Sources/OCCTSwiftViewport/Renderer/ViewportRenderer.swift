@@ -786,11 +786,17 @@ public final class ViewportRenderer: NSObject, MTKViewDelegate, Sendable {
             // Wireframe/edge pass
             let shouldDrawEdges = hasEdges && (displayMode.showsEdges || !hasMesh)
             if shouldDrawEdges, let edgeVB = buffers.edgeVertexBuffer {
+                // For edge-only bodies, signal the shader to use the body color directly
+                // instead of contrast-adaptive edge color (metallic = -1 sentinel)
+                var edgeBodyUniforms = bodyUniforms
+                if !hasMesh {
+                    edgeBodyUniforms.metallic = -1.0
+                }
                 mainEncoder.setRenderPipelineState(wireframePipeline)
                 mainEncoder.setVertexBuffer(edgeVB, offset: 0, index: 0)
                 mainEncoder.setVertexBytes(&uniforms, length: MemoryLayout<Uniforms>.size, index: 1)
                 mainEncoder.setFragmentBytes(&uniforms, length: MemoryLayout<Uniforms>.size, index: 1)
-                mainEncoder.setFragmentBytes(&bodyUniforms, length: MemoryLayout<BodyUniforms>.size, index: 2)
+                mainEncoder.setFragmentBytes(&edgeBodyUniforms, length: MemoryLayout<BodyUniforms>.size, index: 2)
                 mainEncoder.drawPrimitives(type: .line, vertexStart: 0, vertexCount: buffers.edgeVertexCount)
             }
 

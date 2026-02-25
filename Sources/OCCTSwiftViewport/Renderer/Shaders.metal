@@ -419,10 +419,19 @@ fragment WireframeFragmentOut wireframe_fragment(
         }
     }
 
+    float3 bodyColor = bodyUniforms.color.rgb;
+    float bodyAlpha = bodyUniforms.color.a;
+
+    // Edge-only bodies (metallic == -1 sentinel): use body color directly
+    if (bodyUniforms.metallic < 0.0) {
+        WireframeFragmentOut out;
+        out.color = float4(bodyColor, bodyAlpha);
+        return out;
+    }
+
     float edgeIntensity = max(uniforms.shadowParams.w, 0.0); // shadowParams.w = edge intensity
 
     // Contrast-adaptive edge color: light edges on dark bodies, dark edges on light bodies
-    float3 bodyColor = bodyUniforms.color.rgb;
     float luminance = dot(bodyColor, float3(0.299, 0.587, 0.114));
     // At intensity 1.0: darkEdge = bodyColor*0.4, lightEdge = bodyColor*0.5+0.5 (original)
     // At higher intensity: push edges darker/more contrasting
