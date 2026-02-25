@@ -185,6 +185,7 @@ struct SpikeView: View {
             medialAxisDemoSection
             namingDemoSection
             annotationDemoSection
+            occt8DemoSection
             gdtSection
             selectionModeSection
             selectionSection
@@ -523,6 +524,59 @@ struct SpikeView: View {
         proximityInfo = nil
         focusOnBounds()
         controller.goToStandardView(.isometricFrontRight)
+    }
+
+    // MARK: - OCCT 8 Demo Section
+
+    private enum OCCT8Demo {
+        case helixCurves, kdTree, wedges, hatchPatterns, shapeOps, polynomials
+    }
+
+    private var occt8DemoSection: some View {
+        Section("OCCT 8 Features") {
+            Button("Helix Curves") { loadOCCT8Demo(.helixCurves) }
+            Button("KD-Tree Queries") { loadOCCT8Demo(.kdTree) }
+            Button("Wedge Primitives") { loadOCCT8Demo(.wedges) }
+            Button("Hatch Patterns") { loadOCCT8Demo(.hatchPatterns) }
+            Button("Shape Operations") { loadOCCT8Demo(.shapeOps) }
+            Button("Polynomial Roots") { loadOCCT8Demo(.polynomials) }
+        }
+    }
+
+    private func loadOCCT8Demo(_ demo: OCCT8Demo) {
+        let result: Curve2DGallery.GalleryResult
+        var useTopView = false
+
+        switch demo {
+        case .helixCurves:
+            result = OCCT8Gallery.helixCurves()
+        case .kdTree:
+            result = OCCT8Gallery.kdTreeQueries()
+        case .wedges:
+            result = OCCT8Gallery.wedgePrimitives()
+        case .hatchPatterns:
+            result = OCCT8Gallery.hatchPatterns()
+            useTopView = true
+        case .shapeOps:
+            result = OCCT8Gallery.shapeOperations()
+        case .polynomials:
+            result = OCCT8Gallery.polynomialRoots()
+            useTopView = true
+        }
+
+        bodies = result.bodies
+        cadMetadata = [:]
+        loadedShapes = []
+        originalColors = [:]
+        for body in bodies {
+            originalColors[body.id] = body.color
+        }
+        selectionManager.clearSelection()
+        controller.clearSelection()
+        operationStatus = result.description
+        proximityInfo = nil
+        focusOnBounds()
+        controller.goToStandardView(useTopView ? .top : .isometricFrontRight)
     }
 
     // MARK: - Projection Demo Section

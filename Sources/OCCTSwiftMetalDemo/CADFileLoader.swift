@@ -126,13 +126,32 @@ enum CADFileLoader {
     // MARK: - STL Loading
 
     private static func loadSTL(from url: URL) throws -> CADLoadResult {
-        let shape = try Shape.loadSTLRobust(from: url)
+        // Try plain load first — it preserves the original triangulation as-is.
+        // loadSTLRobust sews + MakeSolid which can lose geometry when a compound
+        // has multiple disconnected shells (only the first shell becomes a solid).
+        let shape = try Shape.loadSTL(from: url)
+
+        // For STL files the shape is typically a compound of triangulated faces.
+        // The existing mesh() call via BRepMesh + TopExp_Explorer(FACE) will
+        // pick up all faces in the compound — no re-meshing needed since the
+        // STL triangulation is already stored on each face.
+        //
+        // Use a coarser linearDeflection for STL (already tessellated) to avoid
+        // the mesher discarding pre-existing triangulations on large-coordinate models.
         let bodyID = "stl-0"
         let color = SIMD4<Float>(0.7, 0.7, 0.7, 1.0)
 
-        let (body, meta) = shapeToBodyAndMetadata(shape, id: bodyID, color: color)
+        let (body, meta) = shapeToBodyAndMetadata(shape, id: bodyID, color: color, stl: true)
         guard let body else {
-            return CADLoadResult(bodies: [], metadata: [:], shapes: [shape])
+            // If plain load produced no mesh, try robust as fallback
+            let robust = try Shape.loadSTLRobust(from: url)
+            let (body2, meta2) = shapeToBodyAndMetadata(robust, id: bodyID, color: color)
+            guard let body2 else {
+                return CADLoadResult(bodies: [], metadata: [:], shapes: [robust])
+            }
+            var metadata: [String: CADBodyMetadata] = [:]
+            if let meta2 { metadata[bodyID] = meta2 }
+            return CADLoadResult(bodies: [body2], metadata: metadata, shapes: [robust])
         }
 
         var metadata: [String: CADBodyMetadata] = [:]
@@ -164,13 +183,18 @@ enum CADFileLoader {
     // MARK: - Shape → Body Conversion
 
     /// Converts an OCCTSwift Shape to a ViewportBody and optional metadata.
+    /// - Parameter stl: If true, uses coarser deflection suitable for pre-tessellated STL data
     static func shapeToBodyAndMetadata(
         _ shape: Shape,
         id bodyID: String,
-        color rgba: SIMD4<Float>
+        color rgba: SIMD4<Float>,
+        stl: Bool = false
     ) -> (ViewportBody?, CADBodyMetadata?) {
+        // STL files are already tessellated; use a large deflection so the
+        // mesher preserves the existing triangulation rather than re-meshing.
+        let deflection: Double = stl ? 1.0 : 0.1
         // Extract mesh with face indices
-        guard let mesh = shape.mesh(linearDeflection: 0.1) else {
+        guard let mesh = shape.mesh(linearDeflection: deflection) else {
             // Edge-only body — try to get edge polylines
             let edgePolylines = extractEdgePolylines(from: shape)
             if !edgePolylines.isEmpty {
