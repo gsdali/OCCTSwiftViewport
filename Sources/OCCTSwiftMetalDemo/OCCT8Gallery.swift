@@ -755,7 +755,7 @@ enum OCCT8Gallery {
         var polylines: [[SIMD3<Float>]] = []
 
         for i in 0..<edgeCount {
-            if let pts = wire.orderedEdgePoints(at: i) {
+            if let pts = wire.orderedEdgePoints(at: i, maxPoints: 10000) {
                 let floatPts = pts.map { SIMD3<Float>(Float($0.x), Float($0.y), Float($0.z)) }
                 if floatPts.count >= 2 {
                     polylines.append(floatPts)
