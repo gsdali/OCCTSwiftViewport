@@ -1821,12 +1821,27 @@ enum OCCT8Gallery {
         }
 
         // Fuse and Blend: union two shapes with automatic fillet at intersection
-        if let box = Shape.box(width: 3, height: 3, depth: 3),
-           let cyl = Shape.cylinder(radius: 1.2, height: 5)?.translated(by: SIMD3(1.5, 0, -1)) {
+        // Cylinder passes cleanly through the box center for reliable intersection edges
+        if let box = Shape.box(width: 4, height: 4, depth: 4),
+           let cyl = Shape.cylinder(radius: 1.0, height: 8)?.translated(by: SIMD3(0, -4, 0)) {
 
-            if let blended = box.fusedAndBlended(with: cyl, radius: 0.3) {
+            var fuseBlendOk = false
+            // Try fuse-and-blend with a conservative radius
+            if let blended = box.fusedAndBlended(with: cyl, radius: 0.15) {
                 let (body, _) = CADFileLoader.shapeToBodyAndMetadata(
                     blended, id: "blend-fuse", color: SIMD4(0.3, 0.9, 0.4, 0.9)
+                )
+                if var body {
+                    offsetBody(&body, dx: 9, dy: 0, dz: 0)
+                    bodies.append(body)
+                    fuseBlendOk = true
+                }
+            }
+
+            // Fallback: plain fuse if blend fails
+            if !fuseBlendOk, let fused = box.union(with: cyl) {
+                let (body, _) = CADFileLoader.shapeToBodyAndMetadata(
+                    fused, id: "blend-fuse-fallback", color: SIMD4(0.3, 0.9, 0.4, 0.9)
                 )
                 if var body {
                     offsetBody(&body, dx: 9, dy: 0, dz: 0)
@@ -1834,10 +1849,23 @@ enum OCCT8Gallery {
                 }
             }
 
-            // Cut and blend for comparison
-            if let blended = box.cutAndBlended(with: cyl, radius: 0.2) {
+            // Cut and blend
+            var cutBlendOk = false
+            if let blended = box.cutAndBlended(with: cyl, radius: 0.15) {
                 let (body, _) = CADFileLoader.shapeToBodyAndMetadata(
                     blended, id: "blend-cut", color: SIMD4(0.9, 0.5, 0.3, 0.9)
+                )
+                if var body {
+                    offsetBody(&body, dx: 18, dy: 0, dz: 0)
+                    bodies.append(body)
+                    cutBlendOk = true
+                }
+            }
+
+            // Fallback: plain cut
+            if !cutBlendOk, let cut = box.subtracting(cyl) {
+                let (body, _) = CADFileLoader.shapeToBodyAndMetadata(
+                    cut, id: "blend-cut-fallback", color: SIMD4(0.9, 0.5, 0.3, 0.9)
                 )
                 if var body {
                     offsetBody(&body, dx: 18, dy: 0, dz: 0)
