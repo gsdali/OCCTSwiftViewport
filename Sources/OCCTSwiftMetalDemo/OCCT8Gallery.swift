@@ -1597,6 +1597,287 @@ enum OCCT8Gallery {
         )
     }
 
+    // MARK: - v0.35: Cylindrical Projection & Multi-Offset
+
+    /// Demonstrates cylindrical wire projection onto a surface and multi-offset wires.
+    static func projectionAndOffset() -> Curve2DGallery.GalleryResult {
+        var bodies: [ViewportBody] = []
+
+        // Cylindrical projection: project a circle wire onto a sphere
+        if let sphere = Shape.sphere(radius: 3),
+           let circleWire = Wire.circle(radius: 2),
+           let circleShape = Shape.fromWire(circleWire) {
+
+            // Show the sphere
+            let (body, _) = CADFileLoader.shapeToBodyAndMetadata(
+                sphere, id: "proj-sphere", color: SIMD4(0.6, 0.6, 0.6, 0.4),
+                deflection: 0.02
+            )
+            if let body { bodies.append(body) }
+
+            // Project circle onto sphere along Z
+            if let projected = Shape.projectWire(circleShape, onto: sphere,
+                                                  direction: SIMD3(0, 0, 1)) {
+                let (body, _) = CADFileLoader.shapeToBodyAndMetadata(
+                    projected, id: "proj-result", color: SIMD4(1.0, 0.2, 0.2, 1.0),
+                    deflection: 0.02
+                )
+                if let body { bodies.append(body) }
+            }
+        }
+
+        // Multi-offset wires from a face
+        if let box = Shape.box(width: 6, height: 0.1, depth: 6) {
+            // Show the face
+            let (body, _) = CADFileLoader.shapeToBodyAndMetadata(
+                box, id: "moff-face", color: SIMD4(0.5, 0.5, 0.5, 0.3)
+            )
+            if var body {
+                offsetBody(&body, dx: 10, dy: 0, dz: 0)
+                bodies.append(body)
+            }
+
+            // Generate concentric offset wires (like CNC toolpaths)
+            let offsets = box.multiOffsetWires(offsets: [-0.5, -1.0, -1.5, -2.0, -2.5])
+            let offsetColors: [SIMD4<Float>] = [
+                SIMD4(0.3, 0.7, 1.0, 1.0), SIMD4(0.3, 0.9, 0.4, 1.0),
+                SIMD4(0.9, 0.5, 0.3, 1.0), SIMD4(0.8, 0.4, 0.8, 1.0),
+                SIMD4(1.0, 0.8, 0.2, 1.0)
+            ]
+            for (i, wire) in offsets.enumerated() {
+                var wireBody = wireToBody(wire, id: "moff-\(i)",
+                                          color: offsetColors[i % offsetColors.count])
+                offsetBody(&wireBody, dx: 10, dy: 0, dz: 0)
+                bodies.append(wireBody)
+            }
+        }
+
+        return Curve2DGallery.GalleryResult(
+            bodies: bodies,
+            description: "v0.35: Wire projection onto sphere (red), multi-offset toolpaths (right)"
+        )
+    }
+
+    // MARK: - v0.36: Face Division & Conical Projection
+
+    /// Demonstrates face subdivision and conical (point-source) projection.
+    static func faceDivision() -> Curve2DGallery.GalleryResult {
+        var bodies: [ViewportBody] = []
+
+        // Face division: split cylinder faces into patches
+        if let cyl = Shape.cylinder(radius: 2, height: 4) {
+            let (body, _) = CADFileLoader.shapeToBodyAndMetadata(
+                cyl, id: "div-orig", color: SIMD4(0.6, 0.6, 0.6, 0.5),
+                deflection: 0.02
+            )
+            if let body { bodies.append(body) }
+
+            // Divide into ~4 patches per face
+            if let divided = cyl.dividedByNumber(4) {
+                let (body, _) = CADFileLoader.shapeToBodyAndMetadata(
+                    divided, id: "div-result", color: SIMD4(0.3, 0.7, 1.0, 0.9),
+                    deflection: 0.02
+                )
+                if var body {
+                    offsetBody(&body, dx: 7, dy: 0, dz: 0)
+                    bodies.append(body)
+                }
+
+                let origC = cyl.contents
+                let divC = divided.contents
+                _ = (origC, divC)
+            }
+        }
+
+        // Conical projection: project circle from a point onto a box
+        if let box = Shape.box(width: 6, height: 6, depth: 1),
+           let circleWire = Wire.circle(radius: 1.5),
+           let circleShape = Shape.fromWire(circleWire) {
+
+            let (b, _) = CADFileLoader.shapeToBodyAndMetadata(
+                box, id: "cone-box", color: SIMD4(0.6, 0.6, 0.6, 0.4)
+            )
+            if var b {
+                offsetBody(&b, dx: 16, dy: 0, dz: 0)
+                bodies.append(b)
+            }
+
+            // Project from eye point (like a flashlight)
+            if let projected = Shape.projectWireConical(
+                circleShape, onto: box, eye: SIMD3(0, 0, 10)
+            ) {
+                let (body, _) = CADFileLoader.shapeToBodyAndMetadata(
+                    projected, id: "cone-proj", color: SIMD4(1.0, 0.3, 0.3, 1.0)
+                )
+                if var body {
+                    offsetBody(&body, dx: 16, dy: 0, dz: 0)
+                    bodies.append(body)
+                }
+            }
+
+            // Show eye point
+            var eye = makeMarker(at: SIMD3(0, 0, 10), radius: 0.2, id: "cone-eye",
+                                 color: SIMD4(1.0, 1.0, 0.0, 1.0))
+            offsetBody(&eye, dx: 16, dy: 0, dz: 0)
+            bodies.append(eye)
+        }
+
+        return Curve2DGallery.GalleryResult(
+            bodies: bodies,
+            description: "v0.36: Face division (blue, more patches), conical projection from eye (right)"
+        )
+    }
+
+    // MARK: - v0.37: Hollow Solid & Wire Analysis
+
+    /// Demonstrates hollowing (thick solid) and wire topology analysis.
+    static func hollowAndAnalysis() -> Curve2DGallery.GalleryResult {
+        var bodies: [ViewportBody] = []
+        var descriptions: [String] = []
+
+        // Hollow box: remove top face, create shell with wall thickness
+        if let box = Shape.box(width: 4, height: 4, depth: 4) {
+            let (body, _) = CADFileLoader.shapeToBodyAndMetadata(
+                box, id: "hollow-orig", color: SIMD4(0.6, 0.6, 0.6, 0.4)
+            )
+            if let body { bodies.append(body) }
+
+            // Try removing face 2 (typically top face) with 0.3 wall thickness
+            for faceIdx in 0..<box.contents.faces {
+                if let hollowed = box.hollowed(removingFaces: [faceIdx], thickness: 0.3) {
+                    let (body, _) = CADFileLoader.shapeToBodyAndMetadata(
+                        hollowed, id: "hollow-result", color: SIMD4(0.3, 0.7, 1.0, 0.9)
+                    )
+                    if var body {
+                        offsetBody(&body, dx: 8, dy: 0, dz: 0)
+                        bodies.append(body)
+                    }
+                    descriptions.append("Hollowed: face \(faceIdx) removed")
+                    break
+                }
+            }
+        }
+
+        // Multi-tool common: intersection of 3 cylinders
+        if let c1 = Shape.cylinder(radius: 2, height: 6),
+           let c2 = Shape.cylinder(radius: 2, height: 6)?.rotated(axis: SIMD3(1, 0, 0), angle: .pi / 2),
+           let c3 = Shape.cylinder(radius: 2, height: 6)?.rotated(axis: SIMD3(0, 1, 0), angle: .pi / 2) {
+
+            if let common = Shape.commonAll([c1, c2, c3]) {
+                let (body, _) = CADFileLoader.shapeToBodyAndMetadata(
+                    common, id: "common-result", color: SIMD4(0.9, 0.5, 0.3, 0.9),
+                    deflection: 0.02
+                )
+                if var body {
+                    offsetBody(&body, dx: 16, dy: 0, dz: 0)
+                    bodies.append(body)
+                }
+                descriptions.append("commonAll: 3 cylinders")
+            }
+        }
+
+        // Wire analysis demo
+        if let wire = Wire.circle(radius: 2) {
+            if let analysis = wire.analyze() {
+                descriptions.append("Wire: closed=\(analysis.isClosed), edges=\(analysis.edgeCount)")
+            }
+        }
+
+        return Curve2DGallery.GalleryResult(
+            bodies: bodies,
+            description: "v0.37: " + descriptions.joined(separator: " | ")
+        )
+    }
+
+    // MARK: - v0.38: OBB, Fuse-and-Blend, Evolving Fillet
+
+    /// Demonstrates oriented bounding box, fuse-and-blend, and evolving fillet.
+    static func obbAndBlend() -> Curve2DGallery.GalleryResult {
+        var bodies: [ViewportBody] = []
+
+        // Oriented Bounding Box on a rotated shape
+        if let box = Shape.box(width: 4, height: 2, depth: 1),
+           let rotated = box.rotated(axis: SIMD3(0, 0, 1), angle: .pi / 6) {
+
+            let (body, _) = CADFileLoader.shapeToBodyAndMetadata(
+                rotated, id: "obb-shape", color: SIMD4(0.3, 0.7, 1.0, 0.8)
+            )
+            if let body { bodies.append(body) }
+
+            // Show OBB as wireframe
+            if let corners = rotated.orientedBoundingBoxCorners(optimal: true) {
+                let fc = corners.map { SIMD3<Float>(Float($0.x), Float($0.y), Float($0.z)) }
+                if fc.count == 8 {
+                    // 8 corners: draw 12 edges of the box
+                    let edges: [[SIMD3<Float>]] = [
+                        [fc[0], fc[1]], [fc[1], fc[3]], [fc[3], fc[2]], [fc[2], fc[0]],
+                        [fc[4], fc[5]], [fc[5], fc[7]], [fc[7], fc[6]], [fc[6], fc[4]],
+                        [fc[0], fc[4]], [fc[1], fc[5]], [fc[2], fc[6]], [fc[3], fc[7]]
+                    ]
+                    bodies.append(ViewportBody(id: "obb-box", vertexData: [], indices: [], edges: edges,
+                                               color: SIMD4(1.0, 0.8, 0.0, 1.0)))
+                }
+            }
+        }
+
+        // Fuse and Blend: union two shapes with automatic fillet at intersection
+        if let box = Shape.box(width: 3, height: 3, depth: 3),
+           let cyl = Shape.cylinder(radius: 1.2, height: 5)?.translated(by: SIMD3(1.5, 0, -1)) {
+
+            if let blended = box.fusedAndBlended(with: cyl, radius: 0.3) {
+                let (body, _) = CADFileLoader.shapeToBodyAndMetadata(
+                    blended, id: "blend-fuse", color: SIMD4(0.3, 0.9, 0.4, 0.9)
+                )
+                if var body {
+                    offsetBody(&body, dx: 9, dy: 0, dz: 0)
+                    bodies.append(body)
+                }
+            }
+
+            // Cut and blend for comparison
+            if let blended = box.cutAndBlended(with: cyl, radius: 0.2) {
+                let (body, _) = CADFileLoader.shapeToBodyAndMetadata(
+                    blended, id: "blend-cut", color: SIMD4(0.9, 0.5, 0.3, 0.9)
+                )
+                if var body {
+                    offsetBody(&body, dx: 18, dy: 0, dz: 0)
+                    bodies.append(body)
+                }
+            }
+        }
+
+        // Per-face variable offset
+        if let box = Shape.box(width: 3, height: 3, depth: 3) {
+            // Offset different faces by different amounts
+            if let varOffset = box.offsetPerFace(
+                defaultOffset: 0.2,
+                faceOffsets: [1: 0.8, 3: 0.5]
+            ) {
+                let (body, _) = CADFileLoader.shapeToBodyAndMetadata(
+                    varOffset, id: "varoff", color: SIMD4(0.8, 0.4, 0.8, 0.9)
+                )
+                if var body {
+                    offsetBody(&body, dx: 0, dy: 8, dz: 0)
+                    bodies.append(body)
+                }
+            }
+
+            // Show original for reference
+            let (body, _) = CADFileLoader.shapeToBodyAndMetadata(
+                box, id: "varoff-orig", color: SIMD4(0.6, 0.6, 0.6, 0.3)
+            )
+            if var body {
+                offsetBody(&body, dx: 0, dy: 8, dz: 0)
+                bodies.append(body)
+            }
+        }
+
+        return Curve2DGallery.GalleryResult(
+            bodies: bodies,
+            description: "v0.38: OBB (yellow wireframe), fuse+blend (green), cut+blend (orange), variable offset (purple)"
+        )
+    }
+
     // MARK: - Helpers
 
     private static func uniformParameters(curve: Curve3D, count: Int) -> [Double] {
