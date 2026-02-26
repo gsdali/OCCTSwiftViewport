@@ -1789,120 +1789,170 @@ enum OCCT8Gallery {
         )
     }
 
-    // MARK: - v0.38: OBB, Fuse-and-Blend, Evolving Fillet
+    // MARK: - v0.38: Oriented Bounding Box
 
-    /// Demonstrates oriented bounding box, fuse-and-blend, and evolving fillet.
-    static func obbAndBlend() -> Curve2DGallery.GalleryResult {
+    /// Shows AABB vs OBB on the same shape — OBB fits tighter on rotated geometry.
+    static func orientedBoundingBox() -> Curve2DGallery.GalleryResult {
         var bodies: [ViewportBody] = []
 
-        // Oriented Bounding Box on a rotated shape
-        if let box = Shape.box(width: 4, height: 2, depth: 1),
-           let rotated = box.rotated(axis: SIMD3(0, 0, 1), angle: .pi / 6) {
+        // Build an L-shaped part and rotate it so AABB wastes space but OBB fits tight
+        if let arm1 = Shape.box(width: 6, height: 1, depth: 1),
+           let arm2 = Shape.box(width: 1, height: 4, depth: 1)?.translated(by: SIMD3(2.5, 2.5, 0)),
+           let lShape = arm1.union(with: arm2),
+           let rotated = lShape.rotated(axis: SIMD3(0, 0, 1), angle: .pi / 5) {
 
+            // The solid shape
             let (body, _) = CADFileLoader.shapeToBodyAndMetadata(
-                rotated, id: "obb-shape", color: SIMD4(0.3, 0.7, 1.0, 0.8)
+                rotated, id: "obb-shape", color: SIMD4(0.5, 0.7, 0.9, 1.0)
             )
             if let body { bodies.append(body) }
 
-            // Show OBB as wireframe
+            // AABB — axis-aligned, wastes space on rotated shapes
+            if let bb = body?.boundingBox {
+                let lo = bb.min
+                let hi = bb.max
+                let c = [
+                    SIMD3(lo.x, lo.y, lo.z), SIMD3(hi.x, lo.y, lo.z),
+                    SIMD3(lo.x, hi.y, lo.z), SIMD3(hi.x, hi.y, lo.z),
+                    SIMD3(lo.x, lo.y, hi.z), SIMD3(hi.x, lo.y, hi.z),
+                    SIMD3(lo.x, hi.y, hi.z), SIMD3(hi.x, hi.y, hi.z)
+                ]
+                let aabbEdges: [[SIMD3<Float>]] = [
+                    [c[0], c[1]], [c[1], c[3]], [c[3], c[2]], [c[2], c[0]],
+                    [c[4], c[5]], [c[5], c[7]], [c[7], c[6]], [c[6], c[4]],
+                    [c[0], c[4]], [c[1], c[5]], [c[2], c[6]], [c[3], c[7]]
+                ]
+                bodies.append(ViewportBody(id: "obb-aabb", vertexData: [], indices: [],
+                                           edges: aabbEdges,
+                                           color: SIMD4(1.0, 0.3, 0.3, 1.0)))
+            }
+
+            // OBB — oriented, fits tighter
             if let corners = rotated.orientedBoundingBoxCorners(optimal: true) {
                 let fc = corners.map { SIMD3<Float>(Float($0.x), Float($0.y), Float($0.z)) }
                 if fc.count == 8 {
-                    // 8 corners: draw 12 edges of the box
-                    let edges: [[SIMD3<Float>]] = [
+                    let obbEdges: [[SIMD3<Float>]] = [
                         [fc[0], fc[1]], [fc[1], fc[3]], [fc[3], fc[2]], [fc[2], fc[0]],
                         [fc[4], fc[5]], [fc[5], fc[7]], [fc[7], fc[6]], [fc[6], fc[4]],
                         [fc[0], fc[4]], [fc[1], fc[5]], [fc[2], fc[6]], [fc[3], fc[7]]
                     ]
-                    bodies.append(ViewportBody(id: "obb-box", vertexData: [], indices: [], edges: edges,
-                                               color: SIMD4(1.0, 0.8, 0.0, 1.0)))
+                    bodies.append(ViewportBody(id: "obb-tight", vertexData: [], indices: [],
+                                               edges: obbEdges,
+                                               color: SIMD4(0.2, 1.0, 0.3, 1.0)))
                 }
-            }
-        }
-
-        // Fuse and Blend: union two shapes with automatic fillet at intersection
-        // Cylinder passes cleanly through the box center for reliable intersection edges
-        if let box = Shape.box(width: 4, height: 4, depth: 4),
-           let cyl = Shape.cylinder(radius: 1.0, height: 8)?.translated(by: SIMD3(0, -4, 0)) {
-
-            var fuseBlendOk = false
-            // Try fuse-and-blend with a conservative radius
-            if let blended = box.fusedAndBlended(with: cyl, radius: 0.15) {
-                let (body, _) = CADFileLoader.shapeToBodyAndMetadata(
-                    blended, id: "blend-fuse", color: SIMD4(0.3, 0.9, 0.4, 0.9)
-                )
-                if var body {
-                    offsetBody(&body, dx: 9, dy: 0, dz: 0)
-                    bodies.append(body)
-                    fuseBlendOk = true
-                }
-            }
-
-            // Fallback: plain fuse if blend fails
-            if !fuseBlendOk, let fused = box.union(with: cyl) {
-                let (body, _) = CADFileLoader.shapeToBodyAndMetadata(
-                    fused, id: "blend-fuse-fallback", color: SIMD4(0.3, 0.9, 0.4, 0.9)
-                )
-                if var body {
-                    offsetBody(&body, dx: 9, dy: 0, dz: 0)
-                    bodies.append(body)
-                }
-            }
-
-            // Cut and blend
-            var cutBlendOk = false
-            if let blended = box.cutAndBlended(with: cyl, radius: 0.15) {
-                let (body, _) = CADFileLoader.shapeToBodyAndMetadata(
-                    blended, id: "blend-cut", color: SIMD4(0.9, 0.5, 0.3, 0.9)
-                )
-                if var body {
-                    offsetBody(&body, dx: 18, dy: 0, dz: 0)
-                    bodies.append(body)
-                    cutBlendOk = true
-                }
-            }
-
-            // Fallback: plain cut
-            if !cutBlendOk, let cut = box.subtracting(cyl) {
-                let (body, _) = CADFileLoader.shapeToBodyAndMetadata(
-                    cut, id: "blend-cut-fallback", color: SIMD4(0.9, 0.5, 0.3, 0.9)
-                )
-                if var body {
-                    offsetBody(&body, dx: 18, dy: 0, dz: 0)
-                    bodies.append(body)
-                }
-            }
-        }
-
-        // Per-face variable offset
-        if let box = Shape.box(width: 3, height: 3, depth: 3) {
-            // Offset different faces by different amounts
-            if let varOffset = box.offsetPerFace(
-                defaultOffset: 0.2,
-                faceOffsets: [1: 0.8, 3: 0.5]
-            ) {
-                let (body, _) = CADFileLoader.shapeToBodyAndMetadata(
-                    varOffset, id: "varoff", color: SIMD4(0.8, 0.4, 0.8, 0.9)
-                )
-                if var body {
-                    offsetBody(&body, dx: 0, dy: 8, dz: 0)
-                    bodies.append(body)
-                }
-            }
-
-            // Show original for reference
-            let (body, _) = CADFileLoader.shapeToBodyAndMetadata(
-                box, id: "varoff-orig", color: SIMD4(0.6, 0.6, 0.6, 0.3)
-            )
-            if var body {
-                offsetBody(&body, dx: 0, dy: 8, dz: 0)
-                bodies.append(body)
             }
         }
 
         return Curve2DGallery.GalleryResult(
             bodies: bodies,
-            description: "v0.38: OBB (yellow wireframe), fuse+blend (green), cut+blend (orange), variable offset (purple)"
+            description: "Oriented bounding box: red = axis-aligned (loose), green = oriented (tight fit)"
+        )
+    }
+
+    // MARK: - v0.38: Fuse & Blend
+
+    /// Boolean union + automatic fillet at intersection vs plain union.
+    static func fuseAndBlend() -> Curve2DGallery.GalleryResult {
+        var bodies: [ViewportBody] = []
+
+        if let box = Shape.box(width: 4, height: 4, depth: 4),
+           let cyl = Shape.cylinder(radius: 1.0, height: 8)?.translated(by: SIMD3(0, -4, 0)) {
+
+            // Left: plain union (sharp edges at intersection)
+            if let plain = box.union(with: cyl) {
+                let (body, _) = CADFileLoader.shapeToBodyAndMetadata(
+                    plain, id: "fb-plain", color: SIMD4(0.6, 0.6, 0.6, 0.9)
+                )
+                if let body { bodies.append(body) }
+            }
+
+            // Right: fuse-and-blend (auto-filleted intersection edges)
+            if let blended = box.fusedAndBlended(with: cyl, radius: 0.15) {
+                let (body, _) = CADFileLoader.shapeToBodyAndMetadata(
+                    blended, id: "fb-blended", color: SIMD4(0.3, 0.7, 1.0, 0.9)
+                )
+                if var body {
+                    offsetBody(&body, dx: 9, dy: 0, dz: 0)
+                    bodies.append(body)
+                }
+            }
+
+            // Far right: cut-and-blend (hole with filleted edges)
+            if let cut = box.cutAndBlended(with: cyl, radius: 0.15) {
+                let (body, _) = CADFileLoader.shapeToBodyAndMetadata(
+                    cut, id: "fb-cutblend", color: SIMD4(0.9, 0.5, 0.3, 0.9)
+                )
+                if var body {
+                    offsetBody(&body, dx: 18, dy: 0, dz: 0)
+                    bodies.append(body)
+                }
+            }
+        }
+
+        return Curve2DGallery.GalleryResult(
+            bodies: bodies,
+            description: "Left: plain union (sharp). Center: fuse+blend (filleted). Right: cut+blend (filleted hole)."
+        )
+    }
+
+    // MARK: - v0.38: Per-Face Variable Offset
+
+    /// Offsets each face of a box by a different amount.
+    static func variableOffset() -> Curve2DGallery.GalleryResult {
+        var bodies: [ViewportBody] = []
+
+        if let box = Shape.box(width: 3, height: 3, depth: 3) {
+            // Original box (transparent)
+            let (orig, _) = CADFileLoader.shapeToBodyAndMetadata(
+                box, id: "vo-orig", color: SIMD4(0.6, 0.6, 0.6, 0.3)
+            )
+            if let orig { bodies.append(orig) }
+
+            // Uniform offset for comparison
+            if let uniform = box.offset(by: 0.3) {
+                let (body, _) = CADFileLoader.shapeToBodyAndMetadata(
+                    uniform, id: "vo-uniform", color: SIMD4(0.3, 0.7, 1.0, 0.6)
+                )
+                if var body {
+                    offsetBody(&body, dx: 7, dy: 0, dz: 0)
+                    bodies.append(body)
+                }
+                // Show original at same position
+                let (ref, _) = CADFileLoader.shapeToBodyAndMetadata(
+                    box, id: "vo-ref1", color: SIMD4(0.6, 0.6, 0.6, 0.3)
+                )
+                if var ref {
+                    offsetBody(&ref, dx: 7, dy: 0, dz: 0)
+                    bodies.append(ref)
+                }
+            }
+
+            // Per-face variable offset — some faces grow more than others
+            if let variable = box.offsetPerFace(
+                defaultOffset: 0.1,
+                faceOffsets: [1: 0.8, 3: 0.5]
+            ) {
+                let (body, _) = CADFileLoader.shapeToBodyAndMetadata(
+                    variable, id: "vo-variable", color: SIMD4(0.9, 0.5, 0.3, 0.6)
+                )
+                if var body {
+                    offsetBody(&body, dx: 14, dy: 0, dz: 0)
+                    bodies.append(body)
+                }
+                // Show original at same position
+                let (ref, _) = CADFileLoader.shapeToBodyAndMetadata(
+                    box, id: "vo-ref2", color: SIMD4(0.6, 0.6, 0.6, 0.3)
+                )
+                if var ref {
+                    offsetBody(&ref, dx: 14, dy: 0, dz: 0)
+                    bodies.append(ref)
+                }
+            }
+        }
+
+        return Curve2DGallery.GalleryResult(
+            bodies: bodies,
+            description: "Left: original. Center: uniform offset. Right: per-face variable offset (some faces thicker)."
         )
     }
 

@@ -549,7 +549,8 @@ struct SpikeView: View {
         case asymmetricChamfer, loftAdvanced, offsetByJoin, featureOps
         case pipeTransitions, faceFromSurface
         case sectionAndValidation, shapeRepair, multiFuse, splitFaceByWire
-        case projectionAndOffset, faceDivision, hollowAndAnalysis, obbAndBlend
+        case projectionAndOffset, faceDivision, hollowAndAnalysis
+        case orientedBoundingBox, fuseAndBlend, variableOffset
     }
 
     private var occt8DemoSection: some View {
@@ -581,7 +582,9 @@ struct SpikeView: View {
             Button("Projection & Offset") { loadOCCT8Demo(.projectionAndOffset) }
             Button("Face Division") { loadOCCT8Demo(.faceDivision) }
             Button("Hollow & Analysis") { loadOCCT8Demo(.hollowAndAnalysis) }
-            Button("OBB & Blend") { loadOCCT8Demo(.obbAndBlend) }
+            Button("Oriented Bounding Box") { loadOCCT8Demo(.orientedBoundingBox) }
+            Button("Fuse & Blend") { loadOCCT8Demo(.fuseAndBlend) }
+            Button("Variable Offset") { loadOCCT8Demo(.variableOffset) }
         }
     }
 
@@ -646,8 +649,12 @@ struct SpikeView: View {
             result = OCCT8Gallery.faceDivision()
         case .hollowAndAnalysis:
             result = OCCT8Gallery.hollowAndAnalysis()
-        case .obbAndBlend:
-            result = OCCT8Gallery.obbAndBlend()
+        case .orientedBoundingBox:
+            result = OCCT8Gallery.orientedBoundingBox()
+        case .fuseAndBlend:
+            result = OCCT8Gallery.fuseAndBlend()
+        case .variableOffset:
+            result = OCCT8Gallery.variableOffset()
         }
 
         bodies = result.bodies
