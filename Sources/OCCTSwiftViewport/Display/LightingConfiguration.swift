@@ -130,24 +130,27 @@ public struct LightingConfiguration: Sendable {
     /// - Back light for edge definition
     public static let threePoint = LightingConfiguration(
         keyLight: LightSettings(
-            direction: simd_normalize(SIMD3<Float>(-0.5, -0.3, -0.8)),
+            direction: simd_normalize(SIMD3<Float>(-0.5, -0.6, -0.6)),  // Higher elevation (30-45°)
             intensity: 1.0,
-            color: SIMD3<Float>(1.0, 0.98, 0.95)  // Slightly warm
+            color: SIMD3<Float>(1.0, 0.96, 0.90)  // Warmer key
         ),
         fillLight: LightSettings(
-            direction: simd_normalize(SIMD3<Float>(0.6, 0.1, -0.5)),
+            direction: simd_normalize(SIMD3<Float>(0.6, -0.1, -0.5)),  // Slight downward angle
             intensity: 0.4,
-            color: SIMD3<Float>(0.95, 0.97, 1.0)  // Slightly cool
+            color: SIMD3<Float>(0.85, 0.92, 1.0)  // Cooler fill for contrast
         ),
         backLight: LightSettings(
-            direction: simd_normalize(SIMD3<Float>(0.0, 0.5, 0.8)),
-            intensity: 0.3,
-            color: SIMD3<Float>(1.0, 1.0, 1.0)
+            direction: simd_normalize(SIMD3<Float>(0.2, 0.8, 0.5)),  // From below-behind (kicker)
+            intensity: 0.35,
+            color: SIMD3<Float>(0.95, 0.97, 1.0)
         ),
         ambientIntensity: 0.25,
+        shadowIntensity: 0.2,
         specularPower: 64.0,
         specularIntensity: 0.5,
-        fresnelIntensity: 0.3
+        fresnelIntensity: 0.35,
+        ssaoRadius: 0.8,
+        ssaoIntensity: 0.8
     )
 
     /// Soft studio lighting.

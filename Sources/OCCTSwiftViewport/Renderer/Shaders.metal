@@ -238,11 +238,16 @@ fragment ShadedFragmentOut shaded_fragment(
         Lo *= mix(1.0 - shadowDarkness, 1.0, shadowFactor);
     }
 
-    // Hemisphere ambient: blend ground→sky based on normal Y
+    // Tri-axis ambient: vary ambient by normal in all 3 directions (not just Y)
+    // This breaks up uniform color on faces at the same elevation but different azimuths
     float3 skyColor = uniforms.ambientSkyColor.rgb;
     float3 groundColor = uniforms.ambientGroundColor.rgb;
-    float hemiBlend = N.y * 0.5 + 0.5;
-    float3 ambient = mix(groundColor, skyColor, hemiBlend) * bodyColor * (1.0 - metallic * 0.5);
+    float3 ambientY = mix(groundColor, skyColor, N.y * 0.5 + 0.5);
+    // Side axis: warm on +X, cool on -X (simulates fill/key side difference)
+    float3 ambientX = mix(float3(0.35, 0.30, 0.28), float3(0.28, 0.30, 0.35), N.x * 0.5 + 0.5);
+    // Depth axis: slightly brighter facing camera, darker facing away
+    float3 ambientZ = mix(float3(0.25, 0.25, 0.27), float3(0.32, 0.32, 0.30), N.z * 0.5 + 0.5);
+    float3 ambient = ((ambientY * 0.6) + (ambientX * 0.2) + (ambientZ * 0.2)) * bodyColor * (1.0 - metallic * 0.5);
 
     // Environment reflection approximation
     float3 R = reflect(-V, N);
@@ -257,6 +262,28 @@ fragment ShadedFragmentOut shaded_fragment(
 
     // Combine lighting
     float3 litColor = Lo + ambient + envContribution + rimColor;
+
+    // Screen-space curvature: brightens convex edges, darkens concave creases
+    // Uses fragment derivatives of the world normal to detect surface curvature.
+    // Suppressed at mesh boundaries where derivatives are discontinuous.
+    {
+        float3 dx = dfdx(N);
+        float3 dy = dfdy(N);
+        float derivMag = length(dx) + length(dy);
+        // Only apply curvature where derivatives are smooth (not at triangle seams)
+        if (derivMag < 1.5) {
+            float3 xneg = N - dx;
+            float3 xpos = N + dx;
+            float3 yneg = N - dy;
+            float3 ypos = N + dy;
+            float depth = in.clipPositionCopy.w;
+            float curvature = (cross(xneg, xpos).y - cross(yneg, ypos).x) * 4.0 / max(depth, 0.01);
+            // Smooth falloff near the derivative threshold to avoid hard transitions
+            float strength = 0.15 * smoothstep(1.5, 0.5, derivMag);
+            curvature = clamp(curvature, -1.0, 1.0);
+            litColor *= 1.0 + curvature * strength;
+        }
+    }
 
     // Matcap
     if (matcapBlend > 0.001) {
@@ -596,27 +623,34 @@ fragment float4 ssao_fragment(
 
     // --- SSAO ---
     if (params.intensity > 0.001) {
-        const float2 offsets[8] = {
+        // Two-ring sample pattern: inner ring (tight creases) + outer ring (broader AO)
+        const float2 offsets[16] = {
+            // Inner ring (radius 1.0) — catches tight internal angles
             float2(-1.0,  0.0), float2( 1.0,  0.0),
             float2( 0.0, -1.0), float2( 0.0,  1.0),
             float2(-0.707, -0.707), float2( 0.707, -0.707),
-            float2(-0.707,  0.707), float2( 0.707,  0.707)
+            float2(-0.707,  0.707), float2( 0.707,  0.707),
+            // Outer ring (radius 2.0) — broader ambient occlusion
+            float2(-2.0,  0.0), float2( 2.0,  0.0),
+            float2( 0.0, -2.0), float2( 0.0,  2.0),
+            float2(-1.414, -1.414), float2( 1.414, -1.414),
+            float2(-1.414,  1.414), float2( 1.414,  1.414)
         };
 
         float occlusion = 0.0;
         float scaledRadius = params.radius / max(linearDepth, 0.1);
 
-        for (int i = 0; i < 8; i++) {
+        for (int i = 0; i < 16; i++) {
             float2 sampleUV = in.texCoord + offsets[i] * scaledRadius * params.texelSize * 4.0;
             float sampleDepth = depthTexture.sample(pointSampler, sampleUV).r;
             float sampleLinear = linearizeDepth(sampleDepth, params.nearPlane, params.farPlane);
 
             float diff = linearDepth - sampleLinear;
             float rangeCheck = smoothstep(0.0, 1.0, scaledRadius / (abs(diff) + 0.001));
-            occlusion += step(0.001, diff) * rangeCheck;
+            occlusion += step(0.0005, diff) * rangeCheck;
         }
 
-        result_ao = 1.0 - (occlusion / 8.0) * params.intensity;
+        result_ao = 1.0 - (occlusion / 16.0) * params.intensity;
         result_ao = clamp(result_ao, 0.0, 1.0);
     }
 
@@ -645,9 +679,58 @@ fragment float4 ssao_fragment(
         result_edge = smoothstep(0.02, 0.15, edgeMag) * params.silhouetteIntensity;
     }
 
-    // Combine: darken by AO and edge
-    float3 finalColor = sceneColor.rgb * result_ao;
+    // --- Depth Unsharp Masking ---
+    // Computes average depth in a neighborhood and boosts contrast where depth
+    // deviates from the local average, enhancing perception of depth separation
+    // between adjacent faces. Only uses samples at similar depths to avoid
+    // silhouette halo artifacts.
+    float depthContrast = 1.0;
+    if (params.intensity > 0.001) {
+        float blurredDepth = 0.0;
+        float validSamples = 0.0;
+        const float2 unsharpOffsets[8] = {
+            float2(-3.0,  0.0), float2( 3.0,  0.0),
+            float2( 0.0, -3.0), float2( 0.0,  3.0),
+            float2(-2.12, -2.12), float2( 2.12, -2.12),
+            float2(-2.12,  2.12), float2( 2.12,  2.12)
+        };
+        for (int i = 0; i < 8; i++) {
+            float2 sampleUV = in.texCoord + unsharpOffsets[i] * params.texelSize * 3.0;
+            float rawDepth = depthTexture.sample(pointSampler, sampleUV).r;
+            // Skip background samples to avoid silhouette halos
+            if (rawDepth > 0.9999) continue;
+            float sd = linearizeDepth(rawDepth, params.nearPlane, params.farPlane);
+            // Skip samples at very different depths (silhouette boundary)
+            if (abs(sd - linearDepth) / max(linearDepth, 0.01) > 0.3) continue;
+            blurredDepth += sd;
+            validSamples += 1.0;
+        }
+
+        if (validSamples > 2.0) {
+            blurredDepth /= validSamples;
+            float spatialImportance = (linearDepth - blurredDepth) / max(linearDepth, 0.01);
+            depthContrast = 1.0 + spatialImportance * 0.2;
+            depthContrast = clamp(depthContrast, 0.85, 1.15);
+        }
+    }
+
+    // Combine: darken by AO, edge silhouettes, and depth contrast
+    float3 finalColor = sceneColor.rgb * result_ao * depthContrast;
     finalColor = mix(finalColor, float3(0.1, 0.1, 0.12), result_edge);
+
+    // --- ACES Filmic Tone Mapping ---
+    // Compresses dynamic range so highlights don't clip and shadows retain detail.
+    // Uses the Narkowicz ACES approximation (industry standard).
+    {
+        float exposure = 1.1;
+        float3 x = finalColor * exposure;
+        float a = 2.51;
+        float b = 0.03;
+        float c = 2.43;
+        float d = 0.59;
+        float e = 0.14;
+        finalColor = saturate((x * (a * x + b)) / (x * (c * x + d) + e));
+    }
 
     return float4(finalColor, sceneColor.a);
 }

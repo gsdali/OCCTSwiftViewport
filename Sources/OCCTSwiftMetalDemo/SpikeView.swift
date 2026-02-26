@@ -546,6 +546,9 @@ struct SpikeView: View {
         case helixCurves, kdTree, wedges, hatchPatterns, shapeOps, polynomials
         case transformOps, shapeAnalysis, intersections, volumeOps
         case quasiUniform, bezierFill, revolution, linearRib
+        case asymmetricChamfer, loftAdvanced, offsetByJoin, featureOps
+        case pipeTransitions, faceFromSurface
+        case sectionAndValidation, shapeRepair, multiFuse, splitFaceByWire
     }
 
     private var occt8DemoSection: some View {
@@ -564,6 +567,16 @@ struct SpikeView: View {
             Button("Bezier Surface Fill") { loadOCCT8Demo(.bezierFill) }
             Button("Revolution from Curve") { loadOCCT8Demo(.revolution) }
             Button("Linear Rib") { loadOCCT8Demo(.linearRib) }
+            Button("Asymmetric Chamfer") { loadOCCT8Demo(.asymmetricChamfer) }
+            Button("Loft Advanced") { loadOCCT8Demo(.loftAdvanced) }
+            Button("Offset by Join") { loadOCCT8Demo(.offsetByJoin) }
+            Button("Feature Ops") { loadOCCT8Demo(.featureOps) }
+            Button("Pipe Transitions") { loadOCCT8Demo(.pipeTransitions) }
+            Button("Face from Surface") { loadOCCT8Demo(.faceFromSurface) }
+            Button("Section & Validation") { loadOCCT8Demo(.sectionAndValidation) }
+            Button("Shape Repair") { loadOCCT8Demo(.shapeRepair) }
+            Button("Multi-Fuse") { loadOCCT8Demo(.multiFuse) }
+            Button("Split Face by Wire") { loadOCCT8Demo(.splitFaceByWire) }
         }
     }
 
@@ -602,6 +615,26 @@ struct SpikeView: View {
             result = OCCT8Gallery.revolutionDemo()
         case .linearRib:
             result = OCCT8Gallery.linearRibDemo()
+        case .asymmetricChamfer:
+            result = OCCT8Gallery.asymmetricChamfer()
+        case .loftAdvanced:
+            result = OCCT8Gallery.loftAdvanced()
+        case .offsetByJoin:
+            result = OCCT8Gallery.offsetByJoin()
+        case .featureOps:
+            result = OCCT8Gallery.featureOps()
+        case .pipeTransitions:
+            result = OCCT8Gallery.pipeTransitions()
+        case .faceFromSurface:
+            result = OCCT8Gallery.faceFromSurface()
+        case .sectionAndValidation:
+            result = OCCT8Gallery.sectionAndValidation()
+        case .shapeRepair:
+            result = OCCT8Gallery.shapeRepair()
+        case .multiFuse:
+            result = OCCT8Gallery.multiFuse()
+        case .splitFaceByWire:
+            result = OCCT8Gallery.splitFaceByWire()
         }
 
         bodies = result.bodies

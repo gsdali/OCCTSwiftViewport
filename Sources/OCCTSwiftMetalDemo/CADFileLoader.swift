@@ -184,15 +184,17 @@ enum CADFileLoader {
 
     /// Converts an OCCTSwift Shape to a ViewportBody and optional metadata.
     /// - Parameter stl: If true, uses coarser deflection suitable for pre-tessellated STL data
+    /// - Parameter deflection: Custom linear deflection override. Lower = smoother (default 0.1, STL uses 1.0).
     static func shapeToBodyAndMetadata(
         _ shape: Shape,
         id bodyID: String,
         color rgba: SIMD4<Float>,
-        stl: Bool = false
+        stl: Bool = false,
+        deflection customDeflection: Double? = nil
     ) -> (ViewportBody?, CADBodyMetadata?) {
         // STL files are already tessellated; use a large deflection so the
         // mesher preserves the existing triangulation rather than re-meshing.
-        let deflection: Double = stl ? 1.0 : 0.1
+        let deflection: Double = customDeflection ?? (stl ? 1.0 : 0.1)
         // Extract mesh with face indices
         guard let mesh = shape.mesh(linearDeflection: deflection) else {
             // Edge-only body — try to get edge polylines

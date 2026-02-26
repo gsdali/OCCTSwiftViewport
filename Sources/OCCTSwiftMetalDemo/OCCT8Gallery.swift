@@ -831,7 +831,8 @@ enum OCCT8Gallery {
         if let surf = Surface.bezierFill(c1, c2, c3, c4, style: .stretch),
            let shell = Shape.shell(from: surf) {
             let (body, _) = CADFileLoader.shapeToBodyAndMetadata(
-                shell, id: "bf-stretch", color: SIMD4(0.3, 0.6, 1.0, 0.8)
+                shell, id: "bf-stretch", color: SIMD4(0.3, 0.6, 1.0, 0.8),
+                deflection: 0.01
             )
             if let body { bodies.append(body) }
         }
@@ -840,7 +841,8 @@ enum OCCT8Gallery {
         if let surf = Surface.bezierFill(c1, c2, c3, c4, style: .coons),
            let shell = Shape.shell(from: surf) {
             let (body, _) = CADFileLoader.shapeToBodyAndMetadata(
-                shell, id: "bf-coons", color: SIMD4(0.3, 0.9, 0.4, 0.8)
+                shell, id: "bf-coons", color: SIMD4(0.3, 0.9, 0.4, 0.8),
+                deflection: 0.01
             )
             if var body {
                 offsetBody(&body, dx: 10, dy: 0, dz: 0)
@@ -852,7 +854,8 @@ enum OCCT8Gallery {
         if let surf = Surface.bezierFill(c1, c2, c3, c4, style: .curved),
            let shell = Shape.shell(from: surf) {
             let (body, _) = CADFileLoader.shapeToBodyAndMetadata(
-                shell, id: "bf-curved", color: SIMD4(0.9, 0.5, 0.3, 0.8)
+                shell, id: "bf-curved", color: SIMD4(0.9, 0.5, 0.3, 0.8),
+                deflection: 0.01
             )
             if var body {
                 offsetBody(&body, dx: 20, dy: 0, dz: 0)
@@ -879,7 +882,8 @@ enum OCCT8Gallery {
         ]) {
             if let glass = Shape.revolution(meridian: profile) {
                 let (body, _) = CADFileLoader.shapeToBodyAndMetadata(
-                    glass, id: "rev-glass", color: SIMD4(0.4, 0.7, 1.0, 0.8)
+                    glass, id: "rev-glass", color: SIMD4(0.4, 0.7, 1.0, 0.8),
+                    deflection: 0.01
                 )
                 if let body { bodies.append(body) }
             }
@@ -899,7 +903,8 @@ enum OCCT8Gallery {
         ]) {
             if let vase = Shape.revolution(meridian: profile) {
                 let (body, _) = CADFileLoader.shapeToBodyAndMetadata(
-                    vase, id: "rev-vase", color: SIMD4(0.9, 0.5, 0.3, 0.8)
+                    vase, id: "rev-vase", color: SIMD4(0.9, 0.5, 0.3, 0.8),
+                    deflection: 0.01
                 )
                 if var body {
                     offsetBody(&body, dx: 8, dy: 0, dz: 0)
@@ -908,16 +913,17 @@ enum OCCT8Gallery {
             }
         }
 
-        // Partial revolution (half turn) of a circle arc — creates a dome
-        if let arc = Curve3D.line(through: SIMD3(0, 0, 0), direction: SIMD3(1, 0, 1)) {
+        // Partial revolution (half turn) of a line segment — creates a cone
+        if let seg = Curve3D.segment(from: SIMD3(1, 0, 0), to: SIMD3(2, 0, 4)) {
             if let half = Shape.revolution(
-                meridian: arc,
-                axisOrigin: SIMD3(-6, 0, 0),
+                meridian: seg,
+                axisOrigin: SIMD3(0, 0, 0),
                 axisDirection: SIMD3(0, 0, 1),
                 angle: .pi
             ) {
                 let (body, _) = CADFileLoader.shapeToBodyAndMetadata(
-                    half, id: "rev-half", color: SIMD4(0.5, 0.9, 0.5, 0.8)
+                    half, id: "rev-half", color: SIMD4(0.5, 0.9, 0.5, 0.8),
+                    deflection: 0.01
                 )
                 if var body {
                     offsetBody(&body, dx: -6, dy: 0, dz: 0)
@@ -937,8 +943,11 @@ enum OCCT8Gallery {
     /// Adds reinforcing ribs to a base shape.
     static func linearRibDemo() -> Curve2DGallery.GalleryResult {
         var bodies: [ViewportBody] = []
+        var ribSuccess = false
 
-        // Base plate
+        // Base plate — box(width:height:depth:) is centered at origin
+        // width=10 → X: -5..5, height=2 → Y: -1..1, depth=8 → Z: -4..4
+        // Top face is at Y=1
         if let plate = Shape.box(width: 10, height: 2, depth: 8) {
             // Show original
             let (body, _) = CADFileLoader.shapeToBodyAndMetadata(
@@ -946,22 +955,245 @@ enum OCCT8Gallery {
             )
             if let body { bodies.append(body) }
 
-            // Add a rib profile along the top face
+            // Rib profile: a line on the top face (Y=1), running along X
+            // direction = extrusion up (Y+), draftDirection = along Z
             if let ribProfile = Wire.line(
-                from: SIMD3(1, 2, 1),
-                to: SIMD3(9, 2, 1)
+                from: SIMD3(-4, 1, 0),
+                to: SIMD3(4, 1, 0)
             ) {
                 if let ribbed = plate.addingLinearRib(
                     profile: ribProfile,
-                    direction: SIMD3(0, 0, 1),
-                    draftDirection: SIMD3(0, 1, 0),
+                    direction: SIMD3(0, 1, 0),
+                    draftDirection: SIMD3(0, 0, 1),
                     fuse: true
                 ) {
                     let (body, _) = CADFileLoader.shapeToBodyAndMetadata(
-                        ribbed, id: "rib-result", color: SIMD4(0.3, 0.7, 1.0, 1.0)
+                        ribbed, id: "rib-result", color: SIMD4(0.3, 0.7, 1.0, 1.0),
+                        deflection: 0.02
                     )
                     if var body {
                         offsetBody(&body, dx: 14, dy: 0, dz: 0)
+                        bodies.append(body)
+                        ribSuccess = true
+                    }
+                }
+            }
+
+            // Fallback: if rib failed, simulate by unioning a thin box onto the plate
+            if !ribSuccess {
+                if let rib = Shape.box(width: 8, height: 2, depth: 0.5) {
+                    if let ribMoved = rib.translated(by: SIMD3(0, 2, 0)),
+                       let ribbed = plate.union(with: ribMoved) {
+                        let (body, _) = CADFileLoader.shapeToBodyAndMetadata(
+                            ribbed, id: "rib-fallback", color: SIMD4(0.3, 0.7, 1.0, 1.0),
+                            deflection: 0.02
+                        )
+                        if var body {
+                            offsetBody(&body, dx: 14, dy: 0, dz: 0)
+                            bodies.append(body)
+                        }
+                    }
+                }
+            }
+        }
+
+        let desc = ribSuccess
+            ? "v0.31 Linear rib: base plate (gray) → with rib (blue)"
+            : "v0.31 Linear rib: base plate (gray) + extruded prism fallback (blue)"
+        return Curve2DGallery.GalleryResult(
+            bodies: bodies,
+            description: desc
+        )
+    }
+
+    // MARK: - v0.32: Asymmetric Chamfer
+
+    /// Demonstrates two-distance and distance-angle chamfer modes.
+    static func asymmetricChamfer() -> Curve2DGallery.GalleryResult {
+        var bodies: [ViewportBody] = []
+
+        // Base box for chamfering
+        if let box = Shape.box(width: 4, height: 4, depth: 4) {
+            // Original for reference
+            let (body, _) = CADFileLoader.shapeToBodyAndMetadata(
+                box, id: "cham-original", color: SIMD4(0.6, 0.6, 0.6, 0.4)
+            )
+            if let body { bodies.append(body) }
+
+            // Two-distance chamfer on edge 0 (asymmetric: 0.8 on one side, 0.3 on the other)
+            if let chamfered = box.chamferedTwoDistances([(edgeIndex: 0, faceIndex: 0, dist1: 0.8, dist2: 0.3)]) {
+                let (body, _) = CADFileLoader.shapeToBodyAndMetadata(
+                    chamfered, id: "cham-twodist", color: SIMD4(0.3, 0.7, 1.0, 1.0)
+                )
+                if var body {
+                    offsetBody(&body, dx: 7, dy: 0, dz: 0)
+                    bodies.append(body)
+                }
+            }
+
+            // Distance-angle chamfer on edge 2 (distance=0.5, angle=30°)
+            if let chamfered = box.chamferedDistAngle([(edgeIndex: 2, faceIndex: 0, distance: 0.5, angleDegrees: 30)]) {
+                let (body, _) = CADFileLoader.shapeToBodyAndMetadata(
+                    chamfered, id: "cham-distangle", color: SIMD4(0.9, 0.5, 0.3, 1.0)
+                )
+                if var body {
+                    offsetBody(&body, dx: 14, dy: 0, dz: 0)
+                    bodies.append(body)
+                }
+            }
+        }
+
+        return Curve2DGallery.GalleryResult(
+            bodies: bodies,
+            description: "v0.32 Chamfers: original (gray), two-distance (blue), dist+angle (orange)"
+        )
+    }
+
+    // MARK: - v0.32: Loft Advanced
+
+    /// Demonstrates ruled loft and vertex-tipped loft (cone).
+    static func loftAdvanced() -> Curve2DGallery.GalleryResult {
+        var bodies: [ViewportBody] = []
+
+        // Circle at origin in XY, second circle offset to Z=5
+        if let circle1 = Wire.circle(radius: 2.0),
+           let circle2 = Wire.circle(radius: 1.0)?.offset3D(distance: 5, direction: SIMD3(0, 0, 1)) {
+
+            // Ruled loft (straight line segments between profiles)
+            if let ruled = Shape.loft(profiles: [circle1, circle2], solid: true, ruled: true) {
+                let (body, _) = CADFileLoader.shapeToBodyAndMetadata(
+                    ruled, id: "loft-ruled", color: SIMD4(0.3, 0.7, 1.0, 0.9)
+                )
+                if let body { bodies.append(body) }
+            }
+
+            // Smooth loft (B-spline interpolation)
+            if let smooth = Shape.loft(profiles: [circle1, circle2], solid: true, ruled: false) {
+                let (body, _) = CADFileLoader.shapeToBodyAndMetadata(
+                    smooth, id: "loft-smooth", color: SIMD4(0.3, 0.9, 0.4, 0.9)
+                )
+                if var body {
+                    offsetBody(&body, dx: 7, dy: 0, dz: 0)
+                    bodies.append(body)
+                }
+            }
+
+            // Vertex-tipped loft (cone: circle to a point)
+            if let cone = Shape.loft(profiles: [circle1], solid: true, ruled: true,
+                                     lastVertex: SIMD3(0, 0, 6)) {
+                let (body, _) = CADFileLoader.shapeToBodyAndMetadata(
+                    cone, id: "loft-cone", color: SIMD4(0.9, 0.5, 0.3, 0.9)
+                )
+                if var body {
+                    offsetBody(&body, dx: 14, dy: 0, dz: 0)
+                    bodies.append(body)
+                }
+            }
+        }
+
+        return Curve2DGallery.GalleryResult(
+            bodies: bodies,
+            description: "v0.32 Loft: ruled (blue), smooth B-spline (green), vertex-tip cone (orange)"
+        )
+    }
+
+    // MARK: - v0.32: Offset by Join
+
+    /// Demonstrates offset with different join types.
+    static func offsetByJoin() -> Curve2DGallery.GalleryResult {
+        var bodies: [ViewportBody] = []
+
+        // L-shaped base: box + box union
+        if let box1 = Shape.box(width: 4, height: 2, depth: 2),
+           let box2 = Shape.box(width: 2, height: 4, depth: 2),
+           let lShape = box1.union(with: box2) {
+
+            // Original
+            let (body, _) = CADFileLoader.shapeToBodyAndMetadata(
+                lShape, id: "off-original", color: SIMD4(0.6, 0.6, 0.6, 0.4)
+            )
+            if let body { bodies.append(body) }
+
+            // Arc join (smooth rounded gaps)
+            if let arc = lShape.offset(by: 0.3, joinType: .arc) {
+                let (body, _) = CADFileLoader.shapeToBodyAndMetadata(
+                    arc, id: "off-arc", color: SIMD4(0.3, 0.7, 1.0, 0.8)
+                )
+                if var body {
+                    offsetBody(&body, dx: 8, dy: 0, dz: 0)
+                    bodies.append(body)
+                }
+            }
+
+            // Intersection join (sharp edges at gaps)
+            if let inter = lShape.offset(by: 0.3, joinType: .intersection) {
+                let (body, _) = CADFileLoader.shapeToBodyAndMetadata(
+                    inter, id: "off-intersection", color: SIMD4(0.9, 0.5, 0.3, 0.8)
+                )
+                if var body {
+                    offsetBody(&body, dx: 16, dy: 0, dz: 0)
+                    bodies.append(body)
+                }
+            }
+        }
+
+        return Curve2DGallery.GalleryResult(
+            bodies: bodies,
+            description: "v0.32 Offset: original (gray), arc join (blue), intersection join (orange)"
+        )
+    }
+
+    // MARK: - v0.32: Draft Prism & Revolved Feature
+
+    /// Demonstrates draft prism (tapered extrusion) and revolved feature on a base shape.
+    static func featureOps() -> Curve2DGallery.GalleryResult {
+        var bodies: [ViewportBody] = []
+
+        // Base box for features
+        if let box = Shape.box(width: 6, height: 2, depth: 6) {
+            // Show base
+            let (body, _) = CADFileLoader.shapeToBodyAndMetadata(
+                box, id: "feat-base", color: SIMD4(0.6, 0.6, 0.6, 0.4)
+            )
+            if let body { bodies.append(body) }
+
+            // Draft prism: tapered boss on top face (Y=1)
+            // Profile rectangle on the top face using 3D path
+            if let profile = Wire.path([
+                SIMD3(-1, 1, -1), SIMD3(1, 1, -1),
+                SIMD3(1, 1, 1), SIMD3(-1, 1, 1)
+            ], closed: true) {
+                if let drafted = box.addingDraftPrism(
+                    profile: profile, sketchFaceIndex: 2,
+                    draftAngle: 10, height: 3, fuse: true
+                ) {
+                    let (body, _) = CADFileLoader.shapeToBodyAndMetadata(
+                        drafted, id: "feat-draftprism", color: SIMD4(0.3, 0.7, 1.0, 1.0)
+                    )
+                    if var body {
+                        offsetBody(&body, dx: 10, dy: 0, dz: 0)
+                        bodies.append(body)
+                    }
+                }
+            }
+
+            // Revolved feature: groove cut around Y axis
+            // Profile in XY plane, offset from center
+            if let profile = Wire.path([
+                SIMD3(2.5, 1, -0.25), SIMD3(3.5, 1, -0.25),
+                SIMD3(3.5, 1, 0.25), SIMD3(2.5, 1, 0.25)
+            ], closed: true) {
+                if let revolved = box.addingRevolvedFeature(
+                    profile: profile, sketchFaceIndex: 2,
+                    axisOrigin: SIMD3(0, 0, 0),
+                    axisDirection: SIMD3(0, 1, 0),
+                    angle: 360, fuse: false
+                ) {
+                    let (body, _) = CADFileLoader.shapeToBodyAndMetadata(
+                        revolved, id: "feat-revolved", color: SIMD4(0.9, 0.5, 0.3, 1.0)
+                    )
+                    if var body {
+                        offsetBody(&body, dx: 20, dy: 0, dz: 0)
                         bodies.append(body)
                     }
                 }
@@ -970,7 +1202,398 @@ enum OCCT8Gallery {
 
         return Curve2DGallery.GalleryResult(
             bodies: bodies,
-            description: "v0.31 Linear rib: base plate (gray) → with rib (blue)"
+            description: "v0.32 Features: base (gray), draft prism boss (blue), revolved groove (orange)"
+        )
+    }
+
+    // MARK: - v0.33: Pipe Shell Transitions
+
+    /// Demonstrates pipe shell with different transition modes at spine corners.
+    static func pipeTransitions() -> Curve2DGallery.GalleryResult {
+        var bodies: [ViewportBody] = []
+
+        // L-shaped spine with a corner
+        if let spine = Wire.path([
+            SIMD3(0, 0, 0), SIMD3(4, 0, 0), SIMD3(4, 4, 0)
+        ]),
+           let profile = Wire.circle(radius: 0.5) {
+
+            // Transformed (smooth)
+            if let smooth = Shape.pipeShellWithTransition(
+                spine: spine, profile: profile, transition: .transformed
+            ) {
+                let (body, _) = CADFileLoader.shapeToBodyAndMetadata(
+                    smooth, id: "pipe-transformed", color: SIMD4(0.3, 0.7, 1.0, 0.9)
+                )
+                if let body { bodies.append(body) }
+            }
+
+            // Right corner (sharp)
+            if let sharp = Shape.pipeShellWithTransition(
+                spine: spine, profile: profile, transition: .rightCorner
+            ) {
+                let (body, _) = CADFileLoader.shapeToBodyAndMetadata(
+                    sharp, id: "pipe-right", color: SIMD4(0.9, 0.5, 0.3, 0.9)
+                )
+                if var body {
+                    offsetBody(&body, dx: 8, dy: 0, dz: 0)
+                    bodies.append(body)
+                }
+            }
+
+            // Round corner (filleted)
+            if let round = Shape.pipeShellWithTransition(
+                spine: spine, profile: profile, transition: .roundCorner
+            ) {
+                let (body, _) = CADFileLoader.shapeToBodyAndMetadata(
+                    round, id: "pipe-round", color: SIMD4(0.3, 0.9, 0.4, 0.9)
+                )
+                if var body {
+                    offsetBody(&body, dx: 16, dy: 0, dz: 0)
+                    bodies.append(body)
+                }
+            }
+        }
+
+        return Curve2DGallery.GalleryResult(
+            bodies: bodies,
+            description: "v0.33 Pipe transitions: smooth (blue), sharp corner (orange), round corner (green)"
+        )
+    }
+
+    // MARK: - v0.33: Face from Surface
+
+    /// Demonstrates creating faces from parametric surfaces and edges-to-faces.
+    static func faceFromSurface() -> Curve2DGallery.GalleryResult {
+        var bodies: [ViewportBody] = []
+
+        // Face from cylindrical surface with bounded UV
+        if let cylSurf = Surface.cylinder(origin: .zero, axis: SIMD3(0, 0, 1), radius: 2.0) {
+            // Partial cylinder face (half-turn, height 0..4)
+            if let face = cylSurf.toFace(uRange: 0...Double.pi, vRange: 0...4) {
+                let (body, _) = CADFileLoader.shapeToBodyAndMetadata(
+                    face, id: "face-cyl", color: SIMD4(0.3, 0.7, 1.0, 0.9),
+                    deflection: 0.02
+                )
+                if let body { bodies.append(body) }
+            }
+        }
+
+        // Face from spherical surface with bounded UV
+        if let sphSurf = Surface.sphere(center: SIMD3(0, 0, 0), radius: 2.0) {
+            // Quarter sphere
+            if let face = sphSurf.toFace(
+                uRange: 0...(Double.pi / 2),
+                vRange: 0...(Double.pi / 2)
+            ) {
+                let (body, _) = CADFileLoader.shapeToBodyAndMetadata(
+                    face, id: "face-sph", color: SIMD4(0.3, 0.9, 0.4, 0.9),
+                    deflection: 0.02
+                )
+                if var body {
+                    offsetBody(&body, dx: 7, dy: 0, dz: 0)
+                    bodies.append(body)
+                }
+            }
+        }
+
+        // Face from a plane surface
+        if let planeSurf = Surface.plane(origin: .zero, normal: SIMD3(0, 0, 1)) {
+            if let face = planeSurf.toFace(uRange: -3...3, vRange: -2...2) {
+                let (body, _) = CADFileLoader.shapeToBodyAndMetadata(
+                    face, id: "face-plane", color: SIMD4(0.9, 0.5, 0.3, 0.9)
+                )
+                if var body {
+                    offsetBody(&body, dx: 14, dy: 0, dz: 0)
+                    bodies.append(body)
+                }
+            }
+        }
+
+        return Curve2DGallery.GalleryResult(
+            bodies: bodies,
+            description: "v0.33 Face from surface: half cylinder (blue), quarter sphere (green), bounded plane (orange)"
+        )
+    }
+
+    // MARK: - v0.34: Section Curves & Boolean Validation
+
+    /// Demonstrates shape-to-shape section and boolean pre-validation.
+    static func sectionAndValidation() -> Curve2DGallery.GalleryResult {
+        var bodies: [ViewportBody] = []
+        var descriptions: [String] = []
+
+        // Two intersecting shapes: cylinder through a box
+        if let box = Shape.box(width: 4, height: 4, depth: 4),
+           let cyl = Shape.cylinder(radius: 1.5, height: 6)?.translated(by: SIMD3(0, -3, 0)) {
+
+            // Show both shapes semi-transparent
+            let (b1, _) = CADFileLoader.shapeToBodyAndMetadata(
+                box, id: "sec-box", color: SIMD4(0.3, 0.6, 1.0, 0.3)
+            )
+            if let b1 { bodies.append(b1) }
+            let (b2, _) = CADFileLoader.shapeToBodyAndMetadata(
+                cyl, id: "sec-cyl", color: SIMD4(0.9, 0.5, 0.3, 0.3),
+                deflection: 0.02
+            )
+            if let b2 { bodies.append(b2) }
+
+            // Section: intersection curves
+            if let section = box.section(with: cyl) {
+                let (body, _) = CADFileLoader.shapeToBodyAndMetadata(
+                    section, id: "sec-curves", color: SIMD4(1.0, 0.2, 0.2, 1.0),
+                    deflection: 0.02
+                )
+                if let body { bodies.append(body) }
+                let c = section.contents
+                descriptions.append("Section: \(c.edges)E")
+            }
+
+            // Boolean pre-validation
+            let boxValid = box.isValidForBoolean
+            let cylValid = cyl.isValidForBoolean
+            let pairValid = box.isValidForBoolean(with: cyl)
+            descriptions.append("Valid: box=\(boxValid), cyl=\(cylValid), pair=\(pairValid)")
+        }
+
+        // Second example: sphere slicing through a box — offset right
+        if let box2 = Shape.box(width: 3, height: 3, depth: 3),
+           let sph = Shape.sphere(radius: 2.5)?.translated(by: SIMD3(1.5, 1.5, 0)) {
+            let (b1, _) = CADFileLoader.shapeToBodyAndMetadata(
+                box2, id: "sec-box2", color: SIMD4(0.3, 0.9, 0.4, 0.3)
+            )
+            if var b1 {
+                offsetBody(&b1, dx: 10, dy: 0, dz: 0)
+                bodies.append(b1)
+            }
+            let (b2, _) = CADFileLoader.shapeToBodyAndMetadata(
+                sph, id: "sec-sph", color: SIMD4(0.8, 0.4, 0.8, 0.3),
+                deflection: 0.02
+            )
+            if var b2 {
+                offsetBody(&b2, dx: 10, dy: 0, dz: 0)
+                bodies.append(b2)
+            }
+
+            if let section = box2.section(with: sph) {
+                let (body, _) = CADFileLoader.shapeToBodyAndMetadata(
+                    section, id: "sec-curves2", color: SIMD4(1.0, 1.0, 0.0, 1.0),
+                    deflection: 0.02
+                )
+                if var body {
+                    offsetBody(&body, dx: 10, dy: 0, dz: 0)
+                    bodies.append(body)
+                }
+            }
+        }
+
+        return Curve2DGallery.GalleryResult(
+            bodies: bodies,
+            description: "v0.34 Section: " + descriptions.joined(separator: " | ")
+        )
+    }
+
+    // MARK: - v0.34: Shape Repair (Split by Angle, Drop Small Edges)
+
+    /// Demonstrates split-by-angle and drop-small-edges repair operations.
+    static func shapeRepair() -> Curve2DGallery.GalleryResult {
+        var bodies: [ViewportBody] = []
+
+        // Full cylinder — surfaces span 360°
+        if let cyl = Shape.cylinder(radius: 2, height: 4) {
+            let (body, _) = CADFileLoader.shapeToBodyAndMetadata(
+                cyl, id: "repair-cyl", color: SIMD4(0.6, 0.6, 0.6, 0.5),
+                deflection: 0.02
+            )
+            if let body { bodies.append(body) }
+
+            let origContents = cyl.contents
+
+            // Split by angle: 90° — turns full cylinder into quarter-cylinders
+            if let split = cyl.splitByAngle(90) {
+                let (body, _) = CADFileLoader.shapeToBodyAndMetadata(
+                    split, id: "repair-split90", color: SIMD4(0.3, 0.7, 1.0, 0.9),
+                    deflection: 0.02
+                )
+                if var body {
+                    offsetBody(&body, dx: 7, dy: 0, dz: 0)
+                    bodies.append(body)
+                }
+
+                let splitContents = split.contents
+                _ = (origContents, splitContents) // used in description
+            }
+        }
+
+        // Sphere — split by 90° creates octant patches
+        if let sph = Shape.sphere(radius: 2) {
+            let (body, _) = CADFileLoader.shapeToBodyAndMetadata(
+                sph, id: "repair-sph", color: SIMD4(0.6, 0.6, 0.6, 0.5),
+                deflection: 0.02
+            )
+            if var body {
+                offsetBody(&body, dx: 0, dy: 7, dz: 0)
+                bodies.append(body)
+            }
+
+            if let split = sph.splitByAngle(90) {
+                let (body, _) = CADFileLoader.shapeToBodyAndMetadata(
+                    split, id: "repair-sphsplit", color: SIMD4(0.9, 0.5, 0.3, 0.9),
+                    deflection: 0.02
+                )
+                if var body {
+                    offsetBody(&body, dx: 7, dy: 7, dz: 0)
+                    bodies.append(body)
+                }
+            }
+        }
+
+        // Drop small edges demo: create a shape with tiny edges then clean
+        if let box = Shape.box(width: 4, height: 4, depth: 4) {
+            // Fillet with a very small radius to create tiny edges
+            if let filleted = box.filleted(radius: 0.01) {
+                let (body, _) = CADFileLoader.shapeToBodyAndMetadata(
+                    filleted, id: "repair-tiny", color: SIMD4(0.6, 0.6, 0.6, 0.5)
+                )
+                if var body {
+                    offsetBody(&body, dx: 0, dy: 14, dz: 0)
+                    bodies.append(body)
+                }
+
+                if let cleaned = filleted.droppingSmallEdges(tolerance: 0.05) {
+                    let (body, _) = CADFileLoader.shapeToBodyAndMetadata(
+                        cleaned, id: "repair-cleaned", color: SIMD4(0.3, 0.9, 0.4, 0.9)
+                    )
+                    if var body {
+                        offsetBody(&body, dx: 7, dy: 14, dz: 0)
+                        bodies.append(body)
+                    }
+                }
+            }
+        }
+
+        return Curve2DGallery.GalleryResult(
+            bodies: bodies,
+            description: "v0.34 Repair: splitByAngle 90° (blue/orange), dropSmallEdges (green)"
+        )
+    }
+
+    // MARK: - v0.34: Multi-Fuse
+
+    /// Demonstrates fuseAll vs sequential union for multiple shapes.
+    static func multiFuse() -> Curve2DGallery.GalleryResult {
+        var bodies: [ViewportBody] = []
+
+        // Create 4 overlapping cylinders in a cross pattern
+        let shapes: [(Shape, SIMD3<Double>)] = {
+            var result: [(Shape, SIMD3<Double>)] = []
+            if let c1 = Shape.cylinder(radius: 1, height: 6) {
+                result.append((c1, .zero))
+            }
+            if let c2 = Shape.cylinder(radius: 1, height: 6)?.rotated(axis: SIMD3(1, 0, 0), angle: .pi / 2) {
+                result.append((c2, .zero))
+            }
+            if let c3 = Shape.cylinder(radius: 1, height: 6)?.rotated(axis: SIMD3(0, 1, 0), angle: .pi / 2) {
+                result.append((c3, .zero))
+            }
+            if let c4 = Shape.cylinder(radius: 0.8, height: 6)?.rotated(axis: SIMD3(1, 1, 0), angle: .pi / 4) {
+                result.append((c4, .zero))
+            }
+            return result
+        }()
+
+        // Show individual cylinders semi-transparent
+        let colors: [SIMD4<Float>] = [
+            SIMD4(0.3, 0.6, 1.0, 0.2), SIMD4(0.9, 0.5, 0.3, 0.2),
+            SIMD4(0.3, 0.9, 0.4, 0.2), SIMD4(0.8, 0.4, 0.8, 0.2)
+        ]
+        for (i, (shape, _)) in shapes.enumerated() {
+            let (body, _) = CADFileLoader.shapeToBodyAndMetadata(
+                shape, id: "fuse-orig-\(i)", color: colors[i],
+                deflection: 0.02
+            )
+            if let body { bodies.append(body) }
+        }
+
+        // fuseAll — simultaneous multi-tool boolean
+        let allShapes = shapes.map { $0.0 }
+        if let fused = Shape.fuseAll(allShapes) {
+            let (body, _) = CADFileLoader.shapeToBodyAndMetadata(
+                fused, id: "fuse-all", color: SIMD4(0.3, 0.7, 1.0, 0.9),
+                deflection: 0.02
+            )
+            if var body {
+                offsetBody(&body, dx: 10, dy: 0, dz: 0)
+                bodies.append(body)
+            }
+
+            let c = fused.contents
+            _ = c
+        }
+
+        // Sequential union for comparison
+        var seqResult: Shape? = allShapes.first
+        for shape in allShapes.dropFirst() {
+            seqResult = seqResult?.union(with: shape)
+        }
+        if let seq = seqResult {
+            let (body, _) = CADFileLoader.shapeToBodyAndMetadata(
+                seq, id: "fuse-seq", color: SIMD4(0.9, 0.5, 0.3, 0.9),
+                deflection: 0.02
+            )
+            if var body {
+                offsetBody(&body, dx: 20, dy: 0, dz: 0)
+                bodies.append(body)
+            }
+        }
+
+        return Curve2DGallery.GalleryResult(
+            bodies: bodies,
+            description: "v0.34 Multi-fuse: originals (left), fuseAll (blue), sequential union (orange)"
+        )
+    }
+
+    // MARK: - v0.34: Split Face by Wire
+
+    /// Demonstrates imprinting a wire onto a face to split it.
+    static func splitFaceByWire() -> Curve2DGallery.GalleryResult {
+        var bodies: [ViewportBody] = []
+
+        // Box with a wire imprinted on a face
+        if let box = Shape.box(width: 6, height: 4, depth: 4) {
+            // Show original
+            let (body, _) = CADFileLoader.shapeToBodyAndMetadata(
+                box, id: "split-original", color: SIMD4(0.6, 0.6, 0.6, 0.4)
+            )
+            if let body { bodies.append(body) }
+
+            let origContents = box.contents
+
+            // Create a wire on the top face (Y=2) — a diagonal line
+            if let wire = Wire.line(from: SIMD3(-2, 2, -1), to: SIMD3(2, 2, 1)) {
+                // Top face index varies by OCCT internals; try face 2 (commonly the top)
+                for faceIdx in 0..<origContents.faces {
+                    if let split = box.splittingFace(with: wire, faceIndex: faceIdx) {
+                        let splitContents = split.contents
+                        // Successfully split if face count increased
+                        if splitContents.faces > origContents.faces {
+                            let (body, _) = CADFileLoader.shapeToBodyAndMetadata(
+                                split, id: "split-result", color: SIMD4(0.3, 0.7, 1.0, 1.0)
+                            )
+                            if var body {
+                                offsetBody(&body, dx: 10, dy: 0, dz: 0)
+                                bodies.append(body)
+                            }
+                            break
+                        }
+                    }
+                }
+            }
+        }
+
+        return Curve2DGallery.GalleryResult(
+            bodies: bodies,
+            description: "v0.34 Split face: original (gray), face split by wire imprint (blue)"
         )
     }
 
