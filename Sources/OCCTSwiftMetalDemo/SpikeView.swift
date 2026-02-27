@@ -208,6 +208,9 @@ struct SpikeView: View {
             overlaysSection
             projectionSection
             lightingSection
+            shadowSection
+            dofSection
+            taaSection
             statusSection
         }
         .navigationTitle("OCCTSwift Metal Demo")
@@ -973,6 +976,66 @@ struct SpikeView: View {
             VStack(alignment: .leading) {
                 Text("Matcap Blend: \(controller.lightingConfiguration.matcapBlend, specifier: "%.2f")")
                 Slider(value: $controller.lightingConfiguration.matcapBlend, in: 0...1)
+            }
+            VStack(alignment: .leading) {
+                Text("Exposure: \(controller.lightingConfiguration.exposure, specifier: "%.2f")")
+                Slider(value: $controller.lightingConfiguration.exposure, in: 0.5...3.0)
+            }
+            VStack(alignment: .leading) {
+                Text("White Point: \(controller.lightingConfiguration.whitePoint, specifier: "%.2f")")
+                Slider(value: $controller.lightingConfiguration.whitePoint, in: 0.5...2.0)
+            }
+        }
+    }
+
+    private var shadowSection: some View {
+        Section("Shadows") {
+            Toggle("Shadows", isOn: $controller.lightingConfiguration.shadowsEnabled)
+            if controller.lightingConfiguration.shadowsEnabled {
+                VStack(alignment: .leading) {
+                    Text("Shadow Intensity: \(controller.lightingConfiguration.shadowIntensity, specifier: "%.2f")")
+                    Slider(value: $controller.lightingConfiguration.shadowIntensity, in: 0...1)
+                }
+                VStack(alignment: .leading) {
+                    Text("PCSS Light Size: \(controller.lightingConfiguration.shadowLightSize, specifier: "%.3f")")
+                    Slider(value: $controller.lightingConfiguration.shadowLightSize, in: 0...0.1)
+                }
+                VStack(alignment: .leading) {
+                    Text("PCSS Search Radius: \(controller.lightingConfiguration.shadowSearchRadius, specifier: "%.3f")")
+                    Slider(value: $controller.lightingConfiguration.shadowSearchRadius, in: 0...0.05)
+                }
+            }
+        }
+    }
+
+    private var dofSection: some View {
+        Section("Depth of Field") {
+            Toggle("Enable DoF", isOn: $controller.enableDepthOfField)
+            if controller.enableDepthOfField {
+                VStack(alignment: .leading) {
+                    Text("Aperture: \(controller.dofAperture, specifier: "%.1f")")
+                    Slider(value: $controller.dofAperture, in: 0.5...16.0)
+                }
+                VStack(alignment: .leading) {
+                    Text("Focal Distance: \(controller.dofFocalDistance, specifier: "%.1f") (0 = auto)")
+                    Slider(value: $controller.dofFocalDistance, in: 0...100.0)
+                }
+                VStack(alignment: .leading) {
+                    Text("Max Blur: \(controller.dofMaxBlurRadius, specifier: "%.1f")")
+                    Slider(value: $controller.dofMaxBlurRadius, in: 1...20)
+                }
+            }
+        }
+    }
+
+    private var taaSection: some View {
+        Section("Anti-Aliasing") {
+            Toggle("Temporal AA (TAA)", isOn: $controller.enableTAA)
+            if controller.enableTAA {
+                VStack(alignment: .leading) {
+                    Text("Blend Factor: \(controller.taaBlendFactor, specifier: "%.2f")")
+                    Slider(value: $controller.taaBlendFactor, in: 0.5...0.98)
+                }
             }
         }
     }

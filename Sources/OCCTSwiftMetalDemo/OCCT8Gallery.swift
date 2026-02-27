@@ -2250,6 +2250,74 @@ enum OCCT8Gallery {
             }
         }
 
+        // SubShape API: extract individual faces, count sub-shapes, remove a face
+        if let box = Shape.box(width: 3, height: 3, depth: 3) {
+            // Fillet the box first for a more interesting shape
+            let target = box.filleted(radius: 0.4) ?? box
+
+            let faceCount = target.subShapeCount(ofType: .face)
+            let edgeCount = target.subShapeCount(ofType: .edge)
+            let vertexCount = target.subShapeCount(ofType: .vertex)
+            descriptions.append("SubShape: \(faceCount)F \(edgeCount)E \(vertexCount)V")
+
+            // Show the original filleted box (semi-transparent)
+            let (origBody, _) = CADFileLoader.shapeToBodyAndMetadata(
+                target, id: "subshape-orig", color: SIMD4(0.6, 0.6, 0.6, 0.3),
+                deflection: 0.02
+            )
+            if var origBody {
+                offsetBody(&origBody, dx: 0, dy: 20, dz: 0)
+                bodies.append(origBody)
+            }
+
+            // Extract face 0 and remove it
+            if let face0 = target.subShape(type: .face, index: 0) {
+                let (faceBody, _) = CADFileLoader.shapeToBodyAndMetadata(
+                    face0, id: "subshape-face0", color: SIMD4(1.0, 0.3, 0.3, 0.9),
+                    deflection: 0.02
+                )
+                if var faceBody {
+                    offsetBody(&faceBody, dx: 0, dy: 20, dz: 0)
+                    bodies.append(faceBody)
+                }
+
+                // Remove that face
+                if let removed = target.removingSubShapes([face0]) {
+                    let removedFaceCount = removed.subShapeCount(ofType: .face)
+                    let (removedBody, _) = CADFileLoader.shapeToBodyAndMetadata(
+                        removed, id: "subshape-removed", color: SIMD4(0.3, 0.8, 0.5, 0.9),
+                        deflection: 0.02
+                    )
+                    if var removedBody {
+                        offsetBody(&removedBody, dx: 7, dy: 20, dz: 0)
+                        bodies.append(removedBody)
+                    }
+                    descriptions.append("Removed 1 face: \(faceCount)→\(removedFaceCount)F")
+                }
+            }
+
+            // Visualize all faces individually with per-face colors
+            let allFaces = target.subShapes(ofType: .face)
+            let faceColors: [SIMD4<Float>] = [
+                SIMD4(0.9, 0.3, 0.3, 0.8), SIMD4(0.3, 0.9, 0.3, 0.8),
+                SIMD4(0.3, 0.3, 0.9, 0.8), SIMD4(0.9, 0.9, 0.3, 0.8),
+                SIMD4(0.9, 0.3, 0.9, 0.8), SIMD4(0.3, 0.9, 0.9, 0.8),
+                SIMD4(0.9, 0.6, 0.3, 0.8), SIMD4(0.6, 0.3, 0.9, 0.8),
+            ]
+            for (i, face) in allFaces.enumerated() {
+                let color = faceColors[i % faceColors.count]
+                let (faceBody, _) = CADFileLoader.shapeToBodyAndMetadata(
+                    face, id: "subshape-all-\(i)", color: color,
+                    deflection: 0.02
+                )
+                if var faceBody {
+                    offsetBody(&faceBody, dx: 14, dy: 20, dz: 0)
+                    bodies.append(faceBody)
+                }
+            }
+            descriptions.append("All \(allFaces.count) faces colored")
+        }
+
         // Closed edge splitting
         if let cyl = Shape.cylinder(radius: 1.5, height: 3) {
             let origContents = cyl.contents

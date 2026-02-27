@@ -12,6 +12,8 @@ import SwiftUI
 struct LightDataSwift {
     var directionAndIntensity: SIMD4<Float>  // xyz = direction, w = intensity
     var colorAndEnabled: SIMD4<Float>        // rgb = color, a = enabled flag
+    var typeAndParams: SIMD4<Float>          // x = type (0=directional, 1=point), y = radius, z/w = unused
+    var positionAndPad: SIMD4<Float>         // xyz = world position (point lights), w = unused
 }
 
 struct Uniforms {
@@ -26,7 +28,9 @@ struct Uniforms {
     var ambientGroundColor: SIMD4<Float>      // rgb + specularIntensity in w
     var materialParams: SIMD4<Float>          // fresnelPower, fresnelIntensity, matcapBlend, farPlane
     var lightViewProjectionMatrix: simd_float4x4  // for shadow mapping
-    var shadowParams: SIMD4<Float>            // x = bias, y = intensity, z = enabled (1/0), w = unused
+    var shadowParams: SIMD4<Float>            // x = bias, y = intensity, z = enabled (1/0), w = edgeIntensity
+    var shadowParams2: SIMD4<Float> = .zero   // x = lightSize, y = searchRadius, z/w = unused (PCSS)
+    var iblParams: SIMD4<Float> = .zero       // x = intensity, y/z = unused, w = hasEnvMap
     var clipPlanes: (SIMD4<Float>, SIMD4<Float>, SIMD4<Float>, SIMD4<Float>) = (.zero, .zero, .zero, .zero)
     var clipPlaneCount: UInt32 = 0
     var _clipPad: SIMD3<Float> = .zero
@@ -73,6 +77,19 @@ struct SSAOParamsSwift {
     var farPlane: Float
     var silhouetteThickness: Float
     var silhouetteIntensity: Float
+    var exposure: Float
+    var whitePoint: Float
+    var dofAperture: Float
+    var dofFocalDistance: Float
+    var dofMaxBlurRadius: Float
+    var dofEnabled: Float
+}
+
+struct TAAParamsSwift {
+    var blendFactor: Float
+    var _pad0: Float = 0
+    var jitterOffset: SIMD2<Float>
+    var texelSize: SIMD2<Float>
 }
 
 // MARK: - Cached Body Buffers
@@ -128,6 +145,16 @@ public final class ViewportRenderer: NSObject, MTKViewDelegate, Sendable {
     private var resolvedDepthTexture: MTLTexture?
     private var resolvedWidth: Int = 0
     private var resolvedHeight: Int = 0
+
+    // TAA
+    private let taaPipeline: MTLRenderPipelineState?
+    private var taaHistoryTexture: MTLTexture?
+    private var taaOutputTexture: MTLTexture?
+    private var taaFrameIndex: UInt32 = 0
+    private var lastCameraState: CameraState?
+
+    // Environment map IBL
+    private var environmentMapManager: EnvironmentMapManager?
 
     private weak var controller: ViewportController?
     private var bodiesBinding: Binding<[ViewportBody]>
@@ -345,6 +372,14 @@ public final class ViewportRenderer: NSObject, MTKViewDelegate, Sendable {
         // No depth needed for this fullscreen pass
         self.ssaoPipeline = try? device.makeRenderPipelineState(descriptor: ssaoDesc)
 
+        // TAA resolve pipeline (1x fullscreen pass)
+        let taaDesc = MTLRenderPipelineDescriptor()
+        taaDesc.label = "taa_resolve"
+        taaDesc.vertexFunction = library.makeFunction(name: "fullscreen_vertex")
+        taaDesc.fragmentFunction = library.makeFunction(name: "taa_resolve_fragment")
+        taaDesc.colorAttachments[0].pixelFormat = .bgra8Unorm
+        self.taaPipeline = try? device.makeRenderPipelineState(descriptor: taaDesc)
+
         // Depth stencil state
         let depthDesc = MTLDepthStencilDescriptor()
         depthDesc.depthCompareFunction = .less
@@ -486,6 +521,9 @@ public final class ViewportRenderer: NSObject, MTKViewDelegate, Sendable {
         }
         self.pickReadbackBuffer = readback
 
+        // Environment map manager (IBL)
+        self.environmentMapManager = EnvironmentMapManager(device: device, library: library)
+
         super.init()
     }
 
@@ -493,6 +531,16 @@ public final class ViewportRenderer: NSObject, MTKViewDelegate, Sendable {
 
     /// The Metal device, exposed for MTKView configuration.
     public var metalDevice: MTLDevice { device }
+
+    /// Loads an equirectangular HDR image as the environment map for IBL.
+    public func loadEnvironmentMap(data: Data) {
+        environmentMapManager?.loadEquirectangular(data: data, commandQueue: commandQueue)
+    }
+
+    /// Clears the current environment map.
+    public func clearEnvironmentMap() {
+        environmentMapManager?.clear()
+    }
 
     /// Invalidates cached buffers so they are rebuilt on next draw.
     public func invalidateBuffers() {
@@ -545,6 +593,38 @@ public final class ViewportRenderer: NSObject, MTKViewDelegate, Sendable {
         resolvedHeight = height
     }
 
+    /// Ensures TAA history + output textures exist at the given size.
+    private func ensureTAATextures(width: Int, height: Int) {
+        guard width > 0, height > 0 else { return }
+        if let existing = taaHistoryTexture, existing.width == width, existing.height == height { return }
+
+        let desc = MTLTextureDescriptor.texture2DDescriptor(
+            pixelFormat: .bgra8Unorm,
+            width: width,
+            height: height,
+            mipmapped: false
+        )
+        desc.usage = [.renderTarget, .shaderRead]
+        desc.storageMode = .private
+
+        taaHistoryTexture = device.makeTexture(descriptor: desc)
+        taaOutputTexture = device.makeTexture(descriptor: desc)
+        taaFrameIndex = 0
+    }
+
+    /// Halton sequence value for sub-pixel jitter.
+    private func halton(index: UInt32, base: UInt32) -> Float {
+        var f: Float = 1.0
+        var r: Float = 0.0
+        var i = index
+        while i > 0 {
+            f /= Float(base)
+            r += f * Float(i % base)
+            i /= base
+        }
+        return r
+    }
+
     /// Ensures the 1x depth texture for the pick pass matches the given size.
     private func ensurePickDepthTexture(width: Int, height: Int) {
         guard width > 0, height > 0 else { return }
@@ -586,9 +666,21 @@ public final class ViewportRenderer: NSObject, MTKViewDelegate, Sendable {
         // Pack lights from lighting configuration
         let lightSources = [lighting.keyLight, lighting.fillLight, lighting.backLight]
         func packLight(_ ls: LightSettings) -> LightDataSwift {
-            LightDataSwift(
+            let typeVal: Float
+            let radiusVal: Float
+            switch ls.lightType {
+            case .directional:
+                typeVal = 0.0
+                radiusVal = 0.0
+            case .point(let radius):
+                typeVal = 1.0
+                radiusVal = radius
+            }
+            return LightDataSwift(
                 directionAndIntensity: SIMD4<Float>(ls.direction.x, ls.direction.y, ls.direction.z, ls.intensity),
-                colorAndEnabled: SIMD4<Float>(ls.color.x, ls.color.y, ls.color.z, ls.isEnabled ? 1.0 : 0.0)
+                colorAndEnabled: SIMD4<Float>(ls.color.x, ls.color.y, ls.color.z, ls.isEnabled ? 1.0 : 0.0),
+                typeAndParams: SIMD4<Float>(typeVal, radiusVal, 0, 0),
+                positionAndPad: SIMD4<Float>(ls.position.x, ls.position.y, ls.position.z, 0)
             )
         }
 
@@ -617,6 +709,19 @@ public final class ViewportRenderer: NSObject, MTKViewDelegate, Sendable {
         }()
         let clipPlaneCount = UInt32(activeClipPlanes.count)
 
+        let shadowParams2 = SIMD4<Float>(
+            lighting.shadowLightSize,
+            lighting.shadowSearchRadius,
+            0, 0
+        )
+
+        let hasEnvMap: Float = (environmentMapManager?.hasEnvironmentMap ?? false) ? 1.0 : 0.0
+        let iblParams = SIMD4<Float>(
+            lighting.environmentIntensity,
+            0, 0,
+            hasEnvMap
+        )
+
         func makeUniforms() -> Uniforms {
             Uniforms(
                 viewProjectionMatrix: viewProjection,
@@ -631,6 +736,8 @@ public final class ViewportRenderer: NSObject, MTKViewDelegate, Sendable {
                 materialParams: SIMD4<Float>(lighting.fresnelPower, lighting.fresnelIntensity, lighting.matcapBlend, farPlane),
                 lightViewProjectionMatrix: lightVP,
                 shadowParams: shadowParams,
+                shadowParams2: shadowParams2,
+                iblParams: iblParams,
                 clipPlanes: clipPlaneVecs,
                 clipPlaneCount: clipPlaneCount
             )
@@ -653,11 +760,15 @@ public final class ViewportRenderer: NSObject, MTKViewDelegate, Sendable {
 
         let silhouettesEnabled = controller.configuration.enableSilhouettes
         let ssaoEnabled = (lighting.enableSSAO || silhouettesEnabled) && ssaoPipeline != nil
+        let taaEnabled = controller.enableTAA && taaPipeline != nil
         let w = Int(drawableSize.width)
         let h = Int(drawableSize.height)
 
-        if ssaoEnabled {
+        if ssaoEnabled || taaEnabled {
             ensureResolvedTextures(width: w, height: h)
+        }
+        if taaEnabled {
+            ensureTAATextures(width: w, height: h)
         }
 
         guard let commandBuffer = commandQueue.makeCommandBuffer() else { return }
@@ -712,8 +823,8 @@ public final class ViewportRenderer: NSObject, MTKViewDelegate, Sendable {
         // =========================================================
         renderPassDescriptor.colorAttachments[1].texture = nil
 
-        // When SSAO is enabled, redirect MSAA resolve to our intermediate texture
-        if ssaoEnabled, let resolvedColor = resolvedColorTexture {
+        // When SSAO or TAA is enabled, redirect MSAA resolve to our intermediate texture
+        if (ssaoEnabled || taaEnabled), let resolvedColor = resolvedColorTexture {
             if msaaSampleCount > 1 {
                 renderPassDescriptor.colorAttachments[0].resolveTexture = resolvedColor
             } else {
@@ -773,6 +884,11 @@ public final class ViewportRenderer: NSObject, MTKViewDelegate, Sendable {
                 mainEncoder.setFragmentTexture(matcapTexture, index: 0)
                 if shadowEnabled, let shadowTex = shadowMapManager.texture {
                     mainEncoder.setFragmentTexture(shadowTex, index: 1)
+                }
+                if let envMgr = environmentMapManager, envMgr.hasEnvironmentMap {
+                    if let spec = envMgr.prefilteredSpecularMap { mainEncoder.setFragmentTexture(spec, index: 2) }
+                    if let diff = envMgr.irradianceMap { mainEncoder.setFragmentTexture(diff, index: 3) }
+                    if let brdf = envMgr.brdfLUT { mainEncoder.setFragmentTexture(brdf, index: 4) }
                 }
                 mainEncoder.drawIndexedPrimitives(
                     type: .triangle,
@@ -905,10 +1021,66 @@ public final class ViewportRenderer: NSObject, MTKViewDelegate, Sendable {
         }
 
         // =========================================================
+        // Pass 2.5: TAA resolve (if enabled)
+        // =========================================================
+        if taaEnabled, let taaPipeline = taaPipeline,
+           let resolvedColor = resolvedColorTexture,
+           let taaOutput = taaOutputTexture,
+           let taaHistory = taaHistoryTexture {
+
+            // Check if camera moved
+            let cameraChanged = (lastCameraState == nil || lastCameraState! != cameraState)
+            if cameraChanged {
+                taaFrameIndex = 0
+            }
+
+            let taaPass = MTLRenderPassDescriptor()
+            taaPass.colorAttachments[0].texture = taaOutput
+            taaPass.colorAttachments[0].loadAction = .dontCare
+            taaPass.colorAttachments[0].storeAction = .store
+
+            if let taaEncoder = commandBuffer.makeRenderCommandEncoder(descriptor: taaPass) {
+                taaEncoder.setRenderPipelineState(taaPipeline)
+
+                let blendFactor = taaFrameIndex > 0 ? controller.taaBlendFactor : Float(0.0)
+                let jitterX = halton(index: taaFrameIndex, base: 2) - 0.5
+                let jitterY = halton(index: taaFrameIndex, base: 3) - 0.5
+
+                var taaParams = TAAParamsSwift(
+                    blendFactor: blendFactor,
+                    jitterOffset: SIMD2<Float>(jitterX, jitterY),
+                    texelSize: SIMD2<Float>(1.0 / Float(w), 1.0 / Float(h))
+                )
+                taaEncoder.setFragmentTexture(resolvedColor, index: 0)
+                taaEncoder.setFragmentTexture(taaHistory, index: 1)
+                taaEncoder.setFragmentBytes(&taaParams, length: MemoryLayout<TAAParamsSwift>.size, index: 0)
+                taaEncoder.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 3)
+                taaEncoder.endEncoding()
+            }
+
+            // Swap history: blit taaOutput → taaHistory for next frame
+            if let blitEncoder = commandBuffer.makeBlitCommandEncoder() {
+                blitEncoder.copy(from: taaOutput, to: taaHistory)
+                blitEncoder.endEncoding()
+            }
+
+            lastCameraState = cameraState
+            taaFrameIndex = (taaFrameIndex + 1) % 16
+        }
+
+        // Determine which color texture to feed into SSAO
+        let ssaoInputColor: MTLTexture? = {
+            if taaEnabled, let taaOutput = taaOutputTexture {
+                return taaOutput
+            }
+            return resolvedColorTexture
+        }()
+
+        // =========================================================
         // Pass 3: SSAO post-process (if enabled)
         // =========================================================
         if ssaoEnabled, let ssaoPipeline = ssaoPipeline,
-           let resolvedColor = resolvedColorTexture,
+           let resolvedColor = ssaoInputColor,
            let resolvedDepth = resolvedDepthTexture {
 
             // First: render a 1x depth-only pass for SSAO sampling
@@ -957,6 +1129,25 @@ public final class ViewportRenderer: NSObject, MTKViewDelegate, Sendable {
                 ssaoEncoder.setRenderPipelineState(ssaoPipeline)
 
                 let silhouetteConfig = controller.configuration
+                let dofEnabled = controller.enableDepthOfField
+                var dofFocalDist = controller.dofFocalDistance
+                if dofEnabled && dofFocalDist == 0 {
+                    // Auto-focus: use distance to scene center
+                    var sceneCenter = SIMD3<Float>.zero
+                    var count: Float = 0
+                    for body in bodies where body.isVisible {
+                        if let bb = body.boundingBox {
+                            sceneCenter += (bb.min + bb.max) * 0.5
+                            count += 1
+                        }
+                    }
+                    if count > 0 {
+                        sceneCenter /= count
+                        dofFocalDist = simd_distance(cameraState.position, sceneCenter)
+                    } else {
+                        dofFocalDist = cameraState.distance
+                    }
+                }
                 var ssaoParams = SSAOParamsSwift(
                     texelSize: SIMD2<Float>(1.0 / Float(w), 1.0 / Float(h)),
                     radius: lighting.ssaoRadius,
@@ -964,7 +1155,13 @@ public final class ViewportRenderer: NSObject, MTKViewDelegate, Sendable {
                     nearPlane: nearPlane,
                     farPlane: farPlane,
                     silhouetteThickness: silhouetteConfig.enableSilhouettes ? silhouetteConfig.silhouetteThickness : 0.0,
-                    silhouetteIntensity: silhouetteConfig.enableSilhouettes ? silhouetteConfig.silhouetteIntensity : 0.0
+                    silhouetteIntensity: silhouetteConfig.enableSilhouettes ? silhouetteConfig.silhouetteIntensity : 0.0,
+                    exposure: lighting.exposure,
+                    whitePoint: lighting.whitePoint,
+                    dofAperture: controller.dofAperture,
+                    dofFocalDistance: dofFocalDist,
+                    dofMaxBlurRadius: controller.dofMaxBlurRadius,
+                    dofEnabled: dofEnabled ? 1.0 : 0.0
                 )
                 ssaoEncoder.setFragmentTexture(resolvedDepth, index: 0)
                 ssaoEncoder.setFragmentTexture(resolvedColor, index: 1)
