@@ -264,12 +264,14 @@ enum OCCT8Gallery {
 
     // MARK: - v0.29: Shape Operations
 
-    /// Demonstrates NURBS conversion, fast sewing, and draft extrusion.
+    /// Demonstrates NURBS conversion and fast sewing.
     static func shapeOperations() -> Curve2DGallery.GalleryResult {
         var bodies: [ViewportBody] = []
+        var descriptions: [String] = []
 
         // Original cylinder
         if let cyl = Shape.cylinder(radius: 1.5, height: 4.0) {
+            let origContents = cyl.contents
             let (body, _) = CADFileLoader.shapeToBodyAndMetadata(
                 cyl, id: "op-original", color: SIMD4(0.6, 0.6, 0.6, 0.5)
             )
@@ -277,6 +279,7 @@ enum OCCT8Gallery {
 
             // NURBS-converted version — offset right
             if let nurbs = cyl.convertedToNURBS() {
+                let nurbsContents = nurbs.contents
                 let (body, _) = CADFileLoader.shapeToBodyAndMetadata(
                     nurbs, id: "op-nurbs", color: SIMD4(0.3, 0.7, 1.0, 1.0)
                 )
@@ -284,36 +287,38 @@ enum OCCT8Gallery {
                     offsetBody(&body, dx: 5, dy: 0, dz: 0)
                     bodies.append(body)
                 }
+                descriptions.append("NURBS: \(origContents.faces)F→\(nurbsContents.faces)F")
             }
         }
 
-        // Box + fast sewing demo: create faces and sew them
+        // Fast sewing: explode a box into loose shells, then sew back together
         if let box = Shape.box(width: 3, height: 2, depth: 2) {
+            let origContents = box.contents
+            // Show the original box
+            let (orig, _) = CADFileLoader.shapeToBodyAndMetadata(
+                box, id: "op-presew", color: SIMD4(0.6, 0.6, 0.6, 0.5)
+            )
+            if var orig {
+                offsetBody(&orig, dx: -5, dy: 0, dz: 0)
+                bodies.append(orig)
+            }
+
             if let sewn = box.fastSewn() {
+                let sewnContents = sewn.contents
                 let (body, _) = CADFileLoader.shapeToBodyAndMetadata(
                     sewn, id: "op-fastsewn", color: SIMD4(0.9, 0.6, 0.3, 1.0)
                 )
                 if var body {
-                    offsetBody(&body, dx: -5, dy: 0, dz: 0)
+                    offsetBody(&body, dx: -5, dy: 5, dz: 0)
                     bodies.append(body)
                 }
-            }
-        }
-
-        // Wedge for variety — offset back
-        if let wedge = Shape.wedge(dx: 3, dy: 2, dz: 3, ltx: 0.5) {
-            let (body, _) = CADFileLoader.shapeToBodyAndMetadata(
-                wedge, id: "op-wedge", color: SIMD4(0.5, 0.9, 0.5, 1.0)
-            )
-            if var body {
-                offsetBody(&body, dx: 0, dy: 5, dz: 0)
-                bodies.append(body)
+                descriptions.append("Sew: \(origContents.shells)sh→\(sewnContents.shells)sh")
             }
         }
 
         return Curve2DGallery.GalleryResult(
             bodies: bodies,
-            description: "Shape ops: original, NURBS conversion, fast sewing, wedge"
+            description: "v0.29 Shape ops: " + descriptions.joined(separator: " | ")
         )
     }
 
@@ -671,6 +676,7 @@ enum OCCT8Gallery {
     /// Demonstrates makeVolume from faces and makeConnected.
     static func volumeOps() -> Curve2DGallery.GalleryResult {
         var bodies: [ViewportBody] = []
+        var descriptions: [String] = []
 
         // Make a volume from overlapping boxes
         if let box1 = Shape.box(width: 3, height: 3, depth: 3),
@@ -695,10 +701,8 @@ enum OCCT8Gallery {
                     offsetBody(&body, dx: 8, dy: 0, dz: 0)
                     bodies.append(body)
                 }
-
                 let c = volume.contents
-                bodies.append(contentsOf: []) // no-op; just use c below
-                _ = c // description will reference it
+                descriptions.append("makeVolume: \(c.solids)S \(c.faces)F")
             }
         }
 
@@ -729,12 +733,14 @@ enum OCCT8Gallery {
                     offsetBody(&body, dx: 8, dy: 8, dz: 0)
                     bodies.append(body)
                 }
+                let c = connected.contents
+                descriptions.append("makeConnected: \(c.solids)S \(c.faces)F")
             }
         }
 
         return Curve2DGallery.GalleryResult(
             bodies: bodies,
-            description: "v0.30: makeVolume (green) from overlapping boxes, makeConnected (yellow)"
+            description: "v0.30: " + descriptions.joined(separator: " | ")
         )
     }
 
@@ -1398,6 +1404,7 @@ enum OCCT8Gallery {
     /// Demonstrates split-by-angle and drop-small-edges repair operations.
     static func shapeRepair() -> Curve2DGallery.GalleryResult {
         var bodies: [ViewportBody] = []
+        var descriptions: [String] = []
 
         // Full cylinder — surfaces span 360°
         if let cyl = Shape.cylinder(radius: 2, height: 4) {
@@ -1421,12 +1428,13 @@ enum OCCT8Gallery {
                 }
 
                 let splitContents = split.contents
-                _ = (origContents, splitContents) // used in description
+                descriptions.append("Cyl split90: \(origContents.faces)F→\(splitContents.faces)F")
             }
         }
 
         // Sphere — split by 90° creates octant patches
         if let sph = Shape.sphere(radius: 2) {
+            let origContents = sph.contents
             let (body, _) = CADFileLoader.shapeToBodyAndMetadata(
                 sph, id: "repair-sph", color: SIMD4(0.6, 0.6, 0.6, 0.5),
                 deflection: 0.02
@@ -1445,6 +1453,8 @@ enum OCCT8Gallery {
                     offsetBody(&body, dx: 7, dy: 7, dz: 0)
                     bodies.append(body)
                 }
+                let splitContents = split.contents
+                descriptions.append("Sph split90: \(origContents.faces)F→\(splitContents.faces)F")
             }
         }
 
@@ -1452,6 +1462,7 @@ enum OCCT8Gallery {
         if let box = Shape.box(width: 4, height: 4, depth: 4) {
             // Fillet with a very small radius to create tiny edges
             if let filleted = box.filleted(radius: 0.01) {
+                let filletedContents = filleted.contents
                 let (body, _) = CADFileLoader.shapeToBodyAndMetadata(
                     filleted, id: "repair-tiny", color: SIMD4(0.6, 0.6, 0.6, 0.5)
                 )
@@ -1461,6 +1472,7 @@ enum OCCT8Gallery {
                 }
 
                 if let cleaned = filleted.droppingSmallEdges(tolerance: 0.05) {
+                    let cleanedContents = cleaned.contents
                     let (body, _) = CADFileLoader.shapeToBodyAndMetadata(
                         cleaned, id: "repair-cleaned", color: SIMD4(0.3, 0.9, 0.4, 0.9)
                     )
@@ -1468,13 +1480,14 @@ enum OCCT8Gallery {
                         offsetBody(&body, dx: 7, dy: 14, dz: 0)
                         bodies.append(body)
                     }
+                    descriptions.append("DropSmall: \(filletedContents.edges)E→\(cleanedContents.edges)E")
                 }
             }
         }
 
         return Curve2DGallery.GalleryResult(
             bodies: bodies,
-            description: "v0.34 Repair: splitByAngle 90° (blue/orange), dropSmallEdges (green)"
+            description: "v0.34 Repair: " + descriptions.joined(separator: " | ")
         )
     }
 
@@ -1483,21 +1496,22 @@ enum OCCT8Gallery {
     /// Demonstrates fuseAll vs sequential union for multiple shapes.
     static func multiFuse() -> Curve2DGallery.GalleryResult {
         var bodies: [ViewportBody] = []
+        var descriptions: [String] = []
 
         // Create 4 overlapping cylinders in a cross pattern
-        let shapes: [(Shape, SIMD3<Double>)] = {
-            var result: [(Shape, SIMD3<Double>)] = []
+        let shapes: [Shape] = {
+            var result: [Shape] = []
             if let c1 = Shape.cylinder(radius: 1, height: 6) {
-                result.append((c1, .zero))
+                result.append(c1)
             }
             if let c2 = Shape.cylinder(radius: 1, height: 6)?.rotated(axis: SIMD3(1, 0, 0), angle: .pi / 2) {
-                result.append((c2, .zero))
+                result.append(c2)
             }
             if let c3 = Shape.cylinder(radius: 1, height: 6)?.rotated(axis: SIMD3(0, 1, 0), angle: .pi / 2) {
-                result.append((c3, .zero))
+                result.append(c3)
             }
             if let c4 = Shape.cylinder(radius: 0.8, height: 6)?.rotated(axis: SIMD3(1, 1, 0), angle: .pi / 4) {
-                result.append((c4, .zero))
+                result.append(c4)
             }
             return result
         }()
@@ -1507,7 +1521,7 @@ enum OCCT8Gallery {
             SIMD4(0.3, 0.6, 1.0, 0.2), SIMD4(0.9, 0.5, 0.3, 0.2),
             SIMD4(0.3, 0.9, 0.4, 0.2), SIMD4(0.8, 0.4, 0.8, 0.2)
         ]
-        for (i, (shape, _)) in shapes.enumerated() {
+        for (i, shape) in shapes.enumerated() {
             let (body, _) = CADFileLoader.shapeToBodyAndMetadata(
                 shape, id: "fuse-orig-\(i)", color: colors[i],
                 deflection: 0.02
@@ -1516,8 +1530,7 @@ enum OCCT8Gallery {
         }
 
         // fuseAll — simultaneous multi-tool boolean
-        let allShapes = shapes.map { $0.0 }
-        if let fused = Shape.fuseAll(allShapes) {
+        if let fused = Shape.fuseAll(shapes) {
             let (body, _) = CADFileLoader.shapeToBodyAndMetadata(
                 fused, id: "fuse-all", color: SIMD4(0.3, 0.7, 1.0, 0.9),
                 deflection: 0.02
@@ -1526,14 +1539,13 @@ enum OCCT8Gallery {
                 offsetBody(&body, dx: 10, dy: 0, dz: 0)
                 bodies.append(body)
             }
-
             let c = fused.contents
-            _ = c
+            descriptions.append("fuseAll: \(c.faces)F \(c.edges)E")
         }
 
         // Sequential union for comparison
-        var seqResult: Shape? = allShapes.first
-        for shape in allShapes.dropFirst() {
+        var seqResult: Shape? = shapes.first
+        for shape in shapes.dropFirst() {
             seqResult = seqResult?.union(with: shape)
         }
         if let seq = seqResult {
@@ -1545,11 +1557,13 @@ enum OCCT8Gallery {
                 offsetBody(&body, dx: 20, dy: 0, dz: 0)
                 bodies.append(body)
             }
+            let c = seq.contents
+            descriptions.append("sequential: \(c.faces)F \(c.edges)E")
         }
 
         return Curve2DGallery.GalleryResult(
             bodies: bodies,
-            description: "v0.34 Multi-fuse: originals (left), fuseAll (blue), sequential union (orange)"
+            description: "v0.34 Multi-fuse: " + descriptions.joined(separator: " vs ")
         )
     }
 
@@ -1558,6 +1572,7 @@ enum OCCT8Gallery {
     /// Demonstrates imprinting a wire onto a face to split it.
     static func splitFaceByWire() -> Curve2DGallery.GalleryResult {
         var bodies: [ViewportBody] = []
+        var desc = "v0.34 Split face: original (gray)"
 
         // Box with a wire imprinted on a face
         if let box = Shape.box(width: 6, height: 4, depth: 4) {
@@ -1571,7 +1586,7 @@ enum OCCT8Gallery {
 
             // Create a wire on the top face (Y=2) — a diagonal line
             if let wire = Wire.line(from: SIMD3(-2, 2, -1), to: SIMD3(2, 2, 1)) {
-                // Top face index varies by OCCT internals; try face 2 (commonly the top)
+                // Top face index varies by OCCT internals; try all faces
                 for faceIdx in 0..<origContents.faces {
                     if let split = box.splittingFace(with: wire, faceIndex: faceIdx) {
                         let splitContents = split.contents
@@ -1584,6 +1599,7 @@ enum OCCT8Gallery {
                                 offsetBody(&body, dx: 10, dy: 0, dz: 0)
                                 bodies.append(body)
                             }
+                            desc += ", split face \(faceIdx): \(origContents.faces)F→\(splitContents.faces)F (blue)"
                             break
                         }
                     }
@@ -1593,7 +1609,7 @@ enum OCCT8Gallery {
 
         return Curve2DGallery.GalleryResult(
             bodies: bodies,
-            description: "v0.34 Split face: original (gray), face split by wire imprint (blue)"
+            description: desc
         )
     }
 
@@ -1663,9 +1679,11 @@ enum OCCT8Gallery {
     /// Demonstrates face subdivision and conical (point-source) projection.
     static func faceDivision() -> Curve2DGallery.GalleryResult {
         var bodies: [ViewportBody] = []
+        var descriptions: [String] = []
 
         // Face division: split cylinder faces into patches
         if let cyl = Shape.cylinder(radius: 2, height: 4) {
+            let origC = cyl.contents
             let (body, _) = CADFileLoader.shapeToBodyAndMetadata(
                 cyl, id: "div-orig", color: SIMD4(0.6, 0.6, 0.6, 0.5),
                 deflection: 0.02
@@ -1683,9 +1701,8 @@ enum OCCT8Gallery {
                     bodies.append(body)
                 }
 
-                let origC = cyl.contents
                 let divC = divided.contents
-                _ = (origC, divC)
+                descriptions.append("Divide: \(origC.faces)F→\(divC.faces)F")
             }
         }
 
@@ -1724,7 +1741,7 @@ enum OCCT8Gallery {
 
         return Curve2DGallery.GalleryResult(
             bodies: bodies,
-            description: "v0.36: Face division (blue, more patches), conical projection from eye (right)"
+            description: "v0.36: " + descriptions.joined(separator: " | ") + ". Conical projection (right)."
         )
     }
 
@@ -1953,6 +1970,298 @@ enum OCCT8Gallery {
         return Curve2DGallery.GalleryResult(
             bodies: bodies,
             description: "Left: original. Center: uniform offset. Right: per-face variable offset (some faces thicker)."
+        )
+    }
+
+    // MARK: - v0.39: Free Bounds, Pipe Feature, Semi-Infinite Extrusion
+
+    /// Demonstrates free boundary analysis, pipe feature, and semi-infinite extrusion.
+    static func freeBoundsAndFeatures() -> Curve2DGallery.GalleryResult {
+        var bodies: [ViewportBody] = []
+        var descriptions: [String] = []
+
+        // Free bounds: open shell (box missing one face) should show free edges
+        if let box = Shape.box(width: 4, height: 4, depth: 4) {
+            // Show the original solid box
+            let (orig, _) = CADFileLoader.shapeToBodyAndMetadata(
+                box, id: "fb-solid", color: SIMD4(0.6, 0.6, 0.6, 0.4)
+            )
+            if let orig { bodies.append(orig) }
+
+            // Analyze free bounds on the solid (should have none)
+            if let fb = box.freeBounds() {
+                descriptions.append("Solid: \(fb.closedCount) closed, \(fb.openCount) open free bounds")
+            } else {
+                descriptions.append("Solid: no free bounds (watertight)")
+            }
+
+            // Hollow the box to create an open shell, then check free bounds
+            for faceIdx in 0..<box.contents.faces {
+                if let hollowed = box.hollowed(removingFaces: [faceIdx], thickness: 0.3) {
+                    let (body, _) = CADFileLoader.shapeToBodyAndMetadata(
+                        hollowed, id: "fb-open", color: SIMD4(0.3, 0.7, 1.0, 0.8)
+                    )
+                    if var body {
+                        offsetBody(&body, dx: 8, dy: 0, dz: 0)
+                        bodies.append(body)
+                    }
+
+                    if let fb = hollowed.freeBounds() {
+                        descriptions.append("Hollow: \(fb.closedCount) closed, \(fb.openCount) open")
+                        // Show the free boundary wires
+                        let (wireBody, _) = CADFileLoader.shapeToBodyAndMetadata(
+                            fb.wires, id: "fb-wires", color: SIMD4(1.0, 0.2, 0.2, 1.0),
+                            deflection: 0.02
+                        )
+                        if var wireBody {
+                            offsetBody(&wireBody, dx: 8, dy: 0, dz: 0)
+                            bodies.append(wireBody)
+                        }
+                    }
+                    break
+                }
+            }
+        }
+
+        // Semi-infinite extrusion
+        if let circle = Wire.circle(radius: 1),
+           let face = Shape.face(from: circle) {
+            if let semiInf = face.extrudedSemiInfinite(direction: SIMD3(0, 0, 1)) {
+                // The semi-infinite shape is huge; section it with a box for display
+                if let clipBox = Shape.box(width: 6, height: 6, depth: 8),
+                   let clipped = clipBox.intersection(with: semiInf) {
+                    let (body, _) = CADFileLoader.shapeToBodyAndMetadata(
+                        clipped, id: "fb-semiinf", color: SIMD4(0.9, 0.5, 0.3, 0.8),
+                        deflection: 0.02
+                    )
+                    if var body {
+                        offsetBody(&body, dx: 16, dy: 0, dz: 0)
+                        bodies.append(body)
+                    }
+                    descriptions.append("Semi-inf extrusion (clipped)")
+                }
+            }
+        }
+
+        return Curve2DGallery.GalleryResult(
+            bodies: bodies,
+            description: "v0.39: " + descriptions.joined(separator: " | ")
+        )
+    }
+
+    // MARK: - v0.40: Inertia Properties & Extended Distance
+
+    /// Demonstrates volume/surface inertia and multi-solution distance queries.
+    static func inertiaAndDistance() -> Curve2DGallery.GalleryResult {
+        var bodies: [ViewportBody] = []
+        var descriptions: [String] = []
+
+        // Inertia properties: box vs cylinder — compare center of mass and principal axes
+        if let box = Shape.box(width: 6, height: 2, depth: 3) {
+            let (body, _) = CADFileLoader.shapeToBodyAndMetadata(
+                box, id: "inertia-box", color: SIMD4(0.3, 0.6, 1.0, 0.8)
+            )
+            if let body { bodies.append(body) }
+
+            if let props = box.inertiaProperties() {
+                let com = props.centerOfMass
+                bodies.append(makeMarker(
+                    at: SIMD3<Float>(Float(com.x), Float(com.y), Float(com.z)),
+                    radius: 0.2, id: "inertia-box-com",
+                    color: SIMD4(1.0, 0.2, 0.2, 1.0)
+                ))
+
+                // Show principal axes as lines from center of mass
+                let axisLen: Double = 2.0
+                let axisColors: [SIMD4<Float>] = [
+                    SIMD4(1, 0, 0, 1), SIMD4(0, 1, 0, 1), SIMD4(0, 0, 1, 1)
+                ]
+                let axes = [props.principalAxes.0, props.principalAxes.1, props.principalAxes.2]
+                for (i, axis) in axes.enumerated() {
+                    let start = SIMD3<Float>(Float(com.x), Float(com.y), Float(com.z))
+                    let end = SIMD3<Float>(
+                        Float(com.x + axis.x * axisLen),
+                        Float(com.y + axis.y * axisLen),
+                        Float(com.z + axis.z * axisLen)
+                    )
+                    bodies.append(ViewportBody(id: "inertia-box-axis-\(i)", vertexData: [], indices: [],
+                                               edges: [[start, end]], color: axisColors[i]))
+                }
+                descriptions.append("Box: vol=\(String(format: "%.1f", props.mass))")
+            }
+        }
+
+        if let cyl = Shape.cylinder(radius: 1.5, height: 4) {
+            let (body, _) = CADFileLoader.shapeToBodyAndMetadata(
+                cyl, id: "inertia-cyl", color: SIMD4(0.3, 0.9, 0.4, 0.8),
+                deflection: 0.02
+            )
+            if var body {
+                offsetBody(&body, dx: 10, dy: 0, dz: 0)
+                bodies.append(body)
+            }
+
+            if let props = cyl.inertiaProperties() {
+                let com = props.centerOfMass
+                var marker = makeMarker(
+                    at: SIMD3<Float>(Float(com.x), Float(com.y), Float(com.z)),
+                    radius: 0.2, id: "inertia-cyl-com",
+                    color: SIMD4(1.0, 0.2, 0.2, 1.0)
+                )
+                offsetBody(&marker, dx: 10, dy: 0, dz: 0)
+                bodies.append(marker)
+                descriptions.append("Cyl: vol=\(String(format: "%.1f", props.mass))")
+            }
+        }
+
+        // Extended distance: all closest point pairs between two shapes
+        if let box = Shape.box(width: 2, height: 2, depth: 2),
+           let sph = Shape.sphere(radius: 1)?.translated(by: SIMD3(4, 0, 0)) {
+
+            let (b1, _) = CADFileLoader.shapeToBodyAndMetadata(
+                box, id: "dist-box", color: SIMD4(0.5, 0.7, 0.9, 0.6)
+            )
+            if var b1 {
+                offsetBody(&b1, dx: 0, dy: 8, dz: 0)
+                bodies.append(b1)
+            }
+            let (b2, _) = CADFileLoader.shapeToBodyAndMetadata(
+                sph, id: "dist-sph", color: SIMD4(0.9, 0.6, 0.4, 0.6),
+                deflection: 0.02
+            )
+            if var b2 {
+                offsetBody(&b2, dx: 0, dy: 8, dz: 0)
+                bodies.append(b2)
+            }
+
+            if let solutions = box.allDistanceSolutions(to: sph, maxSolutions: 8) {
+                for (i, sol) in solutions.enumerated() {
+                    let p1 = SIMD3<Float>(Float(sol.point1.x), Float(sol.point1.y) + 8, Float(sol.point1.z))
+                    let p2 = SIMD3<Float>(Float(sol.point2.x), Float(sol.point2.y) + 8, Float(sol.point2.z))
+                    bodies.append(makeMarker(at: p1, radius: 0.1, id: "dist-p1-\(i)",
+                                             color: SIMD4(1.0, 0.2, 0.2, 1.0)))
+                    bodies.append(makeMarker(at: p2, radius: 0.1, id: "dist-p2-\(i)",
+                                             color: SIMD4(0.2, 1.0, 0.2, 1.0)))
+                    bodies.append(ViewportBody(id: "dist-line-\(i)", vertexData: [], indices: [],
+                                               edges: [[p1, p2]], color: SIMD4(1.0, 1.0, 0.0, 1.0)))
+                }
+                descriptions.append("\(solutions.count) distance solutions")
+            }
+        }
+
+        return Curve2DGallery.GalleryResult(
+            bodies: bodies,
+            description: "v0.40: " + descriptions.joined(separator: " | ")
+        )
+    }
+
+    // MARK: - v0.41: Shape Surgery & Plane Detection
+
+    /// Demonstrates plane detection, geometry conversion, closed edge splitting,
+    /// and face restriction.
+    static func surgeryAndDetection() -> Curve2DGallery.GalleryResult {
+        var bodies: [ViewportBody] = []
+        var descriptions: [String] = []
+
+        // Face restriction: cut a face using a wire boundary
+        if let cyl = Shape.cylinder(radius: 2, height: 5) {
+            let (orig, _) = CADFileLoader.shapeToBodyAndMetadata(
+                cyl, id: "restrict-orig", color: SIMD4(0.6, 0.6, 0.6, 0.4),
+                deflection: 0.02
+            )
+            if let orig { bodies.append(orig) }
+
+            // Create a restricting wire (a circle on the XY plane)
+            if let clipWire = Wire.circle(radius: 1.5) {
+                if let restricted = cyl.faceRestricted(by: [clipWire]) {
+                    for (i, face) in restricted.enumerated() {
+                        let (body, _) = CADFileLoader.shapeToBodyAndMetadata(
+                            face, id: "restrict-\(i)", color: SIMD4(0.3, 0.7, 1.0, 0.9),
+                            deflection: 0.02
+                        )
+                        if var body {
+                            offsetBody(&body, dx: 6, dy: 0, dz: 0)
+                            bodies.append(body)
+                        }
+                    }
+                    descriptions.append("Face restrict: \(restricted.count) result faces")
+                }
+            }
+        }
+
+        // Plane detection: check if various wires are planar
+        if let flatWire = Wire.path([
+            SIMD3(0, 0, 0), SIMD3(3, 0, 0), SIMD3(3, 3, 0), SIMD3(0, 3, 0)
+        ], closed: true),
+           let flatShape = Shape.fromWire(flatWire) {
+
+            // Show the wire
+            var flatBody = wireToBody(flatWire, id: "plane-flat",
+                                      color: SIMD4(0.3, 0.9, 0.4, 1.0))
+            offsetBody(&flatBody, dx: 14, dy: 0, dz: 0)
+            bodies.append(flatBody)
+
+            if let plane = flatShape.findPlane() {
+                let n = plane.normal
+                let o = plane.origin
+                descriptions.append("Planar: n=(\(String(format: "%.0f,%.0f,%.0f", n.x, n.y, n.z)))")
+
+                // Show the detected plane normal as a line from the wire's center
+                let start = SIMD3<Float>(Float(o.x) + 14, Float(o.y), Float(o.z))
+                let end = SIMD3<Float>(Float(o.x + n.x * 2) + 14, Float(o.y + n.y * 2), Float(o.z + n.z * 2))
+                bodies.append(ViewportBody(id: "plane-normal", vertexData: [], indices: [],
+                                           edges: [[start, end]], color: SIMD4(1.0, 0.3, 0.3, 1.0)))
+            }
+        }
+
+        // Geometry conversion: cylinder surfaces to BSpline and to Revolution
+        if let cyl = Shape.cylinder(radius: 2, height: 4) {
+            let (orig, _) = CADFileLoader.shapeToBodyAndMetadata(
+                cyl, id: "conv-orig", color: SIMD4(0.6, 0.6, 0.6, 0.5),
+                deflection: 0.02
+            )
+            if var orig {
+                offsetBody(&orig, dx: 0, dy: 10, dz: 0)
+                bodies.append(orig)
+            }
+
+            if let bspline = cyl.withSurfacesAsBSpline() {
+                let (body, _) = CADFileLoader.shapeToBodyAndMetadata(
+                    bspline, id: "conv-bspline", color: SIMD4(0.9, 0.5, 0.3, 0.9),
+                    deflection: 0.02
+                )
+                if var body {
+                    offsetBody(&body, dx: 6, dy: 10, dz: 0)
+                    bodies.append(body)
+                }
+                descriptions.append("Surfaces→BSpline")
+            }
+
+            if let rev = cyl.withSurfacesAsRevolution() {
+                let (body, _) = CADFileLoader.shapeToBodyAndMetadata(
+                    rev, id: "conv-revolution", color: SIMD4(0.3, 0.9, 0.7, 0.9),
+                    deflection: 0.02
+                )
+                if var body {
+                    offsetBody(&body, dx: 12, dy: 10, dz: 0)
+                    bodies.append(body)
+                }
+                descriptions.append("Surfaces→Revolution")
+            }
+        }
+
+        // Closed edge splitting
+        if let cyl = Shape.cylinder(radius: 1.5, height: 3) {
+            let origContents = cyl.contents
+            if let split = cyl.dividedClosedEdges() {
+                let splitContents = split.contents
+                descriptions.append("Split closed edges: \(origContents.edges)E→\(splitContents.edges)E")
+            }
+        }
+
+        return Curve2DGallery.GalleryResult(
+            bodies: bodies,
+            description: "v0.41: " + descriptions.joined(separator: " | ")
         )
     }
 
