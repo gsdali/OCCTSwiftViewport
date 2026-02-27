@@ -2333,6 +2333,403 @@ enum OCCT8Gallery {
         )
     }
 
+    // MARK: - v0.42: Solid Construction, 2D Fillets, Polygon3D, Point Cloud
+
+    /// Demonstrates solidFromShells, polygon3D, fillet2D, chamfer2D, and analyzePointCloud.
+    static func solidAnd2DFillets() -> Curve2DGallery.GalleryResult {
+        var bodies: [ViewportBody] = []
+        var descriptions: [String] = []
+
+        // --- solidFromShells: hollow solid with cavity ---
+        if let outer = Shape.box(width: 10, height: 10, depth: 10),
+           let inner = Shape.box(width: 6, height: 6, depth: 6)?
+            .translated(by: SIMD3(2, 2, 2)) {
+            // Shell the outer and inner boxes
+            if let solid = Shape.solidFromShells([outer, inner]) {
+                // Section it to reveal the cavity
+                if let cutter = Shape.box(width: 12, height: 12, depth: 12)?
+                    .translated(by: SIMD3(-1, 5, -1)),
+                   let sectioned = solid.subtracting(cutter) {
+                    let (body, _) = CADFileLoader.shapeToBodyAndMetadata(
+                        sectioned, id: "solid-hollow", color: SIMD4(0.4, 0.6, 0.9, 0.9),
+                        deflection: 0.02
+                    )
+                    if let body { bodies.append(body) }
+                    descriptions.append("solidFromShells: hollow box")
+                } else {
+                    // Show the solid without section cut
+                    let (body, _) = CADFileLoader.shapeToBodyAndMetadata(
+                        solid, id: "solid-hollow", color: SIMD4(0.4, 0.6, 0.9, 0.7),
+                        deflection: 0.02
+                    )
+                    if let body { bodies.append(body) }
+                    descriptions.append("solidFromShells: hollow box (no section)")
+                }
+            }
+        }
+
+        // --- polygon3D: 3D star wire extruded into a prism ---
+        let starPoints: [SIMD3<Double>] = (0..<10).map { i in
+            let angle = Double(i) / 10.0 * 2.0 * .pi
+            let r: Double = i % 2 == 0 ? 4.0 : 2.0
+            return SIMD3(r * cos(angle), r * sin(angle), 0)
+        }
+        if let starWire = Wire.polygon3D(starPoints, closed: true) {
+            // Show the wire
+            var wireBody = wireToBody(starWire, id: "poly3d-wire",
+                                       color: SIMD4(1.0, 0.8, 0.2, 1.0))
+            offsetBody(&wireBody, dx: 16, dy: 0, dz: 0)
+            bodies.append(wireBody)
+
+            // Extrude into a prism
+            if let prism = Shape.extrude(profile: starWire, direction: SIMD3(0, 0, 1), length: 5) {
+                let (body, _) = CADFileLoader.shapeToBodyAndMetadata(
+                    prism, id: "poly3d-prism", color: SIMD4(0.9, 0.7, 0.2, 0.85),
+                    deflection: 0.02
+                )
+                if var body {
+                    offsetBody(&body, dx: 26, dy: 0, dz: 0)
+                    bodies.append(body)
+                }
+            }
+            descriptions.append("polygon3D: 10-pt star → prism")
+        }
+
+        // --- fillet2D: rounded corners on a rectangle ---
+        if let rectWire = Wire.rectangle(width: 10, height: 8),
+           let rectFace = Shape.face(from: rectWire) {
+            // Original rectangle
+            let (orig, _) = CADFileLoader.shapeToBodyAndMetadata(
+                rectFace, id: "fillet2d-orig", color: SIMD4(0.6, 0.6, 0.6, 0.5),
+                deflection: 0.02
+            )
+            if var orig {
+                offsetBody(&orig, dx: 0, dy: 16, dz: 0)
+                bodies.append(orig)
+            }
+
+            // Fillet all 4 corners with different radii
+            if let filleted = rectFace.fillet2D(
+                vertexIndices: [0, 1, 2, 3],
+                radii: [1.0, 2.0, 1.0, 2.0]
+            ) {
+                let (body, _) = CADFileLoader.shapeToBodyAndMetadata(
+                    filleted, id: "fillet2d-result", color: SIMD4(0.3, 0.8, 0.4, 0.9),
+                    deflection: 0.02
+                )
+                if var body {
+                    offsetBody(&body, dx: 14, dy: 16, dz: 0)
+                    bodies.append(body)
+                }
+                let edgeCount = filleted.subShapeCount(ofType: .edge)
+                descriptions.append("fillet2D: 4→\(edgeCount) edges")
+            }
+        }
+
+        // --- chamfer2D: angled cuts on a square ---
+        if let sqWire = Wire.rectangle(width: 8, height: 8),
+           let sqFace = Shape.face(from: sqWire) {
+            // Chamfer one corner
+            if let chamfered = sqFace.chamfer2D(
+                edgePairs: [(0, 1)],
+                distances: [2.0]
+            ) {
+                let (body, _) = CADFileLoader.shapeToBodyAndMetadata(
+                    chamfered, id: "chamfer2d-result", color: SIMD4(0.9, 0.5, 0.3, 0.9),
+                    deflection: 0.02
+                )
+                if var body {
+                    offsetBody(&body, dx: 28, dy: 16, dz: 0)
+                    bodies.append(body)
+                }
+                descriptions.append("chamfer2D: 1 corner cut")
+            }
+        }
+
+        // --- analyzePointCloud: 4 classification scenarios ---
+        let classifications: [(String, [SIMD3<Double>], SIMD4<Float>)] = [
+            ("point", [SIMD3(0, 0, 0), SIMD3(0, 0, 0), SIMD3(0, 0, 0)],
+             SIMD4(1, 0.3, 0.3, 1)),
+            ("linear", [SIMD3(0, 0, 0), SIMD3(5, 0, 0), SIMD3(10, 0, 0)],
+             SIMD4(0.3, 1, 0.3, 1)),
+            ("planar", [SIMD3(0, 0, 0), SIMD3(5, 0, 0), SIMD3(5, 5, 0), SIMD3(0, 5, 0)],
+             SIMD4(0.3, 0.3, 1, 1)),
+            ("space", [SIMD3(0, 0, 0), SIMD3(5, 0, 0), SIMD3(0, 5, 0), SIMD3(0, 0, 5)],
+             SIMD4(0.9, 0.9, 0.3, 1)),
+        ]
+        for (ci, (label, pts, color)) in classifications.enumerated() {
+            let dx = Float(ci) * 8
+            // Show points as small markers
+            for (pi, p) in pts.enumerated() {
+                var marker = makeMarker(
+                    at: SIMD3(Float(p.x), Float(p.y), Float(p.z)),
+                    radius: 0.3, id: "ptcloud-\(label)-\(pi)", color: color
+                )
+                offsetBody(&marker, dx: dx, dy: 28, dz: 0)
+                bodies.append(marker)
+            }
+
+            if let result = Shape.analyzePointCloud(pts) {
+                switch result {
+                case .point:
+                    descriptions.append("\(label):coincident")
+                case .linear(let origin, let dir):
+                    // Draw the fit line
+                    let o = SIMD3<Float>(Float(origin.x), Float(origin.y), Float(origin.z))
+                    let d = SIMD3<Float>(Float(dir.x), Float(dir.y), Float(dir.z))
+                    let start = o - d * 2
+                    let end = o + d * 12
+                    var lineBody = ViewportBody(
+                        id: "ptcloud-\(label)-line", vertexData: [], indices: [],
+                        edges: [[start, end]], color: color
+                    )
+                    offsetBody(&lineBody, dx: dx, dy: 28, dz: 0)
+                    bodies.append(lineBody)
+                    descriptions.append("\(label):line")
+                case .planar(let origin, let normal):
+                    // Draw a normal vector
+                    let o = SIMD3<Float>(Float(origin.x), Float(origin.y), Float(origin.z))
+                    let n = SIMD3<Float>(Float(normal.x), Float(normal.y), Float(normal.z))
+                    var normalBody = ViewportBody(
+                        id: "ptcloud-\(label)-normal", vertexData: [], indices: [],
+                        edges: [[o, o + n * 3]], color: SIMD4(1, 0.5, 0.5, 1)
+                    )
+                    offsetBody(&normalBody, dx: dx, dy: 28, dz: 0)
+                    bodies.append(normalBody)
+                    descriptions.append("\(label):plane")
+                case .space:
+                    descriptions.append("\(label):3D")
+                }
+            }
+        }
+
+        return Curve2DGallery.GalleryResult(
+            bodies: bodies,
+            description: "v0.42: " + descriptions.joined(separator: " | ")
+        )
+    }
+
+    // MARK: - v0.43: BSpline Fill, Face Subdivision, Small Face Detection
+
+    /// Demonstrates bsplineFill (2-curve and 4-curve), dividedByArea, dividedByParts,
+    /// checkSmallFaces, and purgedLocations.
+    static func bsplineFillAndSubdivision() -> Curve2DGallery.GalleryResult {
+        var bodies: [ViewportBody] = []
+        var descriptions: [String] = []
+
+        // --- BSpline fill from 2 curves (3 fill styles side by side) ---
+        let c1 = Curve3D.interpolate(points: [
+            SIMD3(0, 0, 0), SIMD3(3, 0, 2), SIMD3(6, 0, 3), SIMD3(10, 0, 0)
+        ])
+        let c2 = Curve3D.interpolate(points: [
+            SIMD3(0, 8, 0), SIMD3(3, 8, -1), SIMD3(6, 8, 2), SIMD3(10, 8, 0)
+        ])
+
+        if let c1, let c2 {
+            let styles: [(Surface.FillStyle, String, SIMD4<Float>)] = [
+                (.stretch, "stretch", SIMD4(0.3, 0.7, 0.9, 0.85)),
+                (.coons, "coons", SIMD4(0.3, 0.9, 0.5, 0.85)),
+                (.curved, "curved", SIMD4(0.9, 0.6, 0.3, 0.85)),
+            ]
+            for (si, (style, name, color)) in styles.enumerated() {
+                let dx = Float(si) * 14
+                if let surface = Surface.bsplineFill(curve1: c1, curve2: c2, style: style) {
+                    let dom = surface.domain
+                    if let face = Shape.face(from: surface,
+                                              uRange: dom.uMin...dom.uMax,
+                                              vRange: dom.vMin...dom.vMax) {
+                        let (body, _) = CADFileLoader.shapeToBodyAndMetadata(
+                            face, id: "bsfill2-\(name)", color: color,
+                            deflection: 0.02
+                        )
+                        if var body {
+                            offsetBody(&body, dx: dx, dy: 0, dz: 0)
+                            bodies.append(body)
+                        }
+                    }
+                }
+                // Show boundary curves as sampled polylines
+                let params1 = uniformParameters(curve: c1, count: 40)
+                let pts1 = c1.evaluateGrid(params1).map {
+                    SIMD3<Float>(Float($0.x), Float($0.y), Float($0.z))
+                }
+                var w1 = polylineToBody(pts1, id: "bsfill2-c1-\(name)",
+                                        color: SIMD4(1, 1, 1, 1))
+                offsetBody(&w1, dx: dx, dy: 0, dz: 0)
+                bodies.append(w1)
+                let params2 = uniformParameters(curve: c2, count: 40)
+                let pts2 = c2.evaluateGrid(params2).map {
+                    SIMD3<Float>(Float($0.x), Float($0.y), Float($0.z))
+                }
+                var w2 = polylineToBody(pts2, id: "bsfill2-c2-\(name)",
+                                        color: SIMD4(1, 1, 1, 1))
+                offsetBody(&w2, dx: dx, dy: 0, dz: 0)
+                bodies.append(w2)
+            }
+            descriptions.append("2-curve fill: stretch/coons/curved")
+        }
+
+        // --- BSpline fill from 4 curves (Coons patch) ---
+        let bottom = Curve3D.interpolate(points: [
+            SIMD3(0, 0, 0), SIMD3(4, 0, 2), SIMD3(8, 0, 0)
+        ])
+        let right = Curve3D.interpolate(points: [
+            SIMD3(8, 0, 0), SIMD3(8, 4, 3), SIMD3(8, 8, 0)
+        ])
+        let top = Curve3D.interpolate(points: [
+            SIMD3(8, 8, 0), SIMD3(4, 8, -1), SIMD3(0, 8, 0)
+        ])
+        let left = Curve3D.interpolate(points: [
+            SIMD3(0, 8, 0), SIMD3(0, 4, 1), SIMD3(0, 0, 0)
+        ])
+
+        if let b = bottom, let r = right, let t = top, let l = left {
+            if let surface = Surface.bsplineFill(curves: (b, r, t, l), style: .coons) {
+                let dom = surface.domain
+                if let face = Shape.face(from: surface,
+                                          uRange: dom.uMin...dom.uMax,
+                                          vRange: dom.vMin...dom.vMax) {
+                    let (body, _) = CADFileLoader.shapeToBodyAndMetadata(
+                        face, id: "bsfill4-coons", color: SIMD4(0.8, 0.4, 0.8, 0.85),
+                        deflection: 0.02
+                    )
+                    if var body {
+                        offsetBody(&body, dx: 0, dy: 14, dz: 0)
+                        bodies.append(body)
+                    }
+                }
+            }
+            // Show boundary curves as sampled polylines
+            for (curve, label) in [(b, "b"), (r, "r"), (t, "t"), (l, "l")] {
+                let params = uniformParameters(curve: curve, count: 40)
+                let pts = curve.evaluateGrid(params).map {
+                    SIMD3<Float>(Float($0.x), Float($0.y), Float($0.z))
+                }
+                var wb = polylineToBody(pts, id: "bsfill4-\(label)",
+                                        color: SIMD4(1, 1, 0.3, 1))
+                offsetBody(&wb, dx: 0, dy: 14, dz: 0)
+                bodies.append(wb)
+            }
+            descriptions.append("4-curve Coons patch")
+        }
+
+        // --- dividedByArea: box faces split by area threshold ---
+        if let box = Shape.box(width: 8, height: 8, depth: 8) {
+            let origFaceCount = box.subShapeCount(ofType: .face)
+
+            // Show original with per-face colors
+            let origFaces = box.subShapes(ofType: .face)
+            let faceColors: [SIMD4<Float>] = [
+                SIMD4(0.9, 0.4, 0.4, 0.7), SIMD4(0.4, 0.9, 0.4, 0.7),
+                SIMD4(0.4, 0.4, 0.9, 0.7), SIMD4(0.9, 0.9, 0.4, 0.7),
+                SIMD4(0.9, 0.4, 0.9, 0.7), SIMD4(0.4, 0.9, 0.9, 0.7),
+            ]
+            for (i, face) in origFaces.enumerated() {
+                let (body, _) = CADFileLoader.shapeToBodyAndMetadata(
+                    face, id: "divarea-orig-\(i)", color: faceColors[i % faceColors.count],
+                    deflection: 0.02
+                )
+                if var body {
+                    offsetBody(&body, dx: 16, dy: 14, dz: 0)
+                    bodies.append(body)
+                }
+            }
+
+            // Divide by area (each face is 64 sq units, max 20 should split each)
+            if let divided = box.dividedByArea(maxArea: 20) {
+                let newFaceCount = divided.subShapeCount(ofType: .face)
+                let divFaces = divided.subShapes(ofType: .face)
+                let moreColors: [SIMD4<Float>] = [
+                    SIMD4(0.9, 0.3, 0.3, 0.8), SIMD4(0.3, 0.9, 0.3, 0.8),
+                    SIMD4(0.3, 0.3, 0.9, 0.8), SIMD4(0.9, 0.9, 0.3, 0.8),
+                    SIMD4(0.9, 0.3, 0.9, 0.8), SIMD4(0.3, 0.9, 0.9, 0.8),
+                    SIMD4(0.9, 0.6, 0.3, 0.8), SIMD4(0.6, 0.3, 0.9, 0.8),
+                ]
+                for (i, face) in divFaces.enumerated() {
+                    let (body, _) = CADFileLoader.shapeToBodyAndMetadata(
+                        face, id: "divarea-result-\(i)", color: moreColors[i % moreColors.count],
+                        deflection: 0.02
+                    )
+                    if var body {
+                        offsetBody(&body, dx: 28, dy: 14, dz: 0)
+                        bodies.append(body)
+                    }
+                }
+                descriptions.append("dividedByArea: \(origFaceCount)→\(newFaceCount)F")
+            }
+        }
+
+        // --- dividedByParts: cylinder faces split into target parts ---
+        if let cyl = Shape.cylinder(radius: 4, height: 6) {
+            let origFaceCount = cyl.subShapeCount(ofType: .face)
+            let (orig, _) = CADFileLoader.shapeToBodyAndMetadata(
+                cyl, id: "divparts-orig", color: SIMD4(0.6, 0.6, 0.6, 0.5),
+                deflection: 0.02
+            )
+            if var orig {
+                offsetBody(&orig, dx: 0, dy: 28, dz: 0)
+                bodies.append(orig)
+            }
+
+            if let divided = cyl.dividedByParts(4) {
+                let newFaceCount = divided.subShapeCount(ofType: .face)
+                let (body, _) = CADFileLoader.shapeToBodyAndMetadata(
+                    divided, id: "divparts-result", color: SIMD4(0.5, 0.8, 0.6, 0.85),
+                    deflection: 0.02
+                )
+                if var body {
+                    offsetBody(&body, dx: 14, dy: 28, dz: 0)
+                    bodies.append(body)
+                }
+                descriptions.append("dividedByParts(4): \(origFaceCount)→\(newFaceCount)F")
+            }
+        }
+
+        // --- checkSmallFaces: create a shape with degenerate faces and detect them ---
+        if let sphere = Shape.sphere(radius: 3) {
+            let issues = sphere.checkSmallFaces()
+            if issues.isEmpty {
+                descriptions.append("checkSmallFaces(sphere): clean")
+            } else {
+                descriptions.append("checkSmallFaces(sphere): \(issues.count) issues")
+                // Highlight spot face locations
+                for (i, info) in issues.enumerated() {
+                    if let loc = info.spotLocation {
+                        var marker = makeMarker(
+                            at: SIMD3(Float(loc.x), Float(loc.y), Float(loc.z)),
+                            radius: 0.4, id: "smallface-\(i)",
+                            color: SIMD4(1, 0, 0, 1)
+                        )
+                        offsetBody(&marker, dx: 28, dy: 28, dz: 0)
+                        bodies.append(marker)
+                    }
+                }
+            }
+
+            let (body, _) = CADFileLoader.shapeToBodyAndMetadata(
+                sphere, id: "smallface-sphere", color: SIMD4(0.7, 0.7, 0.8, 0.6),
+                deflection: 0.02
+            )
+            if var body {
+                offsetBody(&body, dx: 28, dy: 28, dz: 0)
+                bodies.append(body)
+            }
+        }
+
+        // --- purgedLocations: mirror creates negative scale, purge cleans it ---
+        if let box = Shape.box(width: 4, height: 4, depth: 4) {
+            if let mirrored = box.mirrored(planeNormal: SIMD3(1, 0, 0)) {
+                let hadPurge = mirrored.purgedLocations != nil
+                descriptions.append("purgedLocations: \(hadPurge ? "cleaned" : "already clean")")
+            }
+        }
+
+        return Curve2DGallery.GalleryResult(
+            bodies: bodies,
+            description: "v0.42-43: " + descriptions.joined(separator: " | ")
+        )
+    }
+
     // MARK: - Helpers
 
     private static func uniformParameters(curve: Curve3D, count: Int) -> [Double] {

@@ -555,6 +555,7 @@ struct SpikeView: View {
         case projectionAndOffset, faceDivision, hollowAndAnalysis
         case orientedBoundingBox, fuseAndBlend, variableOffset
         case freeBoundsAndFeatures, inertiaAndDistance, surgeryAndDetection
+        case solidAnd2DFillets, bsplineFillAndSubdivision
     }
 
     private var occt8DemoSection: some View {
@@ -592,6 +593,8 @@ struct SpikeView: View {
             Button("Free Bounds & Features") { loadOCCT8Demo(.freeBoundsAndFeatures) }
             Button("Inertia & Distance") { loadOCCT8Demo(.inertiaAndDistance) }
             Button("Surgery & Detection") { loadOCCT8Demo(.surgeryAndDetection) }
+            Button("Solid & 2D Fillets") { loadOCCT8Demo(.solidAnd2DFillets) }
+            Button("BSpline Fill & Subdivision") { loadOCCT8Demo(.bsplineFillAndSubdivision) }
         }
     }
 
@@ -668,6 +671,10 @@ struct SpikeView: View {
             result = OCCT8Gallery.inertiaAndDistance()
         case .surgeryAndDetection:
             result = OCCT8Gallery.surgeryAndDetection()
+        case .solidAnd2DFillets:
+            result = OCCT8Gallery.solidAnd2DFillets()
+        case .bsplineFillAndSubdivision:
+            result = OCCT8Gallery.bsplineFillAndSubdivision()
         }
 
         bodies = result.bodies
