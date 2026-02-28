@@ -2730,6 +2730,499 @@ enum OCCT8Gallery {
         )
     }
 
+    // MARK: - v0.44: Surface Extrema, Ellipse Arcs, Edge Analysis, Bezier Convert
+
+    /// Demonstrates surface extrema, ellipse arcs, dihedral angles, Bezier conversion,
+    /// and curve-on-surface validation.
+    static func extremaAndArcs() -> Curve2DGallery.GalleryResult {
+        var bodies: [ViewportBody] = []
+        var descriptions: [String] = []
+
+        // --- Surface extrema: min distance between a sphere and a plane ---
+        if let sphereSurf = Surface.sphere(center: SIMD3(0, 0, 5), radius: 3),
+           let planeSurf = Surface.plane(origin: .zero, normal: SIMD3(0, 0, 1)) {
+            // Show the sphere shape
+            if let sphere = Shape.sphere(radius: 3)?
+                .translated(by: SIMD3(0, 0, 5)) {
+                let (body, _) = CADFileLoader.shapeToBodyAndMetadata(
+                    sphere, id: "extrema-sphere", color: SIMD4(0.4, 0.6, 0.9, 0.6),
+                    deflection: 0.02
+                )
+                if let body { bodies.append(body) }
+            }
+            // Show a ground plane as a thin box
+            if let ground = Shape.box(width: 12, height: 12, depth: 0.1)?
+                .translated(by: SIMD3(-6, -6, -0.05)) {
+                let (body, _) = CADFileLoader.shapeToBodyAndMetadata(
+                    ground, id: "extrema-plane", color: SIMD4(0.5, 0.7, 0.5, 0.5),
+                    deflection: 0.05
+                )
+                if let body { bodies.append(body) }
+            }
+            // Compute extrema
+            if let result = sphereSurf.extrema(to: planeSurf) {
+                let p1 = SIMD3<Float>(Float(result.point1.x), Float(result.point1.y), Float(result.point1.z))
+                let p2 = SIMD3<Float>(Float(result.point2.x), Float(result.point2.y), Float(result.point2.z))
+                // Distance line between closest points
+                bodies.append(ViewportBody(
+                    id: "extrema-line", vertexData: [], indices: [],
+                    edges: [[p1, p2]], color: SIMD4(1, 0.3, 0.3, 1)
+                ))
+                // Markers at closest points
+                bodies.append(makeMarker(at: p1, radius: 0.2, id: "extrema-p1",
+                                          color: SIMD4(1, 0.3, 0.3, 1)))
+                bodies.append(makeMarker(at: p2, radius: 0.2, id: "extrema-p2",
+                                          color: SIMD4(1, 0.3, 0.3, 1)))
+                descriptions.append(String(format: "Extrema: d=%.2f", result.distance))
+            }
+        }
+
+        // --- Ellipse arcs: quarter, half, and 3/4 arcs in different planes ---
+        let arcDefs: [(String, Double, Double, SIMD3<Double>, SIMD4<Float>, Float)] = [
+            ("quarter", 0, .pi / 2, SIMD3(0, 0, 1), SIMD4(0.9, 0.3, 0.3, 1), 0),
+            ("half", 0, .pi, SIMD3(0, 0, 1), SIMD4(0.3, 0.9, 0.3, 1), 12),
+            ("three-quarter", 0, 1.5 * .pi, SIMD3(0, 0, 1), SIMD4(0.3, 0.3, 0.9, 1), 24),
+        ]
+        for (label, startA, endA, normal, color, dx) in arcDefs {
+            if let arc = Curve3D.arcOfEllipse(
+                center: SIMD3(0, 0, 0), normal: normal,
+                majorRadius: 5, minorRadius: 3,
+                startAngle: startA, endAngle: endA
+            ) {
+                let params = uniformParameters(curve: arc, count: 60)
+                let pts = arc.evaluateGrid(params).map {
+                    SIMD3<Float>(Float($0.x), Float($0.y), Float($0.z))
+                }
+                var body = polylineToBody(pts, id: "arc-\(label)", color: color)
+                offsetBody(&body, dx: dx + 18, dy: 0, dz: 0)
+                bodies.append(body)
+            }
+        }
+        // Also show a full ellipse outline for reference
+        if let fullEllipse = Curve3D.arcOfEllipse(
+            center: SIMD3(0, 0, 0), normal: SIMD3(0, 0, 1),
+            majorRadius: 5, minorRadius: 3,
+            startAngle: 0, endAngle: 2 * .pi
+        ) {
+            let params = uniformParameters(curve: fullEllipse, count: 80)
+            let pts = fullEllipse.evaluateGrid(params).map {
+                SIMD3<Float>(Float($0.x), Float($0.y), Float($0.z))
+            }
+            for dx: Float in [18, 30, 42] {
+                var body = polylineToBody(pts, id: "ellipse-ref-\(dx)",
+                                          color: SIMD4(0.4, 0.4, 0.4, 0.4))
+                offsetBody(&body, dx: dx, dy: 0, dz: 0)
+                bodies.append(body)
+            }
+        }
+        descriptions.append("Ellipse arcs: 1/4, 1/2, 3/4")
+
+        // --- Edge adjacentFaces + dihedralAngle: color faces sharing an edge ---
+        if let box = Shape.box(width: 6, height: 6, depth: 6) {
+            // Show the box semi-transparent
+            let (boxBody, _) = CADFileLoader.shapeToBodyAndMetadata(
+                box, id: "dihedral-box", color: SIMD4(0.6, 0.6, 0.6, 0.3),
+                deflection: 0.02
+            )
+            if var boxBody {
+                offsetBody(&boxBody, dx: 0, dy: 16, dz: 0)
+                bodies.append(boxBody)
+            }
+
+            // Pick edge 0 and highlight its adjacent faces
+            if let edge0 = box.edge(at: 0),
+               let (face1, face2) = edge0.adjacentFaces(in: box) {
+                // Highlight face1 in red
+                let face1Shape = box.subShape(type: .face, index: face1.index)
+                if let f1s = face1Shape {
+                    let (body, _) = CADFileLoader.shapeToBodyAndMetadata(
+                        f1s, id: "dihedral-f1", color: SIMD4(0.9, 0.3, 0.3, 0.8),
+                        deflection: 0.02
+                    )
+                    if var body {
+                        offsetBody(&body, dx: 0, dy: 16, dz: 0)
+                        bodies.append(body)
+                    }
+                }
+                // Highlight face2 in blue
+                if let f2 = face2 {
+                    let face2Shape = box.subShape(type: .face, index: f2.index)
+                    if let f2s = face2Shape {
+                        let (body, _) = CADFileLoader.shapeToBodyAndMetadata(
+                            f2s, id: "dihedral-f2", color: SIMD4(0.3, 0.3, 0.9, 0.8),
+                            deflection: 0.02
+                        )
+                        if var body {
+                            offsetBody(&body, dx: 0, dy: 16, dz: 0)
+                            bodies.append(body)
+                        }
+                    }
+
+                    // Show dihedral angle
+                    if let angle = edge0.dihedralAngle(between: face1, and: f2) {
+                        let degrees = angle * 180.0 / .pi
+                        descriptions.append(String(format: "Dihedral: %.0f°", degrees))
+                    }
+                }
+
+                // Show the edge itself as a bold line
+                let ep = edge0.endpoints
+                let start = SIMD3<Float>(Float(ep.start.x), Float(ep.start.y), Float(ep.start.z))
+                let end = SIMD3<Float>(Float(ep.end.x), Float(ep.end.y), Float(ep.end.z))
+                var edgeBody = ViewportBody(
+                    id: "dihedral-edge", vertexData: [], indices: [],
+                    edges: [[start, end]], color: SIMD4(1, 1, 0.3, 1)
+                )
+                offsetBody(&edgeBody, dx: 0, dy: 16, dz: 0)
+                bodies.append(edgeBody)
+            }
+
+            // Show all edges with dihedral angles — color by angle
+            let allEdges = box.edges()
+            var angleCount = 0
+            for (i, edge) in allEdges.enumerated() {
+                if let (f1, f2) = edge.adjacentFaces(in: box), let f2 = f2 {
+                    if let _ = edge.dihedralAngle(between: f1, and: f2) {
+                        angleCount += 1
+                    }
+                }
+                // Draw each edge
+                let ep = edge.endpoints
+                let s = SIMD3<Float>(Float(ep.start.x), Float(ep.start.y), Float(ep.start.z))
+                let e = SIMD3<Float>(Float(ep.end.x), Float(ep.end.y), Float(ep.end.z))
+                var eb = ViewportBody(
+                    id: "dihedral-edge-\(i)", vertexData: [], indices: [],
+                    edges: [[s, e]], color: SIMD4(0.9, 0.9, 0.3, 1)
+                )
+                offsetBody(&eb, dx: 10, dy: 16, dz: 0)
+                bodies.append(eb)
+            }
+            descriptions.append("\(angleCount)/\(allEdges.count) edges have angles")
+        }
+
+        // --- convertedToBezier: cylinder before/after ---
+        if let cyl = Shape.cylinder(radius: 3, height: 5) {
+            let origEdges = cyl.subShapeCount(ofType: .edge)
+            let origFaces = cyl.subShapeCount(ofType: .face)
+            let (orig, _) = CADFileLoader.shapeToBodyAndMetadata(
+                cyl, id: "bezier-orig", color: SIMD4(0.6, 0.6, 0.6, 0.6),
+                deflection: 0.02
+            )
+            if var orig {
+                offsetBody(&orig, dx: 0, dy: 30, dz: 0)
+                bodies.append(orig)
+            }
+
+            if let bezier = cyl.convertedToBezier {
+                let newEdges = bezier.subShapeCount(ofType: .edge)
+                let newFaces = bezier.subShapeCount(ofType: .face)
+                let (body, _) = CADFileLoader.shapeToBodyAndMetadata(
+                    bezier, id: "bezier-result", color: SIMD4(0.3, 0.8, 0.6, 0.85),
+                    deflection: 0.02
+                )
+                if var body {
+                    offsetBody(&body, dx: 12, dy: 30, dz: 0)
+                    bodies.append(body)
+                }
+                descriptions.append("Bezier: \(origFaces)F/\(origEdges)E → \(newFaces)F/\(newEdges)E")
+            }
+        }
+
+        // --- curveOnSurfaceCheck: validate a complex shape ---
+        if let torus = Shape.torus(majorRadius: 5, minorRadius: 2) {
+            if let check = torus.curveOnSurfaceCheck {
+                descriptions.append(String(format: "pcurve check: max dev=%.1e", check.maxDistance))
+            } else {
+                descriptions.append("pcurve check: n/a")
+            }
+        }
+
+        return Curve2DGallery.GalleryResult(
+            bodies: bodies,
+            description: "v0.44: " + descriptions.joined(separator: " | ")
+        )
+    }
+
+    // MARK: - v0.45: N-Side Filling, Self-Intersection, Wire Ordering
+
+    /// Demonstrates FillingSurface, selfIntersection, and WireOrder.
+    static func fillingAndSelfIntersection() -> Curve2DGallery.GalleryResult {
+        var bodies: [ViewportBody] = []
+        var descriptions: [String] = []
+
+        // --- FillingSurface: fill a hole bounded by 4 edges with a raised interior point ---
+        if let box = Shape.box(width: 10, height: 10, depth: 0.1) {
+            let allEdges = box.edges()
+            // Use the first 4 edges (bottom face boundary)
+            if allEdges.count >= 4 {
+                let filling = FillingSurface()
+                for i in 0..<4 {
+                    filling.add(edge: allEdges[i], continuity: .c0)
+                }
+                // Add a raised interior point to make it interesting
+                filling.add(point: SIMD3(5, 5, 4))
+
+                if let face = filling.build() {
+                    let (body, _) = CADFileLoader.shapeToBodyAndMetadata(
+                        face, id: "filling-face", color: SIMD4(0.3, 0.7, 0.9, 0.85),
+                        deflection: 0.02
+                    )
+                    if let body { bodies.append(body) }
+
+                    if let g0 = filling.g0Error {
+                        descriptions.append(String(format: "N-fill G0=%.1e", g0))
+                    } else {
+                        descriptions.append("N-fill: built")
+                    }
+                }
+            }
+        }
+
+        // Second filling: triangle from 3 wire edges
+        let triPts: [SIMD3<Double>] = [
+            SIMD3(0, 0, 0), SIMD3(8, 0, 0), SIMD3(4, 7, 0)
+        ]
+        if let triWire = Wire.polygon3D(triPts, closed: true) {
+            let triEdges = Shape.fromWire(triWire)?.edges() ?? []
+            if triEdges.count >= 3 {
+                let filling = FillingSurface()
+                for edge in triEdges {
+                    filling.add(edge: edge, continuity: .c0)
+                }
+                filling.add(point: SIMD3(4, 2.5, 3))
+
+                if let face = filling.build() {
+                    let (body, _) = CADFileLoader.shapeToBodyAndMetadata(
+                        face, id: "filling-tri", color: SIMD4(0.9, 0.5, 0.3, 0.85),
+                        deflection: 0.02
+                    )
+                    if var body {
+                        offsetBody(&body, dx: 14, dy: 0, dz: 0)
+                        bodies.append(body)
+                    }
+                    descriptions.append("tri-fill")
+                }
+            }
+        }
+
+        // --- Self-intersection detection ---
+        // Clean box — should have no self-intersections
+        if let box = Shape.box(width: 5, height: 5, depth: 5) {
+            if let result = box.selfIntersection() {
+                descriptions.append("box SI: \(result.overlapCount)")
+            } else {
+                descriptions.append("box SI: n/a")
+            }
+
+            let (body, _) = CADFileLoader.shapeToBodyAndMetadata(
+                box, id: "si-box", color: SIMD4(0.5, 0.8, 0.5, 0.7),
+                deflection: 0.02
+            )
+            if var body {
+                offsetBody(&body, dx: 0, dy: 14, dz: 0)
+                bodies.append(body)
+            }
+        }
+
+        // --- WireOrder: scramble edges and reorder them ---
+        // Define 4 edges of a square in scrambled order
+        let scrambled: [(start: SIMD3<Double>, end: SIMD3<Double>)] = [
+            (SIMD3(0, 0, 0), SIMD3(8, 0, 0)),       // edge 0: bottom
+            (SIMD3(8, 8, 0), SIMD3(0, 8, 0)),       // edge 1: top (reversed)
+            (SIMD3(0, 8, 0), SIMD3(0, 0, 0)),       // edge 2: left
+            (SIMD3(8, 0, 0), SIMD3(8, 8, 0)),       // edge 3: right
+        ]
+
+        // Show scrambled edges with numbered colors
+        let edgeColors: [SIMD4<Float>] = [
+            SIMD4(1, 0.3, 0.3, 1), SIMD4(0.3, 1, 0.3, 1),
+            SIMD4(0.3, 0.3, 1, 1), SIMD4(1, 1, 0.3, 1),
+        ]
+        for (i, edge) in scrambled.enumerated() {
+            let s = SIMD3<Float>(Float(edge.start.x), Float(edge.start.y), Float(edge.start.z))
+            let e = SIMD3<Float>(Float(edge.end.x), Float(edge.end.y), Float(edge.end.z))
+            var body = ViewportBody(
+                id: "wireorder-scrambled-\(i)", vertexData: [], indices: [],
+                edges: [[s, e]], color: edgeColors[i]
+            )
+            offsetBody(&body, dx: 14, dy: 14, dz: 0)
+            bodies.append(body)
+        }
+
+        if let order = WireOrder.analyze(edges: scrambled) {
+            let indices = order.orderedEdges.map {
+                "\($0.isReversed ? "-" : "")\($0.originalIndex)"
+            }
+            descriptions.append("WireOrder(\(order.status)): [\(indices.joined(separator: ","))]")
+        }
+
+        return Curve2DGallery.GalleryResult(
+            bodies: bodies,
+            description: "v0.45: " + descriptions.joined(separator: " | ")
+        )
+    }
+
+    // MARK: - v0.46: Edge Concavity, Local Prism, Volume Inertia
+
+    /// Demonstrates edgeConcavities, localPrism, volumeInertia, and surfaceInertia.
+    static func concavityAndInertia() -> Curve2DGallery.GalleryResult {
+        var bodies: [ViewportBody] = []
+        var descriptions: [String] = []
+
+        // --- Edge concavity: color box edges by convex/concave/tangent ---
+        if let box = Shape.box(width: 6, height: 6, depth: 6) {
+            let (boxBody, _) = CADFileLoader.shapeToBodyAndMetadata(
+                box, id: "concavity-box", color: SIMD4(0.6, 0.6, 0.6, 0.4),
+                deflection: 0.02
+            )
+            if let boxBody { bodies.append(boxBody) }
+
+            if let concavities = box.edgeConcavities() {
+                var convexCount = 0, concaveCount = 0, tangentCount = 0
+                for (edge, concavity) in concavities {
+                    let color: SIMD4<Float>
+                    switch concavity {
+                    case .convex:
+                        color = SIMD4(0.3, 0.9, 0.3, 1); convexCount += 1
+                    case .concave:
+                        color = SIMD4(0.9, 0.3, 0.3, 1); concaveCount += 1
+                    case .tangent:
+                        color = SIMD4(0.9, 0.9, 0.3, 1); tangentCount += 1
+                    }
+                    let ep = edge.endpoints
+                    let s = SIMD3<Float>(Float(ep.start.x), Float(ep.start.y), Float(ep.start.z))
+                    let e = SIMD3<Float>(Float(ep.end.x), Float(ep.end.y), Float(ep.end.z))
+                    bodies.append(ViewportBody(
+                        id: "concavity-e\(edge.index)", vertexData: [], indices: [],
+                        edges: [[s, e]], color: color
+                    ))
+                }
+                descriptions.append("Concavity: \(convexCount)cvx \(concaveCount)ccv \(tangentCount)tan")
+            }
+        }
+
+        // Filleted box — has tangent edges at the fillet-face transitions
+        if let box = Shape.box(width: 6, height: 6, depth: 6),
+           let filleted = box.filleted(radius: 1.0) {
+            let (body, _) = CADFileLoader.shapeToBodyAndMetadata(
+                filleted, id: "concavity-fillet", color: SIMD4(0.6, 0.6, 0.6, 0.4),
+                deflection: 0.02
+            )
+            if var body {
+                offsetBody(&body, dx: 12, dy: 0, dz: 0)
+                bodies.append(body)
+            }
+
+            if let concavities = filleted.edgeConcavities() {
+                var cvx = 0, ccv = 0, tan = 0
+                for (edge, concavity) in concavities {
+                    let color: SIMD4<Float>
+                    switch concavity {
+                    case .convex: color = SIMD4(0.3, 0.9, 0.3, 1); cvx += 1
+                    case .concave: color = SIMD4(0.9, 0.3, 0.3, 1); ccv += 1
+                    case .tangent: color = SIMD4(0.9, 0.9, 0.3, 1); tan += 1
+                    }
+                    let ep = edge.endpoints
+                    let s = SIMD3<Float>(Float(ep.start.x), Float(ep.start.y), Float(ep.start.z))
+                    let e = SIMD3<Float>(Float(ep.end.x), Float(ep.end.y), Float(ep.end.z))
+                    var eb = ViewportBody(
+                        id: "concavity-f-e\(edge.index)", vertexData: [], indices: [],
+                        edges: [[s, e]], color: color
+                    )
+                    offsetBody(&eb, dx: 12, dy: 0, dz: 0)
+                    bodies.append(eb)
+                }
+                descriptions.append("Filleted: \(cvx)cvx \(ccv)ccv \(tan)tan")
+            }
+        }
+
+        // --- Local prism: extrude a face profile ---
+        if let rectWire = Wire.rectangle(width: 4, height: 3),
+           let face = Shape.face(from: rectWire) {
+            // Simple upward prism
+            if let prism = face.localPrism(direction: SIMD3(0, 0, 6)) {
+                let (body, _) = CADFileLoader.shapeToBodyAndMetadata(
+                    prism, id: "prism-simple", color: SIMD4(0.4, 0.6, 0.9, 0.85),
+                    deflection: 0.02
+                )
+                if var body {
+                    offsetBody(&body, dx: 0, dy: 14, dz: 0)
+                    bodies.append(body)
+                }
+            }
+
+            // Prism with translation (skewed)
+            if let prism = face.localPrism(direction: SIMD3(0, 0, 6),
+                                            translation: SIMD3(3, 2, 0)) {
+                let (body, _) = CADFileLoader.shapeToBodyAndMetadata(
+                    prism, id: "prism-skewed", color: SIMD4(0.9, 0.5, 0.3, 0.85),
+                    deflection: 0.02
+                )
+                if var body {
+                    offsetBody(&body, dx: 10, dy: 14, dz: 0)
+                    bodies.append(body)
+                }
+            }
+            descriptions.append("localPrism: straight + skewed")
+        }
+
+        // --- Volume inertia: box with principal axes visualization ---
+        if let box = Shape.box(width: 10, height: 6, depth: 4) {
+            let (boxBody, _) = CADFileLoader.shapeToBodyAndMetadata(
+                box, id: "inertia-box", color: SIMD4(0.5, 0.7, 0.8, 0.6),
+                deflection: 0.02
+            )
+            if var boxBody {
+                offsetBody(&boxBody, dx: 0, dy: 28, dz: 0)
+                bodies.append(boxBody)
+            }
+
+            if let vi = box.volumeInertia {
+                let cm = SIMD3<Float>(Float(vi.centerOfMass.x), Float(vi.centerOfMass.y), Float(vi.centerOfMass.z))
+                // Center of mass marker
+                var marker = makeMarker(at: cm, radius: 0.3, id: "inertia-cm",
+                                         color: SIMD4(1, 1, 1, 1))
+                offsetBody(&marker, dx: 0, dy: 28, dz: 0)
+                bodies.append(marker)
+
+                // Principal axes as colored lines from center of mass
+                let axisColors: [SIMD4<Float>] = [
+                    SIMD4(1, 0.2, 0.2, 1), // axis 1 — red
+                    SIMD4(0.2, 1, 0.2, 1), // axis 2 — green
+                    SIMD4(0.2, 0.2, 1, 1), // axis 3 — blue
+                ]
+                let axes = [vi.principalAxes.0, vi.principalAxes.1, vi.principalAxes.2]
+                for (i, axis) in axes.enumerated() {
+                    let dir = SIMD3<Float>(Float(axis.x), Float(axis.y), Float(axis.z))
+                    let len = Float(vi.gyrationRadii[i]) * 0.5
+                    let start = cm - dir * len
+                    let end = cm + dir * len
+                    var axisBody = ViewportBody(
+                        id: "inertia-axis-\(i)", vertexData: [], indices: [],
+                        edges: [[start, end]], color: axisColors[i]
+                    )
+                    offsetBody(&axisBody, dx: 0, dy: 28, dz: 0)
+                    bodies.append(axisBody)
+                }
+
+                descriptions.append(String(format: "Vol=%.0f CM=(%.0f,%.0f,%.0f)",
+                    vi.volume, vi.centerOfMass.x, vi.centerOfMass.y, vi.centerOfMass.z))
+                descriptions.append(String(format: "Moments: %.0f/%.0f/%.0f",
+                    vi.principalMoments.x, vi.principalMoments.y, vi.principalMoments.z))
+            }
+
+            // Surface inertia too
+            if let si = box.surfaceInertia {
+                descriptions.append(String(format: "Area=%.0f", si.area))
+            }
+        }
+
+        return Curve2DGallery.GalleryResult(
+            bodies: bodies,
+            description: "v0.46: " + descriptions.joined(separator: " | ")
+        )
+    }
+
     // MARK: - Helpers
 
     private static func uniformParameters(curve: Curve3D, count: Int) -> [Double] {
