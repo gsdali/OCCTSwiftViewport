@@ -3709,6 +3709,215 @@ enum OCCT8Gallery {
         )
     }
 
+    // MARK: - v0.49: Extrema, Curve Joining, Free Bounds & Analysis
+
+    /// Point-edge/edge-face extrema, curve joining, free bounds analysis,
+    /// surface UV projection, and curve analysis.
+    static func extremaAndCurveAnalysis() -> Curve2DGallery.GalleryResult {
+        var bodies: [ViewportBody] = []
+        var descriptions: [String] = []
+
+        // --- Point-edge extrema: closest point from external point to box edge ---
+        if let box = Shape.box(width: 8, height: 4, depth: 4) {
+            let testPoint = SIMD3<Double>(6, 5, 2)
+            if let pe = box.pointEdgeExtrema(point: testPoint, edgeIndex: 0) {
+                let (body, _) = CADFileLoader.shapeToBodyAndMetadata(
+                    box, id: "pe-box", color: SIMD4(0.6, 0.6, 0.6, 0.5), deflection: 0.02
+                )
+                if let body { bodies.append(body) }
+                let tp = SIMD3<Float>(Float(testPoint.x), Float(testPoint.y), Float(testPoint.z))
+                let ep = SIMD3<Float>(Float(pe.pointOnEdge.x), Float(pe.pointOnEdge.y), Float(pe.pointOnEdge.z))
+                bodies.append(makeMarker(at: tp, radius: 0.3, id: "pe-test", color: SIMD4(1, 0.3, 0.3, 1)))
+                bodies.append(makeMarker(at: ep, radius: 0.3, id: "pe-edge", color: SIMD4(0.3, 1, 0.3, 1)))
+                bodies.append(ViewportBody(
+                    id: "pe-line", vertexData: [], indices: [],
+                    edges: [[tp, ep]], color: SIMD4(1, 0.8, 0.2, 1)
+                ))
+                descriptions.append("PointEdge: dist=\(String(format: "%.2f", pe.distance)) param=\(String(format: "%.2f", pe.parameter))")
+            }
+        }
+
+        // --- Edge-face extrema: distance from cylinder edge to box face ---
+        if let cyl = Shape.cylinder(radius: 1.5, height: 6),
+           let boxOrig = Shape.box(width: 4, height: 4, depth: 4),
+           let box = boxOrig.translated(by: SIMD3(8, 0, 0)) {
+            if let ef = cyl.edgeFaceExtrema(edgeIndex: 0, other: box, faceIndex: 0) {
+                let (cylBody, _) = CADFileLoader.shapeToBodyAndMetadata(
+                    cyl, id: "ef-cyl", color: SIMD4(0.5, 0.7, 0.9, 0.7), deflection: 0.05
+                )
+                let (boxBody, _) = CADFileLoader.shapeToBodyAndMetadata(
+                    box, id: "ef-box", color: SIMD4(0.7, 0.7, 0.7, 0.5), deflection: 0.02
+                )
+                if var cylBody { offsetBody(&cylBody, dx: 0, dy: 14, dz: 0); bodies.append(cylBody) }
+                if var boxBody { offsetBody(&boxBody, dx: 0, dy: 14, dz: 0); bodies.append(boxBody) }
+
+                if !ef.isParallel {
+                    let offset = SIMD3<Float>(0, 14, 0)
+                    let pe = SIMD3<Float>(Float(ef.pointOnEdge.x), Float(ef.pointOnEdge.y), Float(ef.pointOnEdge.z)) + offset
+                    let pf = SIMD3<Float>(Float(ef.pointOnFace.x), Float(ef.pointOnFace.y), Float(ef.pointOnFace.z)) + offset
+                    bodies.append(makeMarker(at: pe, radius: 0.2, id: "ef-pe", color: SIMD4(1, 0.3, 0.3, 1)))
+                    bodies.append(makeMarker(at: pf, radius: 0.2, id: "ef-pf", color: SIMD4(0.3, 1, 0.3, 1)))
+                    bodies.append(ViewportBody(
+                        id: "ef-line", vertexData: [], indices: [],
+                        edges: [[pe, pf]], color: SIMD4(1, 0.8, 0.2, 1)
+                    ))
+                    descriptions.append("EdgeFace: dist=\(String(format: "%.2f", ef.distance)) UV=(\(String(format: "%.2f", ef.faceUV.x)), \(String(format: "%.2f", ef.faceUV.y)))")
+                } else {
+                    descriptions.append("EdgeFace: parallel")
+                }
+            }
+        }
+
+        // --- Curve joining: join 3 edge curves into one BSpline ---
+        if let box = Shape.box(width: 6, height: 4, depth: 3) {
+            let edges = box.edges()
+            // Get curves from first 3 consecutive edges
+            var curves: [Curve3D] = []
+            for i in 0..<min(3, edges.count) {
+                if let c = edges[i].approximatedCurve() {
+                    curves.append(c)
+                }
+            }
+            if curves.count >= 2 {
+                // Show individual edge curves (before join)
+                for (i, curve) in curves.enumerated() {
+                    let pts = curve.samplePoints(first: 0, last: 1, maxPoints: 50)
+                    let floatPts = pts.map { SIMD3<Float>(Float($0.x), Float($0.y) + 28, Float($0.z)) }
+                    if !floatPts.isEmpty {
+                        let colors: [SIMD4<Float>] = [
+                            SIMD4(1, 0.3, 0.3, 1), SIMD4(0.3, 1, 0.3, 1), SIMD4(0.3, 0.3, 1, 1)
+                        ]
+                        bodies.append(polylineToBody(floatPts, id: "curve-pre-\(i)",
+                                                     color: colors[i % colors.count]))
+                    }
+                }
+
+                // Try to join them
+                if let joined = Curve3D.joined(curves: curves) {
+                    let pts = joined.samplePoints(first: 0, last: 1, maxPoints: 100)
+                    let floatPts = pts.map { SIMD3<Float>(Float($0.x) + 14, Float($0.y) + 28, Float($0.z)) }
+                    if !floatPts.isEmpty {
+                        bodies.append(polylineToBody(floatPts, id: "curve-joined",
+                                                     color: SIMD4(1, 0.8, 0.2, 1)))
+                    }
+                    descriptions.append("CurveJoin: \(curves.count) curves → 1 BSpline")
+                }
+            }
+        }
+
+        // --- Curve analysis: project point and validate range ---
+        if let box = Shape.box(width: 6, height: 6, depth: 6) {
+            let edges = box.edges()
+            if let firstEdge = edges.first,
+               let curve = firstEdge.approximatedCurve() {
+                // Project a point onto the curve
+                let testPt = SIMD3<Double>(5, 5, 0)
+                let proj = curve.projectPoint(testPt)
+
+                let offset = SIMD3<Float>(20, 0, 0)
+                let tp = SIMD3<Float>(Float(testPt.x), Float(testPt.y), Float(testPt.z)) + offset
+                let pp = SIMD3<Float>(Float(proj.point.x), Float(proj.point.y), Float(proj.point.z)) + offset
+                bodies.append(makeMarker(at: tp, radius: 0.25, id: "proj-test", color: SIMD4(1, 0.3, 0.3, 1)))
+                bodies.append(makeMarker(at: pp, radius: 0.25, id: "proj-pt", color: SIMD4(0.3, 1, 0.3, 1)))
+                bodies.append(ViewportBody(
+                    id: "proj-line", vertexData: [], indices: [],
+                    edges: [[tp, pp]], color: SIMD4(1, 0.8, 0.2, 1)
+                ))
+
+                // Show the curve
+                let samplePts = curve.samplePoints(first: 0, last: 1, maxPoints: 50)
+                let floatPts = samplePts.map { SIMD3<Float>(Float($0.x), Float($0.y), Float($0.z)) + offset }
+                if !floatPts.isEmpty {
+                    bodies.append(polylineToBody(floatPts, id: "proj-curve", color: SIMD4(0.5, 0.7, 1, 1)))
+                }
+
+                // Validate range
+                let vr = curve.validateRange(first: -1.0, last: 2.0)
+                descriptions.append("CurveProject: dist=\(String(format: "%.2f", proj.distance)) param=\(String(format: "%.2f", proj.parameter))")
+                descriptions.append("ValidateRange: [\(String(format: "%.2f", vr.first)), \(String(format: "%.2f", vr.last))] adjusted=\(vr.wasAdjusted)")
+            }
+        }
+
+        // --- Surface UV projection: project 3D points onto a sphere surface ---
+        if let sphere = Shape.sphere(radius: 4) {
+            let (body, _) = CADFileLoader.shapeToBodyAndMetadata(
+                sphere, id: "uv-sphere", color: SIMD4(0.5, 0.7, 0.9, 0.3), deflection: 0.05
+            )
+            if var body {
+                offsetBody(&body, dx: 0, dy: 42, dz: 0)
+                bodies.append(body)
+            }
+
+            // Create a Surface for UV projection
+            let surface = Surface.sphere(center: SIMD3(0, 0, 0), radius: 4)
+            if let surface {
+                let testPoints: [SIMD3<Double>] = [
+                    SIMD3(4, 0, 0), SIMD3(0, 4, 0), SIMD3(0, 0, 4),
+                    SIMD3(2.83, 2.83, 0), SIMD3(0, 2.83, 2.83)
+                ]
+                for (i, pt) in testPoints.enumerated() {
+                    let uv = surface.valueOfUV(point: pt)
+                    let marker = SIMD3<Float>(Float(pt.x), Float(pt.y) + 42, Float(pt.z))
+                    bodies.append(makeMarker(at: marker, radius: 0.3, id: "uv-pt-\(i)",
+                                             color: SIMD4(1, 0.4, 0.2, 1)))
+                    if i == 0 {
+                        descriptions.append("SurfaceUV: gap=\(String(format: "%.4f", uv.gap)) uv=(\(String(format: "%.2f", uv.uv.x)), \(String(format: "%.2f", uv.uv.y)))")
+                    }
+                }
+            }
+        }
+
+        // --- Free bounds analysis: analyze a shell with holes ---
+        if let box = Shape.box(width: 10, height: 10, depth: 10) {
+            // Create a shell by removing a face (using cut to punch a hole)
+            if let cyl = Shape.cylinder(radius: 2, height: 12),
+               let holed = box.subtracting(cyl) {
+                let analysis = holed.freeBoundsAnalysis(tolerance: 0.01)
+                descriptions.append("FreeBounds: total=\(analysis.totalCount) closed=\(analysis.closedCount) open=\(analysis.openCount)")
+
+                let (body, _) = CADFileLoader.shapeToBodyAndMetadata(
+                    holed, id: "fb-shape", color: SIMD4(0.6, 0.8, 0.5, 0.7), deflection: 0.05
+                )
+                if var body {
+                    offsetBody(&body, dx: 14, dy: 42, dz: 0)
+                    bodies.append(body)
+                }
+
+                // Show closed free bound wires if any
+                for i in 0..<analysis.closedCount {
+                    if let info = holed.closedFreeBoundInfo(tolerance: 0.01, index: i) {
+                        descriptions.append("  Bound \(i): area=\(String(format: "%.1f", info.area)) perim=\(String(format: "%.1f", info.perimeter)) notches=\(info.notchCount)")
+                    }
+                }
+            }
+        }
+
+        // --- BSpline restriction: simplify a filleted box ---
+        if let box = Shape.box(width: 6, height: 6, depth: 6),
+           let filleted = box.filleted(radius: 1.0) {
+            let edgesBefore = filleted.edges().count
+            if let simplified = filleted.bsplineRestriction(
+                tol3d: 0.1, maxDegree: 4, maxSegments: 20
+            ) {
+                let edgesAfter = simplified.edges().count
+                let (body, _) = CADFileLoader.shapeToBodyAndMetadata(
+                    simplified, id: "bspline-restricted",
+                    color: SIMD4(0.8, 0.6, 0.4, 0.85), deflection: 0.05
+                )
+                if var body {
+                    offsetBody(&body, dx: 28, dy: 42, dz: 0)
+                    bodies.append(body)
+                }
+                descriptions.append("BSplineRestrict: edges \(edgesBefore)→\(edgesAfter) (maxDeg=4)")
+            }
+        }
+
+        return Curve2DGallery.GalleryResult(
+            bodies: bodies,
+            description: descriptions.joined(separator: "\n")
+        )
+    }
+
     private static func polylineToBody(
         _ points: [SIMD3<Float>],
         id: String,
