@@ -3382,6 +3382,333 @@ enum OCCT8Gallery {
         }
     }
 
+    // MARK: - v0.47: Local Revolution, Draft Prism & Validation
+
+    /// Local revolution, draft prism, constrained fill, and BRepCheck validation.
+    static func localOpsAndValidation() -> Curve2DGallery.GalleryResult {
+        var bodies: [ViewportBody] = []
+        var descriptions: [String] = []
+
+        // --- Local revolution: revolve a rectangular profile around Y axis ---
+        if let rectWire = Wire.rectangle(width: 2, height: 1),
+           let face = Shape.face(from: rectWire) {
+            // Move profile away from axis so revolution creates a ring
+            let profile = face.translated(by: SIMD3(3, 0, 0))
+            if let revolved = profile?.localRevolution(
+                axisOrigin: SIMD3(0, 0, 0),
+                axisDirection: SIMD3(0, 1, 0),
+                angle: .pi * 1.5 // 270 degrees
+            ) {
+                let (body, _) = CADFileLoader.shapeToBodyAndMetadata(
+                    revolved, id: "local-revol", color: SIMD4(0.4, 0.7, 0.9, 0.85),
+                    deflection: 0.05
+                )
+                if let body { bodies.append(body) }
+                descriptions.append("LocalRevol: rect profile 270°")
+            }
+
+            // Revolution with angular offset
+            if let profile2 = face.translated(by: SIMD3(3, 0, 0)),
+               let revolvedOffset = profile2.localRevolution(
+                axisOrigin: SIMD3(0, 0, 0),
+                axisDirection: SIMD3(0, 1, 0),
+                angle: .pi,
+                angularOffset: .pi / 4 // Start 45° offset
+            ) {
+                let (body, _) = CADFileLoader.shapeToBodyAndMetadata(
+                    revolvedOffset, id: "local-revol-offset",
+                    color: SIMD4(0.9, 0.5, 0.3, 0.85), deflection: 0.05
+                )
+                if var body {
+                    offsetBody(&body, dx: 12, dy: 0, dz: 0)
+                    bodies.append(body)
+                }
+                descriptions.append("LocalRevol: 180° with 45° offset")
+            }
+        }
+
+        // --- Draft prism: tapered extrusion from a face ---
+        if let circWire = Wire.circle(radius: 2),
+           let circShape = Shape.face(from: circWire),
+           let circFace = circShape.faces().first {
+            // Two-height draft prism
+            if let draft = circFace.draftPrism(height1: 5, height2: 3, angle: .pi / 12) {
+                let (body, _) = CADFileLoader.shapeToBodyAndMetadata(
+                    draft, id: "draft-prism-2h", color: SIMD4(0.3, 0.8, 0.5, 0.85),
+                    deflection: 0.05
+                )
+                if var body {
+                    offsetBody(&body, dx: 0, dy: 12, dz: 0)
+                    bodies.append(body)
+                }
+                descriptions.append("DraftPrism: 2-height tapered")
+            }
+
+            // Single-height draft prism
+            if let draft2 = circFace.draftPrism(height: 6, angle: .pi / 8) {
+                let (body, _) = CADFileLoader.shapeToBodyAndMetadata(
+                    draft2, id: "draft-prism-1h", color: SIMD4(0.8, 0.4, 0.7, 0.85),
+                    deflection: 0.05
+                )
+                if var body {
+                    offsetBody(&body, dx: 12, dy: 12, dz: 0)
+                    bodies.append(body)
+                }
+                descriptions.append("DraftPrism: single-height tapered")
+            }
+        }
+
+        // --- Constrained fill: BSpline surface from boundary edges ---
+        if let box = Shape.box(width: 6, height: 6, depth: 6) {
+            let edges = box.edges()
+            if edges.count >= 4 {
+                // Use first 4 edges of a box for a 4-sided constrained fill
+                if let filled = Shape.constrainedFill(
+                    edge1: edges[0], edge2: edges[1],
+                    edge3: edges[2], edge4: edges[3]
+                ) {
+                    let (body, _) = CADFileLoader.shapeToBodyAndMetadata(
+                        filled, id: "constrained-fill-4",
+                        color: SIMD4(0.9, 0.7, 0.2, 0.85), deflection: 0.05
+                    )
+                    if var body {
+                        offsetBody(&body, dx: 0, dy: 24, dz: 0)
+                        bodies.append(body)
+                    }
+                    if let info = filled.constrainedFillInfo {
+                        descriptions.append("ConstrainedFill: deg \(info.uDegree)×\(info.vDegree) poles \(info.uPoles)×\(info.vPoles)")
+                    } else {
+                        descriptions.append("ConstrainedFill: 4-edge surface")
+                    }
+                }
+
+                // 3-sided fill
+                if let filled3 = Shape.constrainedFill(
+                    edge1: edges[0], edge2: edges[1], edge3: edges[2]
+                ) {
+                    let (body, _) = CADFileLoader.shapeToBodyAndMetadata(
+                        filled3, id: "constrained-fill-3",
+                        color: SIMD4(0.5, 0.9, 0.7, 0.85), deflection: 0.05
+                    )
+                    if var body {
+                        offsetBody(&body, dx: 12, dy: 24, dz: 0)
+                        bodies.append(body)
+                    }
+                    descriptions.append("ConstrainedFill: 3-edge surface")
+                }
+            }
+        }
+
+        // --- BRepCheck: validate shapes ---
+        if let box = Shape.box(width: 4, height: 4, depth: 4) {
+            let check = box.checkResult
+            let statuses = box.detailedCheckStatuses
+            descriptions.append("BRepCheck box: valid=\(check.isValid) errors=\(check.errorCount) statuses=\(statuses.count)")
+
+            // Check individual faces
+            let faces = box.faces()
+            if let firstFace = faces.first {
+                let faceCheck = firstFace.faceCheckResult
+                descriptions.append("Face check: valid=\(faceCheck.isValid)")
+            }
+        }
+
+        // Deliberately check an empty/degenerate scenario
+        if let sphere = Shape.sphere(radius: 3) {
+            let check = sphere.checkResult
+            descriptions.append("BRepCheck sphere: valid=\(check.isValid) errors=\(check.errorCount)")
+        }
+
+        return Curve2DGallery.GalleryResult(
+            bodies: bodies,
+            description: descriptions.joined(separator: "\n")
+        )
+    }
+
+    // MARK: - v0.48: Split Ops, Line Intersection & Extrema
+
+    /// Split operations, line-shape intersection, distance extrema, and shape upgrade.
+    static func splitOpsAndExtrema() -> Curve2DGallery.GalleryResult {
+        var bodies: [ViewportBody] = []
+        var descriptions: [String] = []
+
+        // --- Local pipe: sweep circle along a helix spine ---
+        if let circWire = Wire.circle(radius: 0.5),
+           let circFace = Shape.face(from: circWire),
+           let spine = Wire.helix(radius: 3, pitch: 2.0, turns: 3) {
+            if let pipe = circFace.localPipe(along: spine) {
+                let (body, _) = CADFileLoader.shapeToBodyAndMetadata(
+                    pipe, id: "local-pipe", color: SIMD4(0.4, 0.7, 0.9, 0.85),
+                    deflection: 0.1
+                )
+                if let body { bodies.append(body) }
+                descriptions.append("LocalPipe: circle swept along helix")
+            }
+        }
+
+        // --- Local linear form: translation sweep ---
+        if let rectWire = Wire.rectangle(width: 2, height: 1),
+           let face = Shape.face(from: rectWire) {
+            if let linear = face.localLinearForm(
+                direction: SIMD3(1, 0, 1),
+                from: SIMD3(0, 0, 0),
+                to: SIMD3(5, 0, 5)
+            ) {
+                let (body, _) = CADFileLoader.shapeToBodyAndMetadata(
+                    linear, id: "linear-form", color: SIMD4(0.9, 0.6, 0.3, 0.85),
+                    deflection: 0.05
+                )
+                if var body {
+                    offsetBody(&body, dx: 14, dy: 0, dz: 0)
+                    bodies.append(body)
+                }
+                descriptions.append("LinearForm: rect swept along diagonal")
+            }
+        }
+
+        // --- Split edge: split a box edge at midpoint ---
+        if let box = Shape.box(width: 6, height: 6, depth: 6) {
+            let edgesBefore = box.edges().count
+            if let split = box.splitEdge(at: 0, parameter: 0.5) {
+                let edgesAfter = split.edges().count
+                let (body, _) = CADFileLoader.shapeToBodyAndMetadata(
+                    split, id: "split-edge", color: SIMD4(0.5, 0.8, 0.4, 0.85),
+                    deflection: 0.02
+                )
+                if var body {
+                    offsetBody(&body, dx: 0, dy: 14, dz: 0)
+                    bodies.append(body)
+                }
+                descriptions.append("SplitEdge: \(edgesBefore)→\(edgesAfter) edges")
+            }
+        }
+
+        // --- Intersect line: shoot a line through a sphere and find hit points ---
+        if let sphere = Shape.sphere(radius: 3) {
+            let hits = sphere.intersectLine(
+                origin: SIMD3(-10, 0, 0),
+                direction: SIMD3(1, 0, 0)
+            )
+            // Show sphere
+            let (body, _) = CADFileLoader.shapeToBodyAndMetadata(
+                sphere, id: "intersect-sphere", color: SIMD4(0.6, 0.6, 0.9, 0.4),
+                deflection: 0.05
+            )
+            if var body {
+                offsetBody(&body, dx: 14, dy: 14, dz: 0)
+                bodies.append(body)
+            }
+            // Show hit points as markers
+            for (i, hit) in hits.enumerated() {
+                let p = SIMD3<Float>(Float(hit.point.x) + 14, Float(hit.point.y) + 14, Float(hit.point.z))
+                bodies.append(makeMarker(at: p, radius: 0.4, id: "hit-\(i)",
+                                         color: SIMD4(1, 0.2, 0.2, 1)))
+            }
+            // Show the line itself
+            let lineStart = SIMD3<Float>(-10 + 14, 0 + 14, 0)
+            let lineEnd = SIMD3<Float>(10 + 14, 0 + 14, 0)
+            bodies.append(ViewportBody(
+                id: "intersect-line", vertexData: [], indices: [],
+                edges: [[lineStart, lineEnd]], color: SIMD4(1, 0.4, 0.4, 1)
+            ))
+            descriptions.append("IntersectLine: \(hits.count) hits on sphere")
+        }
+
+        // --- Edge-edge extrema: distance between edges of two shapes ---
+        if let box1 = Shape.box(width: 4, height: 4, depth: 4),
+           let box2orig = Shape.box(width: 3, height: 3, depth: 3),
+           let box2 = box2orig.translated(by: SIMD3(8, 0, 0)) {
+            if let extrema = box1.edgeEdgeExtrema(edgeIndex1: 0, other: box2, edgeIndex2: 0) {
+                let p1 = SIMD3<Float>(Float(extrema.pointOnEdge1.x), Float(extrema.pointOnEdge1.y), Float(extrema.pointOnEdge1.z))
+                let p2 = SIMD3<Float>(Float(extrema.pointOnEdge2.x), Float(extrema.pointOnEdge2.y), Float(extrema.pointOnEdge2.z))
+
+                // Show both boxes
+                let (b1, _) = CADFileLoader.shapeToBodyAndMetadata(
+                    box1, id: "ee-box1", color: SIMD4(0.7, 0.7, 0.7, 0.5), deflection: 0.02
+                )
+                let (b2, _) = CADFileLoader.shapeToBodyAndMetadata(
+                    box2, id: "ee-box2", color: SIMD4(0.7, 0.7, 0.7, 0.5), deflection: 0.02
+                )
+                if var b1 { offsetBody(&b1, dx: 0, dy: 28, dz: 0); bodies.append(b1) }
+                if var b2 { offsetBody(&b2, dx: 0, dy: 28, dz: 0); bodies.append(b2) }
+
+                // Draw distance line
+                let offset = SIMD3<Float>(0, 28, 0)
+                bodies.append(ViewportBody(
+                    id: "ee-dist-line", vertexData: [], indices: [],
+                    edges: [[p1 + offset, p2 + offset]], color: SIMD4(1, 0.8, 0.2, 1)
+                ))
+                bodies.append(makeMarker(at: p1 + offset, radius: 0.3, id: "ee-p1", color: SIMD4(1, 0.3, 0.3, 1)))
+                bodies.append(makeMarker(at: p2 + offset, radius: 0.3, id: "ee-p2", color: SIMD4(0.3, 1, 0.3, 1)))
+                descriptions.append("EdgeEdgeExtrema: dist=\(String(format: "%.2f", extrema.distance)) parallel=\(extrema.isParallel)")
+            }
+        }
+
+        // --- Point-face extrema: closest point on a face to an external point ---
+        if let box = Shape.box(width: 6, height: 6, depth: 6) {
+            let testPoint = SIMD3<Double>(3, 10, 3)
+            if let pf = box.pointFaceExtrema(point: testPoint, faceIndex: 0) {
+                let (body, _) = CADFileLoader.shapeToBodyAndMetadata(
+                    box, id: "pf-box", color: SIMD4(0.6, 0.6, 0.6, 0.5), deflection: 0.02
+                )
+                if var body {
+                    offsetBody(&body, dx: 14, dy: 28, dz: 0)
+                    bodies.append(body)
+                }
+                let offset = SIMD3<Float>(14, 28, 0)
+                let tp = SIMD3<Float>(Float(testPoint.x), Float(testPoint.y), Float(testPoint.z)) + offset
+                let fp = SIMD3<Float>(Float(pf.pointOnFace.x), Float(pf.pointOnFace.y), Float(pf.pointOnFace.z)) + offset
+                bodies.append(makeMarker(at: tp, radius: 0.4, id: "pf-test", color: SIMD4(1, 0.3, 0.3, 1)))
+                bodies.append(makeMarker(at: fp, radius: 0.4, id: "pf-face", color: SIMD4(0.3, 1, 0.3, 1)))
+                bodies.append(ViewportBody(
+                    id: "pf-line", vertexData: [], indices: [],
+                    edges: [[tp, fp]], color: SIMD4(1, 0.8, 0.2, 1)
+                ))
+                descriptions.append("PointFaceExtrema: dist=\(String(format: "%.2f", pf.distance))")
+            }
+        }
+
+        // --- Divided closed faces: split cylinder's closed face ---
+        if let cyl = Shape.cylinder(radius: 3, height: 8) {
+            let facesBefore = cyl.faces().count
+            if let divided = cyl.dividedClosedFaces() {
+                let facesAfter = divided.faces().count
+                let (body, _) = CADFileLoader.shapeToBodyAndMetadata(
+                    divided, id: "divided-closed", color: SIMD4(0.7, 0.5, 0.9, 0.85),
+                    deflection: 0.05
+                )
+                if var body {
+                    offsetBody(&body, dx: 28, dy: 0, dz: 0)
+                    bodies.append(body)
+                }
+                descriptions.append("DividedClosed: cyl faces \(facesBefore)→\(facesAfter)")
+            }
+        }
+
+        // --- Divided by continuity: split at C1 breaks ---
+        if let box = Shape.box(width: 4, height: 4, depth: 4),
+           let filleted = box.filleted(radius: 0.8) {
+            let edgesBefore = filleted.edges().count
+            if let divided = filleted.dividedByContinuity(criterion: .c2) {
+                let edgesAfter = divided.edges().count
+                let (body, _) = CADFileLoader.shapeToBodyAndMetadata(
+                    divided, id: "divided-cont", color: SIMD4(0.5, 0.8, 0.6, 0.85),
+                    deflection: 0.02
+                )
+                if var body {
+                    offsetBody(&body, dx: 28, dy: 14, dz: 0)
+                    bodies.append(body)
+                }
+                descriptions.append("DividedByContinuity(C2): edges \(edgesBefore)→\(edgesAfter)")
+            }
+        }
+
+        return Curve2DGallery.GalleryResult(
+            bodies: bodies,
+            description: descriptions.joined(separator: "\n")
+        )
+    }
+
     private static func polylineToBody(
         _ points: [SIMD3<Float>],
         id: String,

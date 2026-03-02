@@ -558,6 +558,7 @@ struct SpikeView: View {
         case solidAnd2DFillets, bsplineFillAndSubdivision
         case extremaAndArcs
         case fillingAndSelfIntersection, concavityAndInertia
+        case localOpsAndValidation, splitOpsAndExtrema
     }
 
     private var occt8DemoSection: some View {
@@ -600,6 +601,8 @@ struct SpikeView: View {
             Button("Extrema & Arcs") { loadOCCT8Demo(.extremaAndArcs) }
             Button("Filling & Self-Intersection") { loadOCCT8Demo(.fillingAndSelfIntersection) }
             Button("Concavity & Inertia") { loadOCCT8Demo(.concavityAndInertia) }
+            Button("Local Ops & Validation") { loadOCCT8Demo(.localOpsAndValidation) }
+            Button("Split Ops & Extrema") { loadOCCT8Demo(.splitOpsAndExtrema) }
         }
     }
 
@@ -686,6 +689,10 @@ struct SpikeView: View {
             result = OCCT8Gallery.fillingAndSelfIntersection()
         case .concavityAndInertia:
             result = OCCT8Gallery.concavityAndInertia()
+        case .localOpsAndValidation:
+            result = OCCT8Gallery.localOpsAndValidation()
+        case .splitOpsAndExtrema:
+            result = OCCT8Gallery.splitOpsAndExtrema()
         }
 
         bodies = result.bodies
