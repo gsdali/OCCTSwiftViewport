@@ -119,6 +119,28 @@ public struct ViewportConfiguration: Sendable {
     /// Configuration for GPU-accelerated picking.
     public var pickingConfiguration: PickingConfiguration
 
+    // MARK: - Depth of Field
+
+    /// Whether post-process depth of field is enabled.
+    public var enableDepthOfField: Bool
+
+    /// DoF aperture (smaller = shallower depth of field).
+    public var dofAperture: Float
+
+    /// DoF focal distance (0 = autofocus on selection or scene center).
+    public var dofFocalDistance: Float
+
+    /// Maximum blur radius in pixels for DoF.
+    public var dofMaxBlurRadius: Float
+
+    // MARK: - Temporal Anti-Aliasing
+
+    /// Whether temporal anti-aliasing is enabled.
+    public var enableTAA: Bool
+
+    /// TAA history blend factor (0 = no history, 1 = full history).
+    public var taaBlendFactor: Float
+
     // MARK: - Dynamic Pivot
 
     /// Configuration for automatic orbit-pivot adjustment.
@@ -153,6 +175,12 @@ public struct ViewportConfiguration: Sendable {
         silhouetteThickness: Float = 1.0,
         silhouetteIntensity: Float = 0.7,
         pickingConfiguration: PickingConfiguration = .init(),
+        enableDepthOfField: Bool = false,
+        dofAperture: Float = 2.8,
+        dofFocalDistance: Float = 0,
+        dofMaxBlurRadius: Float = 8.0,
+        enableTAA: Bool = false,
+        taaBlendFactor: Float = 0.9,
         dynamicPivotConfiguration: DynamicPivotConfiguration = .default
     ) {
         self.initialCameraState = initialCameraState
@@ -180,6 +208,12 @@ public struct ViewportConfiguration: Sendable {
         self.silhouetteThickness = silhouetteThickness
         self.silhouetteIntensity = silhouetteIntensity
         self.pickingConfiguration = pickingConfiguration
+        self.enableDepthOfField = enableDepthOfField
+        self.dofAperture = dofAperture
+        self.dofFocalDistance = dofFocalDistance
+        self.dofMaxBlurRadius = dofMaxBlurRadius
+        self.enableTAA = enableTAA
+        self.taaBlendFactor = taaBlendFactor
         self.dynamicPivotConfiguration = dynamicPivotConfiguration
     }
 

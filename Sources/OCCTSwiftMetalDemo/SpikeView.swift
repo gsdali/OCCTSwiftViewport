@@ -140,6 +140,7 @@ struct SpikeView: View {
             sidebar
         } detail: {
             MetalViewportView(controller: controller, bodies: $bodies)
+                .overlay(alignment: .bottom) { statusOverlay }
         }
         #else
         MetalViewportView(controller: controller, bodies: $bodies)
@@ -154,6 +155,7 @@ struct SpikeView: View {
                 }
                 .padding(12)
             }
+            .overlay(alignment: .bottom) { statusOverlay }
             .sheet(isPresented: $showSettings) {
                 NavigationStack {
                     sidebar
@@ -166,6 +168,18 @@ struct SpikeView: View {
                 .presentationDetents([.medium, .large])
             }
         #endif
+    }
+
+    @ViewBuilder
+    private var statusOverlay: some View {
+        if let status = operationStatus {
+            Text(status)
+                .font(.caption)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 8))
+                .padding(.bottom, 8)
+        }
     }
 
     // MARK: - Sidebar
@@ -185,6 +199,7 @@ struct SpikeView: View {
             medialAxisDemoSection
             namingDemoSection
             annotationDemoSection
+            occt8DemoSection
             gdtSection
             selectionModeSection
             selectionSection
@@ -193,6 +208,9 @@ struct SpikeView: View {
             overlaysSection
             projectionSection
             lightingSection
+            shadowSection
+            dofSection
+            taaSection
             statusSection
         }
         .navigationTitle("OCCTSwift Metal Demo")
@@ -206,7 +224,12 @@ struct SpikeView: View {
     private var fileSection: some View {
         Section("File") {
             Button {
-                showFileImporter = true
+                // On iOS, dismiss the settings sheet first so the file
+                // importer can present without conflicting sheets.
+                showSettings = false
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+                    showFileImporter = true
+                }
             } label: {
                 Label("Open File (STEP/STL/OBJ)...", systemImage: "doc.badge.plus")
             }
@@ -520,6 +543,177 @@ struct SpikeView: View {
         controller.goToStandardView(.isometricFrontRight)
     }
 
+    // MARK: - OCCT 8 Demo Section
+
+    private enum OCCT8Demo {
+        case helixCurves, kdTree, wedges, hatchPatterns, shapeOps, polynomials
+        case transformOps, shapeAnalysis, intersections, volumeOps
+        case quasiUniform, bezierFill, revolution, linearRib
+        case asymmetricChamfer, loftAdvanced, offsetByJoin, featureOps
+        case pipeTransitions, faceFromSurface
+        case sectionAndValidation, shapeRepair, multiFuse, splitFaceByWire
+        case projectionAndOffset, faceDivision, hollowAndAnalysis
+        case orientedBoundingBox, fuseAndBlend, variableOffset
+        case freeBoundsAndFeatures, inertiaAndDistance, surgeryAndDetection
+        case solidAnd2DFillets, bsplineFillAndSubdivision
+        case extremaAndArcs
+        case fillingAndSelfIntersection, concavityAndInertia
+        case localOpsAndValidation, splitOpsAndExtrema
+        case extremaAndCurveAnalysis
+    }
+
+    private var occt8DemoSection: some View {
+        Section("OCCT 8 Features") {
+            Button("Helix Curves") { loadOCCT8Demo(.helixCurves) }
+            Button("KD-Tree Queries") { loadOCCT8Demo(.kdTree) }
+            Button("Wedge Primitives") { loadOCCT8Demo(.wedges) }
+            Button("Hatch Patterns") { loadOCCT8Demo(.hatchPatterns) }
+            Button("Shape Operations") { loadOCCT8Demo(.shapeOps) }
+            Button("Polynomial Roots") { loadOCCT8Demo(.polynomials) }
+            Button("Transforms & Offset") { loadOCCT8Demo(.transformOps) }
+            Button("Shape Analysis") { loadOCCT8Demo(.shapeAnalysis) }
+            Button("Intersection Analysis") { loadOCCT8Demo(.intersections) }
+            Button("Volume & Connected") { loadOCCT8Demo(.volumeOps) }
+            Button("Curve Sampling") { loadOCCT8Demo(.quasiUniform) }
+            Button("Bezier Surface Fill") { loadOCCT8Demo(.bezierFill) }
+            Button("Revolution from Curve") { loadOCCT8Demo(.revolution) }
+            Button("Linear Rib") { loadOCCT8Demo(.linearRib) }
+            Button("Asymmetric Chamfer") { loadOCCT8Demo(.asymmetricChamfer) }
+            Button("Loft Advanced") { loadOCCT8Demo(.loftAdvanced) }
+            Button("Offset by Join") { loadOCCT8Demo(.offsetByJoin) }
+            Button("Feature Ops") { loadOCCT8Demo(.featureOps) }
+            Button("Pipe Transitions") { loadOCCT8Demo(.pipeTransitions) }
+            Button("Face from Surface") { loadOCCT8Demo(.faceFromSurface) }
+            Button("Section & Validation") { loadOCCT8Demo(.sectionAndValidation) }
+            Button("Shape Repair") { loadOCCT8Demo(.shapeRepair) }
+            Button("Multi-Fuse") { loadOCCT8Demo(.multiFuse) }
+            Button("Split Face by Wire") { loadOCCT8Demo(.splitFaceByWire) }
+            Button("Projection & Offset") { loadOCCT8Demo(.projectionAndOffset) }
+            Button("Face Division") { loadOCCT8Demo(.faceDivision) }
+            Button("Hollow & Analysis") { loadOCCT8Demo(.hollowAndAnalysis) }
+            Button("Oriented Bounding Box") { loadOCCT8Demo(.orientedBoundingBox) }
+            Button("Fuse & Blend") { loadOCCT8Demo(.fuseAndBlend) }
+            Button("Variable Offset") { loadOCCT8Demo(.variableOffset) }
+            Button("Free Bounds & Features") { loadOCCT8Demo(.freeBoundsAndFeatures) }
+            Button("Inertia & Distance") { loadOCCT8Demo(.inertiaAndDistance) }
+            Button("Surgery & Detection") { loadOCCT8Demo(.surgeryAndDetection) }
+            Button("Solid & 2D Fillets") { loadOCCT8Demo(.solidAnd2DFillets) }
+            Button("BSpline Fill & Subdivision") { loadOCCT8Demo(.bsplineFillAndSubdivision) }
+            Button("Extrema & Arcs") { loadOCCT8Demo(.extremaAndArcs) }
+            Button("Filling & Self-Intersection") { loadOCCT8Demo(.fillingAndSelfIntersection) }
+            Button("Concavity & Inertia") { loadOCCT8Demo(.concavityAndInertia) }
+            Button("Local Ops & Validation") { loadOCCT8Demo(.localOpsAndValidation) }
+            Button("Split Ops & Extrema") { loadOCCT8Demo(.splitOpsAndExtrema) }
+            Button("Extrema & Curve Analysis") { loadOCCT8Demo(.extremaAndCurveAnalysis) }
+        }
+    }
+
+    private func loadOCCT8Demo(_ demo: OCCT8Demo) {
+        let result: Curve2DGallery.GalleryResult
+        var useTopView = false
+
+        switch demo {
+        case .helixCurves:
+            result = OCCT8Gallery.helixCurves()
+        case .kdTree:
+            result = OCCT8Gallery.kdTreeQueries()
+        case .wedges:
+            result = OCCT8Gallery.wedgePrimitives()
+        case .hatchPatterns:
+            result = OCCT8Gallery.hatchPatterns()
+            useTopView = true
+        case .shapeOps:
+            result = OCCT8Gallery.shapeOperations()
+        case .polynomials:
+            result = OCCT8Gallery.polynomialRoots()
+            useTopView = true
+        case .transformOps:
+            result = OCCT8Gallery.transformOps()
+        case .shapeAnalysis:
+            result = OCCT8Gallery.shapeAnalysis()
+        case .intersections:
+            result = OCCT8Gallery.intersectionAnalysis()
+        case .volumeOps:
+            result = OCCT8Gallery.volumeOps()
+        case .quasiUniform:
+            result = OCCT8Gallery.quasiUniformSampling()
+        case .bezierFill:
+            result = OCCT8Gallery.bezierSurfaceFill()
+        case .revolution:
+            result = OCCT8Gallery.revolutionDemo()
+        case .linearRib:
+            result = OCCT8Gallery.linearRibDemo()
+        case .asymmetricChamfer:
+            result = OCCT8Gallery.asymmetricChamfer()
+        case .loftAdvanced:
+            result = OCCT8Gallery.loftAdvanced()
+        case .offsetByJoin:
+            result = OCCT8Gallery.offsetByJoin()
+        case .featureOps:
+            result = OCCT8Gallery.featureOps()
+        case .pipeTransitions:
+            result = OCCT8Gallery.pipeTransitions()
+        case .faceFromSurface:
+            result = OCCT8Gallery.faceFromSurface()
+        case .sectionAndValidation:
+            result = OCCT8Gallery.sectionAndValidation()
+        case .shapeRepair:
+            result = OCCT8Gallery.shapeRepair()
+        case .multiFuse:
+            result = OCCT8Gallery.multiFuse()
+        case .splitFaceByWire:
+            result = OCCT8Gallery.splitFaceByWire()
+        case .projectionAndOffset:
+            result = OCCT8Gallery.projectionAndOffset()
+        case .faceDivision:
+            result = OCCT8Gallery.faceDivision()
+        case .hollowAndAnalysis:
+            result = OCCT8Gallery.hollowAndAnalysis()
+        case .orientedBoundingBox:
+            result = OCCT8Gallery.orientedBoundingBox()
+        case .fuseAndBlend:
+            result = OCCT8Gallery.fuseAndBlend()
+        case .variableOffset:
+            result = OCCT8Gallery.variableOffset()
+        case .freeBoundsAndFeatures:
+            result = OCCT8Gallery.freeBoundsAndFeatures()
+        case .inertiaAndDistance:
+            result = OCCT8Gallery.inertiaAndDistance()
+        case .surgeryAndDetection:
+            result = OCCT8Gallery.surgeryAndDetection()
+        case .solidAnd2DFillets:
+            result = OCCT8Gallery.solidAnd2DFillets()
+        case .bsplineFillAndSubdivision:
+            result = OCCT8Gallery.bsplineFillAndSubdivision()
+        case .extremaAndArcs:
+            result = OCCT8Gallery.extremaAndArcs()
+        case .fillingAndSelfIntersection:
+            result = OCCT8Gallery.fillingAndSelfIntersection()
+        case .concavityAndInertia:
+            result = OCCT8Gallery.concavityAndInertia()
+        case .localOpsAndValidation:
+            result = OCCT8Gallery.localOpsAndValidation()
+        case .splitOpsAndExtrema:
+            result = OCCT8Gallery.splitOpsAndExtrema()
+        case .extremaAndCurveAnalysis:
+            result = OCCT8Gallery.extremaAndCurveAnalysis()
+        }
+
+        bodies = result.bodies
+        cadMetadata = [:]
+        loadedShapes = []
+        originalColors = [:]
+        for body in bodies {
+            originalColors[body.id] = body.color
+        }
+        selectionManager.clearSelection()
+        controller.clearSelection()
+        operationStatus = result.description
+        proximityInfo = nil
+        focusOnBounds()
+        controller.goToStandardView(useTopView ? .top : .isometricFrontRight)
+    }
+
     // MARK: - Projection Demo Section
 
     private enum ProjectionDemo {
@@ -773,7 +967,7 @@ struct SpikeView: View {
 
             VStack(alignment: .leading) {
                 Text("Edge Intensity: \(controller.edgeIntensity, specifier: "%.1f")")
-                Slider(value: $controller.edgeIntensity, in: 0.5...3.0)
+                Slider(value: $controller.edgeIntensity, in: 0.5...10.0)
             }
         }
     }
@@ -811,6 +1005,66 @@ struct SpikeView: View {
             VStack(alignment: .leading) {
                 Text("Matcap Blend: \(controller.lightingConfiguration.matcapBlend, specifier: "%.2f")")
                 Slider(value: $controller.lightingConfiguration.matcapBlend, in: 0...1)
+            }
+            VStack(alignment: .leading) {
+                Text("Exposure: \(controller.lightingConfiguration.exposure, specifier: "%.2f")")
+                Slider(value: $controller.lightingConfiguration.exposure, in: 0.5...3.0)
+            }
+            VStack(alignment: .leading) {
+                Text("White Point: \(controller.lightingConfiguration.whitePoint, specifier: "%.2f")")
+                Slider(value: $controller.lightingConfiguration.whitePoint, in: 0.5...2.0)
+            }
+        }
+    }
+
+    private var shadowSection: some View {
+        Section("Shadows") {
+            Toggle("Shadows", isOn: $controller.lightingConfiguration.shadowsEnabled)
+            if controller.lightingConfiguration.shadowsEnabled {
+                VStack(alignment: .leading) {
+                    Text("Shadow Intensity: \(controller.lightingConfiguration.shadowIntensity, specifier: "%.2f")")
+                    Slider(value: $controller.lightingConfiguration.shadowIntensity, in: 0...1)
+                }
+                VStack(alignment: .leading) {
+                    Text("PCSS Light Size: \(controller.lightingConfiguration.shadowLightSize, specifier: "%.3f")")
+                    Slider(value: $controller.lightingConfiguration.shadowLightSize, in: 0...0.1)
+                }
+                VStack(alignment: .leading) {
+                    Text("PCSS Search Radius: \(controller.lightingConfiguration.shadowSearchRadius, specifier: "%.3f")")
+                    Slider(value: $controller.lightingConfiguration.shadowSearchRadius, in: 0...0.05)
+                }
+            }
+        }
+    }
+
+    private var dofSection: some View {
+        Section("Depth of Field") {
+            Toggle("Enable DoF", isOn: $controller.enableDepthOfField)
+            if controller.enableDepthOfField {
+                VStack(alignment: .leading) {
+                    Text("Aperture: \(controller.dofAperture, specifier: "%.1f")")
+                    Slider(value: $controller.dofAperture, in: 0.5...16.0)
+                }
+                VStack(alignment: .leading) {
+                    Text("Focal Distance: \(controller.dofFocalDistance, specifier: "%.1f") (0 = auto)")
+                    Slider(value: $controller.dofFocalDistance, in: 0...100.0)
+                }
+                VStack(alignment: .leading) {
+                    Text("Max Blur: \(controller.dofMaxBlurRadius, specifier: "%.1f")")
+                    Slider(value: $controller.dofMaxBlurRadius, in: 1...20)
+                }
+            }
+        }
+    }
+
+    private var taaSection: some View {
+        Section("Anti-Aliasing") {
+            Toggle("Temporal AA (TAA)", isOn: $controller.enableTAA)
+            if controller.enableTAA {
+                VStack(alignment: .leading) {
+                    Text("Blend Factor: \(controller.taaBlendFactor, specifier: "%.2f")")
+                    Slider(value: $controller.taaBlendFactor, in: 0.5...0.98)
+                }
             }
         }
     }

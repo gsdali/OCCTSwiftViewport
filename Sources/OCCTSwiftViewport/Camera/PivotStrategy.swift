@@ -85,7 +85,16 @@ public final class PivotStrategy {
         // Cast ray through view center
         let ray = Ray.throughViewCenter(cameraState: cameraState, aspectRatio: aspectRatio)
         let hit = SceneRaycast.cast(ray: ray, bodies: bodies, boundingBoxCache: bbCache)
-        let hitPoint = hit?.point ?? sceneCenter
+
+        // When zoomed in and the raycast misses geometry, keep the current pivot
+        // to avoid snapping back to scene center after the user panned away.
+        guard let hitPoint = hit?.point else {
+            // Zoomed out: safe to use scene center. Zoomed in: skip update.
+            if zoomRatio > config.zoomThreshold {
+                return sceneCenter
+            }
+            return nil
+        }
 
         // Fully zoomed in — use raycast hit
         if zoomRatio < config.zoomThreshold - halfBand {

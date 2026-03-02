@@ -74,6 +74,24 @@ public struct LightingConfiguration: Sendable {
     /// SSAO darkening intensity (0 = none, 1 = maximum).
     public var ssaoIntensity: Float
 
+    /// Tone mapping exposure multiplier (default 1.1).
+    public var exposure: Float
+
+    /// White point for tone mapping normalization (default 1.0).
+    public var whitePoint: Float
+
+    /// PCSS light source size (larger = softer shadow penumbras).
+    public var shadowLightSize: Float
+
+    /// PCSS blocker search radius in light-space UV.
+    public var shadowSearchRadius: Float
+
+    /// Environment map HDR data (equirectangular), or nil for procedural sky.
+    public var environmentMapData: Data?
+
+    /// Environment map intensity multiplier.
+    public var environmentIntensity: Float
+
     // MARK: - Initialization
 
     public init(
@@ -96,7 +114,13 @@ public struct LightingConfiguration: Sendable {
         ambientGroundColor: SIMD3<Float> = SIMD3<Float>(0.3, 0.25, 0.2),
         enableSSAO: Bool = true,
         ssaoRadius: Float = 0.5,
-        ssaoIntensity: Float = 0.6
+        ssaoIntensity: Float = 0.6,
+        exposure: Float = 1.1,
+        whitePoint: Float = 1.0,
+        shadowLightSize: Float = 0.02,
+        shadowSearchRadius: Float = 0.01,
+        environmentMapData: Data? = nil,
+        environmentIntensity: Float = 1.0
     ) {
         self.keyLight = keyLight
         self.fillLight = fillLight
@@ -118,6 +142,12 @@ public struct LightingConfiguration: Sendable {
         self.enableSSAO = enableSSAO
         self.ssaoRadius = ssaoRadius
         self.ssaoIntensity = ssaoIntensity
+        self.exposure = exposure
+        self.whitePoint = whitePoint
+        self.shadowLightSize = shadowLightSize
+        self.shadowSearchRadius = shadowSearchRadius
+        self.environmentMapData = environmentMapData
+        self.environmentIntensity = environmentIntensity
     }
 
     // MARK: - Presets
@@ -130,24 +160,27 @@ public struct LightingConfiguration: Sendable {
     /// - Back light for edge definition
     public static let threePoint = LightingConfiguration(
         keyLight: LightSettings(
-            direction: simd_normalize(SIMD3<Float>(-0.5, -0.3, -0.8)),
+            direction: simd_normalize(SIMD3<Float>(-0.5, -0.6, -0.6)),  // Higher elevation (30-45°)
             intensity: 1.0,
-            color: SIMD3<Float>(1.0, 0.98, 0.95)  // Slightly warm
+            color: SIMD3<Float>(1.0, 0.96, 0.90)  // Warmer key
         ),
         fillLight: LightSettings(
-            direction: simd_normalize(SIMD3<Float>(0.6, 0.1, -0.5)),
+            direction: simd_normalize(SIMD3<Float>(0.6, -0.1, -0.5)),  // Slight downward angle
             intensity: 0.4,
-            color: SIMD3<Float>(0.95, 0.97, 1.0)  // Slightly cool
+            color: SIMD3<Float>(0.85, 0.92, 1.0)  // Cooler fill for contrast
         ),
         backLight: LightSettings(
-            direction: simd_normalize(SIMD3<Float>(0.0, 0.5, 0.8)),
-            intensity: 0.3,
-            color: SIMD3<Float>(1.0, 1.0, 1.0)
+            direction: simd_normalize(SIMD3<Float>(0.2, 0.8, 0.5)),  // From below-behind (kicker)
+            intensity: 0.35,
+            color: SIMD3<Float>(0.95, 0.97, 1.0)
         ),
         ambientIntensity: 0.25,
+        shadowIntensity: 0.2,
         specularPower: 64.0,
         specularIntensity: 0.5,
-        fresnelIntensity: 0.3
+        fresnelIntensity: 0.35,
+        ssaoRadius: 0.8,
+        ssaoIntensity: 0.8
     )
 
     /// Soft studio lighting.
@@ -218,15 +251,26 @@ public struct LightingConfiguration: Sendable {
         ambientIntensity: 0.6,
         shadowsEnabled: false,
         specularIntensity: 0.0,
-        fresnelIntensity: 0.0
+        fresnelIntensity: 0.0,
+        exposure: 0.9
     )
+}
+
+// MARK: - Light Type
+
+/// Type of light source.
+public enum LightType: Sendable, Equatable {
+    /// Directional light (sun-like, no falloff).
+    case directional
+    /// Point light with smooth radius falloff.
+    case point(radius: Float)
 }
 
 // MARK: - Light Settings
 
 /// Settings for a single light source.
 public struct LightSettings: Sendable {
-    /// Direction the light is pointing (normalized).
+    /// Direction the light is pointing (normalized). For point lights, ignored.
     public var direction: SIMD3<Float>
 
     /// Light intensity (0-2 typical range).
@@ -238,15 +282,25 @@ public struct LightSettings: Sendable {
     /// Whether this light is enabled.
     public var isEnabled: Bool
 
+    /// Type of light source.
+    public var lightType: LightType
+
+    /// World-space position (used for point lights).
+    public var position: SIMD3<Float>
+
     public init(
         direction: SIMD3<Float>,
         intensity: Float = 1.0,
         color: SIMD3<Float> = SIMD3<Float>(1, 1, 1),
-        isEnabled: Bool = true
+        isEnabled: Bool = true,
+        lightType: LightType = .directional,
+        position: SIMD3<Float> = .zero
     ) {
         self.direction = direction
         self.intensity = intensity
         self.color = color
         self.isEnabled = isEnabled
+        self.lightType = lightType
+        self.position = position
     }
 }

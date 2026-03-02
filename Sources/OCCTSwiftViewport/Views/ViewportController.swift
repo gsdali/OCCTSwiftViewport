@@ -78,6 +78,26 @@ public final class ViewportController: ObservableObject {
     /// Current measurement interaction mode.
     @Published public var measurementMode: MeasurementMode = .none
 
+    // MARK: - Post-Process Toggles (runtime-tunable)
+
+    /// Whether depth of field is enabled.
+    @Published public var enableDepthOfField: Bool = false
+
+    /// DoF aperture (smaller = shallower).
+    @Published public var dofAperture: Float = 2.8
+
+    /// DoF focal distance (0 = autofocus).
+    @Published public var dofFocalDistance: Float = 0
+
+    /// Maximum DoF blur radius in pixels.
+    @Published public var dofMaxBlurRadius: Float = 8.0
+
+    /// Whether temporal anti-aliasing is enabled.
+    @Published public var enableTAA: Bool = false
+
+    /// TAA blend factor (0 = no history, 1 = full history).
+    @Published public var taaBlendFactor: Float = 0.9
+
     // MARK: - Configuration
 
     /// Viewport configuration.
@@ -111,6 +131,12 @@ public final class ViewportController: ObservableObject {
         self.showAxes = configuration.showAxes
         self.showGrid = configuration.showGrid
         self.lightingConfiguration = configuration.lightingConfiguration
+        self.enableDepthOfField = configuration.enableDepthOfField
+        self.dofAperture = configuration.dofAperture
+        self.dofFocalDistance = configuration.dofFocalDistance
+        self.dofMaxBlurRadius = configuration.dofMaxBlurRadius
+        self.enableTAA = configuration.enableTAA
+        self.taaBlendFactor = configuration.taaBlendFactor
 
         self.cameraController = CameraController(initialState: configuration.initialCameraState)
         cameraController.rotationStyle = configuration.rotationStyle

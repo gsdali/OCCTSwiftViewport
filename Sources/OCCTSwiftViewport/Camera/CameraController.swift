@@ -198,9 +198,12 @@ public final class CameraController: ObservableObject {
         // Horizontal rotation around Z axis
         theta -= deltaX * orbitSensitivity
 
-        // Vertical tilt with clamping
+        // Vertical tilt — unclamped for full 360° rotation
         phi -= deltaY * orbitSensitivity
-        phi = max(minPhi, min(maxPhi, phi))
+        // Wrap phi to [0, 2π) for clean cycling
+        let twoPi = Float.pi * 2
+        phi = phi.truncatingRemainder(dividingBy: twoPi)
+        if phi < 0 { phi += twoPi }
 
         // Convert spherical to quaternion
         updateRotationFromSpherical()
@@ -461,7 +464,9 @@ public final class CameraController: ObservableObject {
         // Extract theta and phi from rotation quaternion
         let forward = cameraState.rotation.act(SIMD3<Float>(0, 0, 1))
 
-        // Phi is angle from Z axis
+        // Phi is angle from Z axis (acos gives [0, pi])
+        // We accept the [0, pi] range here — continuous dragging maintains
+        // the full phi via incremental updates in orbitTurntable.
         phi = acos(simd_clamp(forward.z, -1, 1))
 
         // Theta is angle in XY plane
