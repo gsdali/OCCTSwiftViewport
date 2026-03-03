@@ -3918,6 +3918,144 @@ enum OCCT8Gallery {
         )
     }
 
+    // MARK: - v0.50: Conic Arcs, Polyhedral Distance, Surfaces & Analysis
+
+    /// Hyperbola/parabola arcs, curve splitting, polyhedral distance,
+    /// surface construction, nearest plane fitting, and wire vertex analysis.
+    static func conicsAndPolyDistance() -> Curve2DGallery.GalleryResult {
+        var bodies: [ViewportBody] = []
+        var descriptions: [String] = []
+
+        // --- Arc of hyperbola ---
+        if let hyp = Curve3D.arcOfHyperbola(
+            majorRadius: 3, minorRadius: 1.5,
+            alpha1: -1.0, alpha2: 1.0
+        ) {
+            let pts = hyp.samplePoints(first: -1.0, last: 1.0, maxPoints: 60)
+            let floatPts = pts.map { SIMD3<Float>(Float($0.x), Float($0.y), Float($0.z)) }
+            if !floatPts.isEmpty {
+                bodies.append(polylineToBody(floatPts, id: "hyp-arc", color: SIMD4(0.9, 0.4, 0.2, 1)))
+            }
+            descriptions.append("Hyperbola arc: a=3 b=1.5 t∈[-1,1]")
+        }
+
+        // --- Arc of parabola ---
+        if let para = Curve3D.arcOfParabola(
+            center: SIMD3(0, 8, 0),
+            focalDistance: 1.0,
+            alpha1: -3.0, alpha2: 3.0
+        ) {
+            let pts = para.samplePoints(first: -3.0, last: 3.0, maxPoints: 60)
+            let floatPts = pts.map { SIMD3<Float>(Float($0.x), Float($0.y), Float($0.z)) }
+            if !floatPts.isEmpty {
+                bodies.append(polylineToBody(floatPts, id: "para-arc", color: SIMD4(0.2, 0.7, 0.9, 1)))
+            }
+            descriptions.append("Parabola arc: f=1.0 t∈[-3,3]")
+        }
+
+        // --- Curve splitting: split a circle at midpoint ---
+        if let circWire = Wire.circle(radius: 3),
+           let edge = Shape.face(from: circWire)?.edges().first,
+           let curve = edge.approximatedCurve() {
+            if let split = curve.splitAt(parameter: 0.5) {
+                let pts1 = split.first.samplePoints(first: 0, last: 1, maxPoints: 40)
+                let pts2 = split.second.samplePoints(first: 0, last: 1, maxPoints: 40)
+                let dx: Float = 10
+                let fp1 = pts1.map { SIMD3<Float>(Float($0.x) + dx, Float($0.y), Float($0.z)) }
+                let fp2 = pts2.map { SIMD3<Float>(Float($0.x) + dx, Float($0.y), Float($0.z)) }
+                if !fp1.isEmpty { bodies.append(polylineToBody(fp1, id: "split-1", color: SIMD4(1, 0.3, 0.3, 1))) }
+                if !fp2.isEmpty { bodies.append(polylineToBody(fp2, id: "split-2", color: SIMD4(0.3, 1, 0.3, 1))) }
+                descriptions.append("CurveSplit: circle → 2 segments (red/green)")
+            }
+        }
+
+        // --- Polyhedral distance: fast approximate distance between shapes ---
+        if let sphere = Shape.sphere(radius: 2),
+           let boxOrig = Shape.box(width: 3, height: 3, depth: 3),
+           let box = boxOrig.translated(by: SIMD3(8, 0, 0)) {
+            // Mesh them first (shapeToBody triggers tessellation)
+            let (sBody, _) = CADFileLoader.shapeToBodyAndMetadata(
+                sphere, id: "poly-sphere", color: SIMD4(0.5, 0.7, 0.9, 0.6), deflection: 0.1
+            )
+            let (bBody, _) = CADFileLoader.shapeToBodyAndMetadata(
+                box, id: "poly-box", color: SIMD4(0.7, 0.7, 0.7, 0.6), deflection: 0.05
+            )
+            if var sBody { offsetBody(&sBody, dx: 0, dy: 18, dz: 0); bodies.append(sBody) }
+            if var bBody { offsetBody(&bBody, dx: 0, dy: 18, dz: 0); bodies.append(bBody) }
+
+            if let dist = sphere.polyhedralDistance(to: box) {
+                let offset = SIMD3<Float>(0, 18, 0)
+                let p1 = SIMD3<Float>(Float(dist.point1.x), Float(dist.point1.y), Float(dist.point1.z)) + offset
+                let p2 = SIMD3<Float>(Float(dist.point2.x), Float(dist.point2.y), Float(dist.point2.z)) + offset
+                bodies.append(makeMarker(at: p1, radius: 0.2, id: "poly-p1", color: SIMD4(1, 0.3, 0.3, 1)))
+                bodies.append(makeMarker(at: p2, radius: 0.2, id: "poly-p2", color: SIMD4(0.3, 1, 0.3, 1)))
+                bodies.append(ViewportBody(
+                    id: "poly-line", vertexData: [], indices: [],
+                    edges: [[p1, p2]], color: SIMD4(1, 0.8, 0.2, 1)
+                ))
+                descriptions.append("PolyDist: \(String(format: "%.3f", dist.distance)) (approx)")
+            }
+        }
+
+        // --- Nearest plane fitting ---
+        let points: [SIMD3<Double>] = [
+            SIMD3(0, 0, 0), SIMD3(5, 0, 0.1), SIMD3(5, 5, -0.1),
+            SIMD3(0, 5, 0.2), SIMD3(2.5, 2.5, -0.05)
+        ]
+        if let plane = Shape.nearestPlane(to: points) {
+            for (i, pt) in points.enumerated() {
+                let p = SIMD3<Float>(Float(pt.x) + 20, Float(pt.y), Float(pt.z))
+                bodies.append(makeMarker(at: p, radius: 0.2, id: "plane-pt-\(i)", color: SIMD4(0.3, 0.8, 1, 1)))
+            }
+            let center = SIMD3<Float>(Float(plane.origin.x) + 20, Float(plane.origin.y), Float(plane.origin.z))
+            let normalEnd = center + SIMD3<Float>(Float(plane.normal.x), Float(plane.normal.y), Float(plane.normal.z)) * 3
+            bodies.append(ViewportBody(
+                id: "plane-normal", vertexData: [], indices: [],
+                edges: [[center, normalEnd]], color: SIMD4(1, 0.5, 0.2, 1)
+            ))
+            descriptions.append("NearestPlane: dev=\(String(format: "%.4f", plane.maxDeviation)) n=(\(String(format: "%.2f", plane.normal.x)), \(String(format: "%.2f", plane.normal.y)), \(String(format: "%.2f", plane.normal.z)))")
+        }
+
+        // --- Wire vertex analysis ---
+        if let box = Shape.box(width: 6, height: 6, depth: 6) {
+            let wva = box.wireVertexAnalysis()
+            var statusCounts: [String: Int] = [:]
+            for i in 0..<wva.edgeCount {
+                let s = box.wireVertexStatus(index: i)
+                let name = "\(s)"
+                statusCounts[name, default: 0] += 1
+            }
+            descriptions.append("WireVertex: \(wva.edgeCount) edges, done=\(wva.isDone)")
+            let summary = statusCounts.map { "\($0.key):\($0.value)" }.sorted().joined(separator: " ")
+            if !summary.isEmpty { descriptions.append("  Statuses: \(summary)") }
+        }
+
+        // --- History tracking demo ---
+        if let box = Shape.box(width: 4, height: 4, depth: 4),
+           let filleted = box.filleted(radius: 0.5),
+           let history = Shape.History() {
+            history.addModified(initial: box, modified: filleted)
+            descriptions.append("History: hasModified=\(history.hasModified) modCount=\(history.modifiedCount(of: box))")
+        }
+
+        // --- Conical surface from axis ---
+        if let cone = Surface.conicalSurface(semiAngle: .pi / 6, radius: 2) {
+            let uv = cone.valueOfUV(point: SIMD3(2, 0, 0))
+            descriptions.append("ConicalSurface: gap=\(String(format: "%.4f", uv.gap)) at (2,0,0)")
+        }
+
+        // --- Trimmed cylinder surface ---
+        if let trimCyl = Surface.trimmedCylinder(radius: 2, height: 6) {
+            let ksr = trimCyl.knotSplitting()
+            descriptions.append("TrimmedCyl: knotSplit U=\(ksr.uSplitCount) V=\(ksr.vSplitCount)")
+        }
+
+        return Curve2DGallery.GalleryResult(
+            bodies: bodies,
+            description: descriptions.joined(separator: "\n")
+        )
+    }
+
     private static func polylineToBody(
         _ points: [SIMD3<Float>],
         id: String,
