@@ -4056,6 +4056,772 @@ enum OCCT8Gallery {
         )
     }
 
+    // MARK: - v0.51: Transforms, Topology, Conics, 2D Lines, AnaFillet
+
+    /// GC transforms, topology builders, 3-point conics, 2D line construction, and 2D analytical fillet.
+    static func transformsAndTopology() -> Curve2DGallery.GalleryResult {
+        var bodies: [ViewportBody] = []
+        var descriptions: [String] = []
+
+        // --- Section A: GC Transforms ---
+        // Reference box
+        if let refBox = Shape.box(width: 2, height: 2, depth: 2) {
+            let (body, _) = CADFileLoader.shapeToBodyAndMetadata(
+                refBox, id: "gc-ref", color: SIMD4(0.6, 0.6, 0.6, 0.5)
+            )
+            if let body { bodies.append(body) }
+
+            // Mirror about point (6, 0, 0)
+            if let mirrored = refBox.mirroredAboutPoint(SIMD3(6, 0, 0)) {
+                let (body, _) = CADFileLoader.shapeToBodyAndMetadata(
+                    mirrored, id: "gc-mirror-pt", color: SIMD4(0.9, 0.3, 0.3, 1)
+                )
+                if let body { bodies.append(body) }
+                bodies.append(makeMarker(at: SIMD3(6, 0, 0), radius: 0.15, id: "gc-mirror-pt-m",
+                                         color: SIMD4(1, 1, 0, 1)))
+                descriptions.append("MirrorPoint: box mirrored about (6,0,0)")
+            }
+
+            // Mirror about Y axis
+            if let mirrored = refBox.mirroredAboutAxis(origin: .zero, direction: SIMD3(0, 1, 0)) {
+                let (body, _) = CADFileLoader.shapeToBodyAndMetadata(
+                    mirrored, id: "gc-mirror-ax", color: SIMD4(0.3, 0.9, 0.3, 1)
+                )
+                if var body {
+                    offsetBody(&body, dx: 0, dy: 6, dz: 0)
+                    bodies.append(body)
+                }
+                descriptions.append("MirrorAxis: box mirrored about Y axis")
+            }
+
+            // Scale about origin by 1.5x
+            if let scaled = refBox.scaledAboutPoint(.zero, factor: 1.5) {
+                let (body, _) = CADFileLoader.shapeToBodyAndMetadata(
+                    scaled, id: "gc-scaled", color: SIMD4(0.3, 0.5, 0.9, 0.7)
+                )
+                if var body {
+                    offsetBody(&body, dx: 0, dy: 0, dz: 6)
+                    bodies.append(body)
+                }
+                descriptions.append("Scale: 1.5× about origin")
+            }
+
+            // Translate from→to
+            if let moved = refBox.translated(from: SIMD3(0, 0, 0), to: SIMD3(8, 4, 0)) {
+                let (body, _) = CADFileLoader.shapeToBodyAndMetadata(
+                    moved, id: "gc-translate", color: SIMD4(0.9, 0.6, 0.2, 1)
+                )
+                if let body { bodies.append(body) }
+                bodies.append(ViewportBody(
+                    id: "gc-translate-arrow", vertexData: [], indices: [],
+                    edges: [[SIMD3(1, 1, 1), SIMD3(8, 4, 0)]],
+                    color: SIMD4(0.9, 0.6, 0.2, 1)
+                ))
+                descriptions.append("Translate: (0,0,0)→(8,4,0)")
+            }
+        }
+
+        // --- Section B: 3-Point Conics ---
+        let ellipseOffset = SIMD3<Float>(18, 0, 0)
+
+        // Ellipse through 3 points
+        let eS1 = SIMD3<Double>(3, 0, 0), eS2 = SIMD3<Double>(0, 2, 0), eCenter = SIMD3<Double>(0, 0, 0)
+        if let ellipse = Curve3D.ellipseThreePoints(s1: eS1, s2: eS2, center: eCenter) {
+            let dom = ellipse.domain
+            let pts = ellipse.samplePoints(first: dom.lowerBound, last: dom.upperBound, maxPoints: 80)
+            let floatPts = pts.map { SIMD3<Float>(Float($0.x), Float($0.y), Float($0.z)) + ellipseOffset }
+            if !floatPts.isEmpty {
+                bodies.append(polylineToBody(floatPts, id: "conic-ellipse", color: SIMD4(0.2, 0.7, 1, 1)))
+            }
+            for (label, pt) in [("eS1", eS1), ("eS2", eS2), ("eC", eCenter)] {
+                let p = SIMD3<Float>(Float(pt.x), Float(pt.y), Float(pt.z)) + ellipseOffset
+                bodies.append(makeMarker(at: p, radius: 0.15, id: "conic-\(label)", color: SIMD4(1, 0.8, 0.2, 1)))
+            }
+            descriptions.append("Ellipse3Pt: s1=(3,0,0) s2=(0,2,0) c=origin")
+        }
+
+        // Hyperbola through 3 points
+        let hypOffset = SIMD3<Float>(18, 8, 0)
+        let hS1 = SIMD3<Double>(4, 0, 0), hS2 = SIMD3<Double>(0, 2, 0), hCenter = SIMD3<Double>(0, 0, 0)
+        if let hyp = Curve3D.hyperbolaThreePoints(s1: hS1, s2: hS2, center: hCenter) {
+            let dom = hyp.domain
+            let lo = max(dom.lowerBound, -2.0)
+            let hi = min(dom.upperBound, 2.0)
+            let pts = hyp.samplePoints(first: lo, last: hi, maxPoints: 80)
+            let floatPts = pts.map { SIMD3<Float>(Float($0.x), Float($0.y), Float($0.z)) + hypOffset }
+            if !floatPts.isEmpty {
+                bodies.append(polylineToBody(floatPts, id: "conic-hyp", color: SIMD4(1, 0.4, 0.6, 1)))
+            }
+            for (label, pt) in [("hS1", hS1), ("hS2", hS2), ("hC", hCenter)] {
+                let p = SIMD3<Float>(Float(pt.x), Float(pt.y), Float(pt.z)) + hypOffset
+                bodies.append(makeMarker(at: p, radius: 0.15, id: "conic-\(label)", color: SIMD4(1, 0.8, 0.2, 1)))
+            }
+            descriptions.append("Hyperbola3Pt: s1=(4,0,0) s2=(0,2,0) c=origin")
+        }
+
+        // --- Section C: 2D Line Construction ---
+        let lineOffset = SIMD3<Float>(0, 14, 0)
+        let lp1 = SIMD2<Double>(0, 0), lp2 = SIMD2<Double>(8, 3)
+        if let line = Curve2D.lineThroughPoints(lp1, lp2) {
+            let pts = line.drawUniform(pointCount: 2)
+            let floatPts = pts.map { SIMD3<Float>(Float($0.x), Float($0.y), 0) + lineOffset }
+            if floatPts.count >= 2 {
+                bodies.append(polylineToBody(floatPts, id: "line2d-through",
+                                             color: SIMD4(0.2, 0.8, 0.4, 1)))
+            }
+            let m1 = SIMD3<Float>(Float(lp1.x), Float(lp1.y), 0) + lineOffset
+            let m2 = SIMD3<Float>(Float(lp2.x), Float(lp2.y), 0) + lineOffset
+            bodies.append(makeMarker(at: m1, radius: 0.12, id: "line2d-p1", color: SIMD4(1, 0.3, 0.3, 1)))
+            bodies.append(makeMarker(at: m2, radius: 0.12, id: "line2d-p2", color: SIMD4(1, 0.3, 0.3, 1)))
+            descriptions.append("Line2D: through (0,0)→(8,3)")
+        }
+
+        // Parallel line
+        if let parallel = Curve2D.lineParallel(point: lp1, direction: SIMD2(8, 3), distance: 2.0) {
+            let pts = parallel.drawUniform(pointCount: 2)
+            let floatPts = pts.map { SIMD3<Float>(Float($0.x), Float($0.y), 0) + lineOffset }
+            if floatPts.count >= 2 {
+                bodies.append(polylineToBody(floatPts, id: "line2d-parallel",
+                                             color: SIMD4(0.8, 0.5, 0.9, 1)))
+            }
+            descriptions.append("LineParallel: offset 2.0 from reference")
+        }
+
+        // --- Section D: Topology Builders ---
+        // solidFromShell: build a box, get its shell, reconstruct solid
+        if let box = Shape.box(width: 3, height: 3, depth: 3) {
+            let shells = box.shells
+            if let shell = shells.first,
+               let solid = Shape.solidFromShell(shell) {
+                let (body, _) = CADFileLoader.shapeToBodyAndMetadata(
+                    solid, id: "topo-solid", color: SIMD4(0.4, 0.8, 0.6, 1)
+                )
+                if var body {
+                    offsetBody(&body, dx: -8, dy: 0, dz: 0)
+                    bodies.append(body)
+                }
+                descriptions.append("SolidFromShell: box shell → solid")
+            }
+        }
+
+        // wireFromEdges: extract edges from a box, assemble into wire
+        if let box = Shape.box(width: 4, height: 2, depth: 2) {
+            let allEdges = box.edges()
+            let subset = Array(allEdges.prefix(4))
+            if !subset.isEmpty, let wire = Wire.wireFromEdges(subset) {
+                let wBody = wireToBody(wire, id: "topo-wire", color: SIMD4(0.9, 0.7, 0.2, 1))
+                var mBody = wBody
+                offsetBody(&mBody, dx: -8, dy: 6, dz: 0)
+                bodies.append(mBody)
+                descriptions.append("WireFromEdges: 4 box edges → wire")
+            }
+        }
+
+        // --- Section E: Analytical 2D Fillet ---
+        let filletOffset = SIMD3<Float>(0, -8, 0)
+        // Two line segments meeting at origin at 90°
+        if let cornerWire = Wire.polygon3D(
+            [SIMD3(-5, 0, 0), SIMD3(0, 0, 0), SIMD3(0, 5, 0)], closed: false
+        ) {
+            if let result = Shape.anaFillet(
+                wire: cornerWire, edgeIndex: 0,
+                planeNormal: SIMD3(0, 0, 1), radius: 1.5
+            ) {
+                // Render trimmed edges
+                for (i, edgeShape) in [(0, result.edge1), (1, result.edge2)].enumerated() {
+                    let polylines = edgeShape.1.allEdgePolylines(deflection: 0.05)
+                    for pl in polylines {
+                        let floatPts = pl.map { SIMD3<Float>(Float($0.x), Float($0.y), Float($0.z)) + filletOffset }
+                        if floatPts.count >= 2 {
+                            bodies.append(polylineToBody(floatPts, id: "fillet-edge-\(i)",
+                                                         color: SIMD4(0.6, 0.8, 1, 1)))
+                        }
+                    }
+                }
+                // Render fillet arc
+                let filletPolylines = result.fillet.allEdgePolylines(deflection: 0.02)
+                for pl in filletPolylines {
+                    let floatPts = pl.map { SIMD3<Float>(Float($0.x), Float($0.y), Float($0.z)) + filletOffset }
+                    if floatPts.count >= 2 {
+                        bodies.append(polylineToBody(floatPts, id: "fillet-arc",
+                                                     color: SIMD4(1, 0.4, 0.2, 1)))
+                    }
+                }
+                descriptions.append("AnaFillet: r=1.5 between 90° edges")
+            }
+        }
+
+        return Curve2DGallery.GalleryResult(
+            bodies: bodies,
+            description: descriptions.joined(separator: "\n")
+        )
+    }
+
+    // MARK: - v0.52: BRepFill, Fillet, Healing, 2D Curve Tools
+
+    /// BRepFill suite, iterative 2D fillet, healing utilities, and 2D curve analysis tools.
+    static func brepFillAndHealing() -> Curve2DGallery.GalleryResult {
+        var bodies: [ViewportBody] = []
+        var descriptions: [String] = []
+
+        // --- Section A: BRepFill_Generator — ruled shell between wire sections ---
+        if let circle1 = Wire.circle(radius: 2),
+           let circle2 = Wire.circle(origin: SIMD3(0, 0, 6), radius: 3.5) {
+            if let shell = Shape.ruledShell(from: [circle1, circle2]) {
+                let (body, _) = CADFileLoader.shapeToBodyAndMetadata(
+                    shell, id: "fill-ruled", color: SIMD4(0.4, 0.7, 0.9, 0.8)
+                )
+                if let body { bodies.append(body) }
+                descriptions.append("RuledShell: circle r=2 → r=3.5")
+            }
+        }
+
+        // --- Section B: BRepFill_Draft — tapered extrusion ---
+        if let profile = Wire.polygon([
+            SIMD2(0, 0), SIMD2(3, 0), SIMD2(3, 2), SIMD2(0, 2)
+        ]) {
+            if let draft = Shape.draft(
+                wire: profile,
+                direction: SIMD3(0, 0, 1),
+                angle: .pi / 12,  // 15° taper
+                length: 5
+            ) {
+                let (body, _) = CADFileLoader.shapeToBodyAndMetadata(
+                    draft, id: "fill-draft", color: SIMD4(0.8, 0.5, 0.3, 0.9)
+                )
+                if var body {
+                    offsetBody(&body, dx: 10, dy: 0, dz: 0)
+                    bodies.append(body)
+                }
+                descriptions.append("Draft: rect profile, 15° taper, h=5")
+            }
+        }
+
+        // --- Section C: BRepFill_Pipe with error metric ---
+        if let spine = Wire.helix(radius: 3, pitch: 2, turns: 3),
+           let profile = Wire.polygon([
+               SIMD2(-0.5, -0.5), SIMD2(0.5, -0.5),
+               SIMD2(0.5, 0.5), SIMD2(-0.5, 0.5)
+           ]) {
+            if let result = Shape.pipeSweep(spine: spine, profile: profile) {
+                let (body, _) = CADFileLoader.shapeToBodyAndMetadata(
+                    result.shape, id: "fill-pipe", color: SIMD4(0.6, 0.8, 0.4, 0.8)
+                )
+                if var body {
+                    offsetBody(&body, dx: 20, dy: 0, dz: 0)
+                    bodies.append(body)
+                }
+                descriptions.append("PipeSweep: square on helix, err=\(String(format: "%.4f", result.errorOnSurface))")
+            }
+        }
+
+        // --- Section D: BRepFill_CompatibleWires ---
+        if let w1 = Wire.polygon([
+            SIMD2(0, 0), SIMD2(4, 0), SIMD2(4, 4), SIMD2(0, 4)
+        ]),
+           let w2 = Wire.circle(origin: SIMD3(2, 2, 6), radius: 2) {
+            if let compatible = Shape.compatibleWires([w1, w2]) {
+                descriptions.append("CompatibleWires: \(compatible.count) wires normalized")
+                // Loft the compatible wires into a ruled shell
+                if compatible.count >= 2,
+                   let shell = Shape.ruledShell(from: compatible) {
+                    let (body, _) = CADFileLoader.shapeToBodyAndMetadata(
+                        shell, id: "fill-compat", color: SIMD4(0.7, 0.4, 0.8, 0.8)
+                    )
+                    if var body {
+                        offsetBody(&body, dx: 0, dy: 12, dz: 0)
+                        bodies.append(body)
+                    }
+                }
+            }
+        }
+
+        // --- Section E: BRepFill_OffsetWire ---
+        if let face = Shape.face(from: Wire.polygon([
+            SIMD2(0, 0), SIMD2(6, 0), SIMD2(6, 6), SIMD2(0, 6)
+        ])!) {
+            if let offsetShape = Shape.offsetWire(face: face.faces().first!, offset: -1.0) {
+                let polylines = offsetShape.allEdgePolylines(deflection: 0.05)
+                for (i, pl) in polylines.enumerated() {
+                    let offset = SIMD3<Float>(10, 12, 0)
+                    let floatPts = pl.map { SIMD3<Float>(Float($0.x), Float($0.y), Float($0.z)) + offset }
+                    if floatPts.count >= 2 {
+                        bodies.append(polylineToBody(floatPts, id: "fill-offset-\(i)",
+                                                     color: SIMD4(0.2, 0.9, 0.5, 1)))
+                    }
+                }
+                // Show original outline too
+                let origPolylines = face.allEdgePolylines(deflection: 0.05)
+                for (i, pl) in origPolylines.enumerated() {
+                    let offset = SIMD3<Float>(10, 12, 0)
+                    let floatPts = pl.map { SIMD3<Float>(Float($0.x), Float($0.y), Float($0.z)) + offset }
+                    if floatPts.count >= 2 {
+                        bodies.append(polylineToBody(floatPts, id: "fill-offset-orig-\(i)",
+                                                     color: SIMD4(0.5, 0.5, 0.5, 0.6)))
+                    }
+                }
+                descriptions.append("OffsetWire: square inset by 1.0")
+            }
+        }
+
+        // --- Section F: ChFi2d_FilletAlgo (iterative fillet) ---
+        // Two edges at 60° angle in a single wire
+        if let angleWire = Wire.polygon3D(
+            [SIMD3(-5, 0, 0), SIMD3(0, 0, 0), SIMD3(2.5, 4.33, 0)], closed: false
+        ) {
+            if let result = Shape.filletAlgo(
+                wire: angleWire, edgeIndex: 0,
+                planeNormal: SIMD3(0, 0, 1), radius: 1.0
+            ) {
+                let filletOffset = SIMD3<Float>(20, 12, 0)
+                for (i, edgeShape) in [(0, result.edge1), (1, result.edge2)].enumerated() {
+                    let polylines = edgeShape.1.allEdgePolylines(deflection: 0.02)
+                    for pl in polylines {
+                        let floatPts = pl.map { SIMD3<Float>(Float($0.x), Float($0.y), Float($0.z)) + filletOffset }
+                        if floatPts.count >= 2 {
+                            bodies.append(polylineToBody(floatPts, id: "fillet2-edge-\(i)",
+                                                         color: SIMD4(0.6, 0.8, 1, 1)))
+                        }
+                    }
+                }
+                let arcPolylines = result.fillet.allEdgePolylines(deflection: 0.01)
+                for pl in arcPolylines {
+                    let floatPts = pl.map { SIMD3<Float>(Float($0.x), Float($0.y), Float($0.z)) + filletOffset }
+                    if floatPts.count >= 2 {
+                        bodies.append(polylineToBody(floatPts, id: "fillet2-arc",
+                                                     color: SIMD4(1, 0.3, 0.5, 1)))
+                    }
+                }
+                descriptions.append("FilletAlgo: r=1.0 at 60°, \(result.resultCount) solutions")
+            }
+        }
+
+        // --- Section G: Healing — shellSewing + builtFromFaces ---
+        if let box = Shape.box(width: 4, height: 4, depth: 4) {
+            // shellSewing
+            if let _ = box.shellSewing(tolerance: 1e-3) {
+                descriptions.append("ShellSewing: box sewn OK")
+            }
+            // builtFromFaces
+            if let rebuilt = box.builtFromFaces() {
+                let (body, _) = CADFileLoader.shapeToBodyAndMetadata(
+                    rebuilt, id: "heal-built", color: SIMD4(0.5, 0.8, 0.7, 0.9)
+                )
+                if var body {
+                    offsetBody(&body, dx: -10, dy: 12, dz: 0)
+                    bodies.append(body)
+                }
+                descriptions.append("BuildFromFaces: box faces → rebuilt shape")
+            }
+        }
+
+        // --- Section H: Edge splitting ---
+        if let box = Shape.box(width: 6, height: 2, depth: 2) {
+            let allEdges = box.edges()
+            if let firstEdge = allEdges.first {
+                // Split at midpoint
+                let midParam = 0.5
+                let midPt = SIMD3<Double>(3, 0, 0) // approximate midpoint of first edge
+                if let (_, _) = firstEdge.split(at: midParam, vertex: midPt) {
+                    descriptions.append("EdgeSplit: edge → 2 halves at midpoint")
+                }
+            }
+        }
+
+        // --- Section I: Curve2D tools ---
+        // isLinear check
+        if let bspline = Curve2D.interpolate(
+            through: [SIMD2(0, 0), SIMD2(5, 0), SIMD2(10, 0)],
+            tangents: [:]) {
+            if let result = bspline.isLinear(tolerance: 1e-3) {
+                descriptions.append("IsLinear: \(result.isLinear), dev=\(String(format: "%.6f", result.deviation))")
+            }
+            // convertToLine
+            let dom = bspline.domain
+            if let conv = bspline.convertToLine(first: dom.lowerBound, last: dom.upperBound) {
+                descriptions.append("ConvertToLine: dev=\(String(format: "%.6f", conv.deviation))")
+            }
+        }
+
+        // simplifyBSpline
+        if let complex = Curve2D.interpolate(
+            through: [SIMD2(0, 0), SIMD2(2, 0.01), SIMD2(4, 0), SIMD2(6, -0.01), SIMD2(8, 0)],
+            tangents: [:]) {
+            let simplified = complex.simplifyBSpline(tolerance: 0.1)
+            descriptions.append("SimplifyBSpline: \(simplified ? "simplified" : "unchanged")")
+        }
+
+        // Approx_Curve2d: approximate a circle as BSpline
+        if let circle = Curve2D.circle(center: .zero, radius: 3) {
+            let dom = circle.domain
+            if let approx = circle.approximated(
+                first: dom.lowerBound, last: dom.upperBound, maxDegree: 6
+            ) {
+                let pts = approx.drawAdaptive()
+                let lineOffset = SIMD3<Float>(0, -8, 0)
+                let floatPts = pts.map { SIMD3<Float>(Float($0.x), Float($0.y), 0) + lineOffset }
+                if !floatPts.isEmpty {
+                    bodies.append(polylineToBody(floatPts, id: "approx-circle",
+                                                 color: SIMD4(0.9, 0.6, 0.2, 1)))
+                }
+                descriptions.append("Approx2D: circle → BSpline (deg≤6)")
+            }
+        }
+
+        // parameterAtLength
+        if let line = Curve2D.lineThroughPoints(SIMD2(0, 0), SIMD2(10, 0)) {
+            if let param = line.parameterAtLength(5.0) {
+                let pt = line.point(at: param)
+                descriptions.append("ParamAtLength: L=5 → u=\(String(format: "%.3f", param)) pt=(\(String(format: "%.1f", pt.x)),\(String(format: "%.1f", pt.y)))")
+            }
+        }
+
+        // Tangent-constrained interpolation
+        if let tangentCurve = Curve2D.interpolate(
+            through: [SIMD2(0, 0), SIMD2(3, 2), SIMD2(6, 0), SIMD2(9, -1), SIMD2(12, 0)],
+            tangents: [0: SIMD2(1, 1), 2: SIMD2(1, 0), 4: SIMD2(1, 1)]
+        ) {
+            let pts = tangentCurve.drawAdaptive()
+            let curveOffset = SIMD3<Float>(15, -8, 0)
+            let floatPts = pts.map { SIMD3<Float>(Float($0.x), Float($0.y), 0) + curveOffset }
+            if !floatPts.isEmpty {
+                bodies.append(polylineToBody(floatPts, id: "tangent-interp",
+                                             color: SIMD4(0.3, 0.8, 0.9, 1)))
+            }
+            // Mark the constrained points
+            let controlPts: [SIMD2<Double>] = [SIMD2(0, 0), SIMD2(3, 2), SIMD2(6, 0), SIMD2(9, -1), SIMD2(12, 0)]
+            for (i, p) in controlPts.enumerated() {
+                bodies.append(makeMarker(
+                    at: SIMD3<Float>(Float(p.x), Float(p.y), 0) + curveOffset,
+                    radius: 0.15, id: "tang-pt-\(i)",
+                    color: SIMD4(1, 0.4, 0.2, 1)))
+            }
+            descriptions.append("TangentInterp: 5 pts, 3 tangent constraints")
+        }
+
+        return Curve2DGallery.GalleryResult(
+            bodies: bodies,
+            description: descriptions.joined(separator: "\n")
+        )
+    }
+
+    // MARK: - v0.53: 2D Geometry Completions
+
+    /// GccAna bisectors, line/circle solvers, IntAna2d intersections, Extrema2d, curvature analysis, Bisector_BisecAna.
+    static func geometry2DCompletions() -> Curve2DGallery.GalleryResult {
+        var bodies: [ViewportBody] = []
+        var descriptions: [String] = []
+
+        // Helper: draw a 2D line solution as a segment in 3D (Z=0)
+        func drawLine(_ sol: Curve2DLineSolution, id: String, color: SIMD4<Float>,
+                      offset: SIMD3<Float> = .zero, length: Float = 10) {
+            let p = SIMD3<Float>(Float(sol.point.x), Float(sol.point.y), 0) + offset
+            let d = SIMD3<Float>(Float(sol.direction.x), Float(sol.direction.y), 0) * length
+            bodies.append(polylineToBody([p - d, p + d], id: id, color: color))
+        }
+
+        // Helper: draw a circle solution as a polyline
+        func drawCircle(_ center: SIMD2<Double>, _ radius: Double, id: String,
+                        color: SIMD4<Float>, offset: SIMD3<Float> = .zero, segments: Int = 64) {
+            var pts: [SIMD3<Float>] = []
+            for i in 0...segments {
+                let t = Double(i) / Double(segments) * 2 * .pi
+                let x = Float(center.x + radius * cos(t))
+                let y = Float(center.y + radius * sin(t))
+                pts.append(SIMD3(x, y, 0) + offset)
+            }
+            bodies.append(polylineToBody(pts, id: id, color: color))
+        }
+
+        // --- Section A: GccAna Bisectors ---
+        let bisecOff = SIMD3<Float>(0, 0, 0)
+
+        // Point-point perpendicular bisector
+        let bp1 = SIMD2<Double>(-3, 0), bp2 = SIMD2<Double>(3, 0)
+        if let bisec = GccAnaBisector.ofPoints(bp1, bp2) {
+            drawLine(bisec, id: "bisec-pp", color: SIMD4(0.2, 0.8, 0.4, 1), offset: bisecOff, length: 4)
+            bodies.append(makeMarker(at: SIMD3(Float(bp1.x), Float(bp1.y), 0) + bisecOff,
+                                     radius: 0.15, id: "bisec-pp-p1", color: SIMD4(1, 0.3, 0.3, 1)))
+            bodies.append(makeMarker(at: SIMD3(Float(bp2.x), Float(bp2.y), 0) + bisecOff,
+                                     radius: 0.15, id: "bisec-pp-p2", color: SIMD4(1, 0.3, 0.3, 1)))
+            descriptions.append("BisecPP: perpendicular bisector of (-3,0)-(3,0)")
+        }
+
+        // Line-line angle bisectors
+        let llBisecs = GccAnaBisector.ofLines(
+            line1Point: .zero, line1Dir: SIMD2(1, 0),
+            line2Point: .zero, line2Dir: simd_normalize(SIMD2<Double>(1, 1))
+        )
+        for (i, b) in llBisecs.enumerated() {
+            let off = bisecOff + SIMD3(15, 0, 0)
+            drawLine(b, id: "bisec-ll-\(i)", color: SIMD4(0.9, 0.5, 0.2, 1), offset: off, length: 5)
+        }
+        // Draw the reference lines
+        let llOff = bisecOff + SIMD3<Float>(15, 0, 0)
+        bodies.append(polylineToBody(
+            [SIMD3(-5, 0, 0) + llOff, SIMD3(5, 0, 0) + llOff],
+            id: "bisec-ll-ref1", color: SIMD4(0.5, 0.5, 0.5, 0.6)))
+        let d45: Float = 5 * 0.7071
+        bodies.append(polylineToBody(
+            [SIMD3(-d45, -d45, 0) + llOff, SIMD3(d45, d45, 0) + llOff],
+            id: "bisec-ll-ref2", color: SIMD4(0.5, 0.5, 0.5, 0.6)))
+        descriptions.append("BisecLL: \(llBisecs.count) angle bisectors of X-axis & 45° line")
+
+        // Circle-circle bisectors
+        let ccBisecs = GccAnaBisector.ofCircles(
+            center1: SIMD2(-3, 0), radius1: 2,
+            center2: SIMD2(3, 0), radius2: 1.5
+        )
+        let ccOff = bisecOff + SIMD3<Float>(0, 12, 0)
+        drawCircle(SIMD2(-3, 0), 2, id: "bisec-cc-c1", color: SIMD4(0.5, 0.5, 0.5, 0.6), offset: ccOff)
+        drawCircle(SIMD2(3, 0), 1.5, id: "bisec-cc-c2", color: SIMD4(0.5, 0.5, 0.5, 0.6), offset: ccOff)
+        for (i, b) in ccBisecs.enumerated() {
+            if b.type == .circle {
+                drawCircle(b.position, b.radius, id: "bisec-cc-\(i)",
+                           color: SIMD4(0.3, 0.7, 1, 1), offset: ccOff)
+            }
+        }
+        descriptions.append("BisecCC: \(ccBisecs.count) bisectors between r=2 & r=1.5 circles")
+
+        // --- Section B: GccAna Line Solvers ---
+        let lineOff = SIMD3<Float>(30, 0, 0)
+
+        // Parallel line through point
+        let parLines = Curve2DGcc.lineParallelThrough(
+            point: SIMD2(0, 3),
+            parallelTo: .zero, lineDir: SIMD2(1, 0)
+        )
+        bodies.append(polylineToBody(
+            [SIMD3(-5, 0, 0) + lineOff, SIMD3(5, 0, 0) + lineOff],
+            id: "gcc-ref-line", color: SIMD4(0.5, 0.5, 0.5, 0.6)))
+        for (i, l) in parLines.enumerated() {
+            drawLine(l, id: "gcc-par-\(i)", color: SIMD4(0.2, 0.9, 0.4, 1), offset: lineOff, length: 5)
+        }
+        bodies.append(makeMarker(at: SIMD3(0, 3, 0) + lineOff,
+                                 radius: 0.15, id: "gcc-par-pt", color: SIMD4(1, 0.3, 0.3, 1)))
+        descriptions.append("LinePar: parallel through (0,3)")
+
+        // Perpendicular line through point
+        let perpLines = Curve2DGcc.linePerpendicularThrough(
+            point: SIMD2(2, 2),
+            perpendicularTo: .zero, lineDir: SIMD2(1, 0)
+        )
+        for (i, l) in perpLines.enumerated() {
+            drawLine(l, id: "gcc-perp-\(i)", color: SIMD4(0.9, 0.4, 0.6, 1), offset: lineOff, length: 3)
+        }
+        bodies.append(makeMarker(at: SIMD3(2, 2, 0) + lineOff,
+                                 radius: 0.15, id: "gcc-perp-pt", color: SIMD4(1, 0.8, 0.2, 1)))
+        descriptions.append("LinePerp: perpendicular through (2,2)")
+
+        // Tangent lines to circle, parallel to X-axis
+        let tanParLines = Curve2DGcc.linesTangentParallel(
+            circleCenter: SIMD2(0, 0), circleRadius: 2,
+            parallelTo: .zero, lineDir: SIMD2(1, 0)
+        )
+        let tanOff = lineOff + SIMD3(0, 10, 0)
+        drawCircle(.zero, 2, id: "gcc-tan-circ", color: SIMD4(0.5, 0.5, 0.5, 0.6), offset: tanOff)
+        for (i, l) in tanParLines.enumerated() {
+            drawLine(l, id: "gcc-tanpar-\(i)", color: SIMD4(1, 0.6, 0.2, 1), offset: tanOff, length: 4)
+        }
+        descriptions.append("TanPar: \(tanParLines.count) tangent lines ∥ X-axis to r=2 circle")
+
+        // --- Section C: IntAna2d Intersections ---
+        let ixOff = SIMD3<Float>(0, -12, 0)
+
+        // Line-line intersection
+        let llIx = IntAna2d.intersectLines(
+            line1Point: .zero, line1Dir: SIMD2(1, 0.5),
+            line2Point: SIMD2(0, 3), line2Dir: SIMD2(1, -0.3)
+        )
+        let ld1 = simd_normalize(SIMD3<Float>(1, 0.5, 0)) * 6
+        let ld2 = simd_normalize(SIMD3<Float>(1, -0.3, 0)) * 6
+        bodies.append(polylineToBody(
+            [SIMD3(0, 0, 0) + ixOff - ld1, SIMD3(0, 0, 0) + ixOff + ld1],
+            id: "ix-ll-l1", color: SIMD4(0.5, 0.5, 0.5, 0.6)))
+        bodies.append(polylineToBody(
+            [SIMD3(0, 3, 0) + ixOff - ld2, SIMD3(0, 3, 0) + ixOff + ld2],
+            id: "ix-ll-l2", color: SIMD4(0.5, 0.5, 0.5, 0.6)))
+        for (i, pt) in llIx.enumerated() {
+            bodies.append(makeMarker(
+                at: SIMD3(Float(pt.point.x), Float(pt.point.y), 0) + ixOff,
+                radius: 0.2, id: "ix-ll-\(i)", color: SIMD4(1, 0.2, 0.2, 1)))
+        }
+        descriptions.append("IntLL: \(llIx.count) line-line intersection")
+
+        // Line-circle intersection
+        let lcIx = IntAna2d.intersectLineCircle(
+            linePoint: SIMD2(-5, 1), lineDir: SIMD2(1, 0),
+            circleCenter: SIMD2(0, 0), circleRadius: 3
+        )
+        let lcOff = ixOff + SIMD3(15, 0, 0)
+        drawCircle(.zero, 3, id: "ix-lc-c", color: SIMD4(0.5, 0.5, 0.5, 0.6), offset: lcOff)
+        bodies.append(polylineToBody(
+            [SIMD3(-5, 1, 0) + lcOff, SIMD3(5, 1, 0) + lcOff],
+            id: "ix-lc-l", color: SIMD4(0.5, 0.5, 0.5, 0.6)))
+        for (i, pt) in lcIx.enumerated() {
+            bodies.append(makeMarker(
+                at: SIMD3(Float(pt.point.x), Float(pt.point.y), 0) + lcOff,
+                radius: 0.2, id: "ix-lc-\(i)", color: SIMD4(0.2, 1, 0.3, 1)))
+        }
+        descriptions.append("IntLC: \(lcIx.count) line-circle intersections")
+
+        // Circle-circle intersection
+        let ccIx = IntAna2d.intersectCircles(
+            center1: SIMD2(-1.5, 0), radius1: 3,
+            center2: SIMD2(1.5, 0), radius2: 3
+        )
+        let ccIxOff = ixOff + SIMD3(30, 0, 0)
+        drawCircle(SIMD2(-1.5, 0), 3, id: "ix-cc-c1", color: SIMD4(0.5, 0.5, 0.5, 0.6), offset: ccIxOff)
+        drawCircle(SIMD2(1.5, 0), 3, id: "ix-cc-c2", color: SIMD4(0.5, 0.5, 0.5, 0.6), offset: ccIxOff)
+        for (i, pt) in ccIx.enumerated() {
+            bodies.append(makeMarker(
+                at: SIMD3(Float(pt.point.x), Float(pt.point.y), 0) + ccIxOff,
+                radius: 0.2, id: "ix-cc-\(i)", color: SIMD4(1, 0.8, 0.2, 1)))
+        }
+        descriptions.append("IntCC: \(ccIx.count) circle-circle intersections")
+
+        // --- Section D: Extrema2d ---
+        let exOff = SIMD3<Float>(0, -24, 0)
+
+        // Line-circle extrema
+        let lcEx = Extrema2d.distanceBetweenLineAndCircle(
+            linePoint: SIMD2(-6, 5), lineDir: SIMD2(1, 0),
+            circleCenter: .zero, circleRadius: 2
+        )
+        drawCircle(.zero, 2, id: "ex-lc-c", color: SIMD4(0.5, 0.5, 0.5, 0.6), offset: exOff)
+        bodies.append(polylineToBody(
+            [SIMD3(-6, 5, 0) + exOff, SIMD3(6, 5, 0) + exOff],
+            id: "ex-lc-l", color: SIMD4(0.5, 0.5, 0.5, 0.6)))
+        for (i, ex) in lcEx.enumerated() {
+            let p1 = SIMD3<Float>(Float(ex.point1.x), Float(ex.point1.y), 0) + exOff
+            let p2 = SIMD3<Float>(Float(ex.point2.x), Float(ex.point2.y), 0) + exOff
+            bodies.append(polylineToBody([p1, p2], id: "ex-lc-\(i)", color: SIMD4(1, 0.4, 0.2, 1)))
+            bodies.append(makeMarker(at: p1, radius: 0.12, id: "ex-lc-m1-\(i)", color: SIMD4(1, 0.4, 0.2, 1)))
+            bodies.append(makeMarker(at: p2, radius: 0.12, id: "ex-lc-m2-\(i)", color: SIMD4(1, 0.4, 0.2, 1)))
+        }
+        if let closest = lcEx.first {
+            descriptions.append("ExtLC: d=\(String(format: "%.3f", closest.distance)) line↔circle")
+        }
+
+        // Parallel line detection
+        let llEx = Extrema2d.distanceBetweenLines(
+            line1Point: .zero, line1Dir: SIMD2(1, 0),
+            line2Point: SIMD2(0, 4), line2Dir: SIMD2(1, 0)
+        )
+        descriptions.append("ExtLL: parallel=\(llEx.isParallel), \(llEx.results.count) results")
+
+        // Curve-curve extrema: circle vs ellipse-like BSpline
+        if let ellipse = Curve2D.interpolate(
+            through: [SIMD2(4, 0), SIMD2(0, 2), SIMD2(-4, 0), SIMD2(0, -2)],
+            tangents: [0: SIMD2(0, 1), 1: SIMD2(-1, 0), 2: SIMD2(0, -1), 3: SIMD2(1, 0)],
+            closed: true
+        ), let circle = Curve2D.circle(center: SIMD2(7, 0), radius: 1.5) {
+            let ccExOff = exOff + SIMD3(15, 0, 0)
+            // Draw the ellipse
+            let ePts = ellipse.drawAdaptive()
+            let eFloat = ePts.map { SIMD3<Float>(Float($0.x), Float($0.y), 0) + ccExOff }
+            if !eFloat.isEmpty { bodies.append(polylineToBody(eFloat, id: "ex-cc-e", color: SIMD4(0.5, 0.5, 0.5, 0.6))) }
+            drawCircle(SIMD2(7, 0), 1.5, id: "ex-cc-c", color: SIMD4(0.5, 0.5, 0.5, 0.6), offset: ccExOff)
+
+            let eDom = ellipse.domain
+            let cDom = circle.domain
+            let ccExResults = Extrema2d.distanceBetweenCurves(
+                ellipse, first1: eDom.lowerBound, last1: eDom.upperBound,
+                circle, first2: cDom.lowerBound, last2: cDom.upperBound
+            )
+            for (i, ex) in ccExResults.prefix(4).enumerated() {
+                let p1 = SIMD3<Float>(Float(ex.point1.x), Float(ex.point1.y), 0) + ccExOff
+                let p2 = SIMD3<Float>(Float(ex.point2.x), Float(ex.point2.y), 0) + ccExOff
+                bodies.append(polylineToBody([p1, p2], id: "ex-cc-\(i)", color: SIMD4(0.3, 1, 0.5, 1)))
+                bodies.append(makeMarker(at: p1, radius: 0.1, id: "ex-cc-m1-\(i)", color: SIMD4(0.3, 1, 0.5, 1)))
+                bodies.append(makeMarker(at: p2, radius: 0.1, id: "ex-cc-m2-\(i)", color: SIMD4(0.3, 1, 0.5, 1)))
+            }
+            if let closest = ccExResults.first {
+                descriptions.append("ExtCC: d=\(String(format: "%.3f", closest.distance)) ellipse↔circle, \(ccExResults.count) extrema")
+            }
+        }
+
+        // --- Section E: Geom2dLProp — curvature analysis ---
+        // Create a wavy curve with inflections and curvature extrema
+        if let wave = Curve2D.interpolate(
+            through: [SIMD2(0, 0), SIMD2(2, 3), SIMD2(5, -2), SIMD2(8, 1), SIMD2(11, -3), SIMD2(14, 0)],
+            tangents: [:]
+        ) {
+            let lpOff = SIMD3<Float>(0, -36, 0)
+            let pts = wave.drawAdaptive()
+            let fPts = pts.map { SIMD3<Float>(Float($0.x), Float($0.y), 0) + lpOff }
+            if !fPts.isEmpty { bodies.append(polylineToBody(fPts, id: "lp-wave", color: SIMD4(0.6, 0.6, 0.6, 1))) }
+
+            let extrema = wave.curvatureExtremaDetailed()
+            for (i, ex) in extrema.enumerated() {
+                let pt = wave.point(at: ex.parameter)
+                let color: SIMD4<Float> = ex.type == .curvatureMaximum
+                    ? SIMD4(1, 0.3, 0.3, 1) : SIMD4(0.3, 0.3, 1, 1)
+                bodies.append(makeMarker(
+                    at: SIMD3(Float(pt.x), Float(pt.y), 0) + lpOff,
+                    radius: 0.15, id: "lp-ext-\(i)", color: color))
+            }
+            let inflections = wave.inflectionPointsDetailed()
+            for (i, inf) in inflections.enumerated() {
+                let pt = wave.point(at: inf.parameter)
+                bodies.append(makeMarker(
+                    at: SIMD3(Float(pt.x), Float(pt.y), 0) + lpOff,
+                    radius: 0.2, id: "lp-inf-\(i)", color: SIMD4(0.2, 0.9, 0.3, 1)))
+            }
+            descriptions.append("CurInf: \(extrema.count) curvature extrema (red=max,blue=min), \(inflections.count) inflections (green)")
+        }
+
+        // --- Section F: GccAna circle on-constraint ---
+        let conOff = SIMD3<Float>(30, 12, 0)
+        // Circles tangent to two lines with center on a third
+        let conCircles = Curve2DGcc.circlesTangentToTwoLinesOnLine(
+            line1Point: .zero, line1Dir: SIMD2(1, 0),
+            line2Point: .zero, line2Dir: SIMD2(0, 1),
+            centerOnPoint: .zero, centerOnDir: simd_normalize(SIMD2<Double>(1, 1))
+        )
+        // Draw reference: X-axis, Y-axis, 45° line
+        bodies.append(polylineToBody(
+            [SIMD3(-1, 0, 0) + conOff, SIMD3(8, 0, 0) + conOff],
+            id: "con-ref-x", color: SIMD4(0.5, 0.5, 0.5, 0.5)))
+        bodies.append(polylineToBody(
+            [SIMD3(0, -1, 0) + conOff, SIMD3(0, 8, 0) + conOff],
+            id: "con-ref-y", color: SIMD4(0.5, 0.5, 0.5, 0.5)))
+        bodies.append(polylineToBody(
+            [SIMD3(-1, -1, 0) + conOff, SIMD3(6, 6, 0) + conOff],
+            id: "con-ref-45", color: SIMD4(0.5, 0.5, 0.5, 0.3)))
+        for (i, c) in conCircles.enumerated() {
+            drawCircle(c.center, c.radius, id: "con-circ-\(i)",
+                       color: SIMD4(0.9, 0.5, 0.9, 1), offset: conOff)
+            bodies.append(makeMarker(
+                at: SIMD3(Float(c.center.x), Float(c.center.y), 0) + conOff,
+                radius: 0.1, id: "con-center-\(i)", color: SIMD4(0.9, 0.5, 0.9, 1)))
+        }
+        descriptions.append("CircOnLine: \(conCircles.count) circles tangent to X&Y axes, center on 45°")
+
+        // --- Section G: Bisector_BisecAna — point-point ---
+        let bpOff = SIMD3<Float>(30, -12, 0)
+        let bap1 = SIMD2<Double>(0, 0), bap2 = SIMD2<Double>(6, 4)
+        if let bisecCurve = Curve2D.bisectorBetweenPoints(
+            bap1, bap2,
+            referencePoint: SIMD2(3, 2),
+            direction1: SIMD2(1, 0), direction2: SIMD2(-1, 0)
+        ) {
+            let pts = bisecCurve.drawUniform(pointCount: 40)
+            let fPts = pts.map { SIMD3<Float>(Float($0.x), Float($0.y), 0) + bpOff }
+            if !fPts.isEmpty { bodies.append(polylineToBody(fPts, id: "bba-pp", color: SIMD4(0.4, 0.8, 1, 1))) }
+            bodies.append(makeMarker(at: SIMD3(Float(bap1.x), Float(bap1.y), 0) + bpOff,
+                                     radius: 0.15, id: "bba-pp-1", color: SIMD4(1, 0.3, 0.3, 1)))
+            bodies.append(makeMarker(at: SIMD3(Float(bap2.x), Float(bap2.y), 0) + bpOff,
+                                     radius: 0.15, id: "bba-pp-2", color: SIMD4(1, 0.3, 0.3, 1)))
+            descriptions.append("BisecAna: point-point bisector (0,0)↔(6,4)")
+        }
+
+        return Curve2DGallery.GalleryResult(
+            bodies: bodies,
+            description: descriptions.joined(separator: "\n")
+        )
+    }
+
     private static func polylineToBody(
         _ points: [SIMD3<Float>],
         id: String,

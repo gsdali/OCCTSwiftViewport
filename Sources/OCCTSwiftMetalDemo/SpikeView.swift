@@ -561,6 +561,9 @@ struct SpikeView: View {
         case localOpsAndValidation, splitOpsAndExtrema
         case extremaAndCurveAnalysis
         case conicsAndPolyDistance
+        case transformsAndTopology
+        case brepFillAndHealing
+        case geometry2DCompletions
     }
 
     private var occt8DemoSection: some View {
@@ -607,6 +610,9 @@ struct SpikeView: View {
             Button("Split Ops & Extrema") { loadOCCT8Demo(.splitOpsAndExtrema) }
             Button("Extrema & Curve Analysis") { loadOCCT8Demo(.extremaAndCurveAnalysis) }
             Button("Conics & Poly Distance") { loadOCCT8Demo(.conicsAndPolyDistance) }
+            Button("Transforms & Topology") { loadOCCT8Demo(.transformsAndTopology) }
+            Button("BRepFill & Healing") { loadOCCT8Demo(.brepFillAndHealing) }
+            Button("2D Geometry Suite") { loadOCCT8Demo(.geometry2DCompletions) }
         }
     }
 
@@ -701,6 +707,12 @@ struct SpikeView: View {
             result = OCCT8Gallery.extremaAndCurveAnalysis()
         case .conicsAndPolyDistance:
             result = OCCT8Gallery.conicsAndPolyDistance()
+        case .transformsAndTopology:
+            result = OCCT8Gallery.transformsAndTopology()
+        case .brepFillAndHealing:
+            result = OCCT8Gallery.brepFillAndHealing()
+        case .geometry2DCompletions:
+            result = OCCT8Gallery.geometry2DCompletions()
         }
 
         bodies = result.bodies

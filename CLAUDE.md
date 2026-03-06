@@ -14,7 +14,7 @@ OCCTSwiftViewport is a reusable Metal-based 3D viewport library for CAD applicat
 # Build (Swift Package Manager)
 swift build
 
-# Run all tests (37 tests across 5 suites, uses Swift Testing framework)
+# Run all tests (Swift Testing framework, 5 suites)
 swift test
 
 # Run a single test suite
@@ -31,6 +31,8 @@ swift run OCCTSwiftMetalDemo
 ```
 
 The Xcode project (`ViewportKit.xcodeproj`) is generated from `project.yml` via [XcodeGen](https://github.com/yonaskolb/XcodeGen). It has two schemes: `OCCTSwiftMetalDemo_iOS` and `OCCTSwiftMetalDemo_macOS`. Regenerate after structural changes with `xcodegen`.
+
+**Note:** OCCTSwift is a local path dependency (`../OCCTSwift` in `Package.swift`). The OCCTSwift source lives at `/Users/elb/Projects/OCCTSwift` — always search there for API signatures, not the SPM `.build/checkouts/` cache.
 
 ## Architecture
 
@@ -63,15 +65,20 @@ ViewportController (@MainActor, ObservableObject — central hub)
 
 ### Geometry Input
 
-`ViewportBody` is the geometry-source-agnostic container. Vertex data is interleaved `[px, py, pz, nx, ny, nz, ...]` with stride 6 floats (24 bytes). Edge polylines are `[[SIMD3<Float>]]` for wireframe rendering. A generation counter enables buffer cache invalidation without diffing.
+`ViewportBody` is the geometry-source-agnostic container. Vertex data is interleaved `[px, py, pz, nx, ny, nz, ...]` with stride 6 floats (24 bytes). Edge polylines are `[[SIMD3<Float>]]` for wireframe rendering. A generation counter (`nonisolated(unsafe)` static) enables buffer cache invalidation without diffing. Optional `faceIndices: [Int32]` maps triangles to face IDs for sub-body selection.
 
 ### GPU Picking
 
 Pick IDs are encoded as `objectIndex | (primitiveID << 16)` into a R32Uint texture rendered as a second color attachment. `PickTextureManager` handles texture lifecycle. CPU-side raycasting (`SceneRaycast`) provides broadphase AABB culling then narrowphase Moller-Trumbore triangle intersection.
 
-### Shaders
+### Shaders & Uniform Struct Sync
 
-All Metal shaders are in `Sources/OCCTSwiftViewport/Renderer/Shaders.metal`. The uniform structs (`Uniforms`, `BodyUniforms`) must stay in sync between Swift and Metal — changes to one require matching changes in the other.
+All Metal shaders are in `Sources/OCCTSwiftViewport/Renderer/Shaders.metal`. The uniform structs (`Uniforms`, `BodyUniforms`) are defined in **both** files and must stay in sync:
+
+- **Swift side:** `Renderer/ViewportRenderer.swift` (search for `struct Uniforms` and `struct BodyUniforms`)
+- **Metal side:** `Renderer/Shaders.metal` (search for `struct Uniforms` and `struct BodyUniforms`)
+
+When modifying: maintain identical field order, matching types (`SIMD4<Float>` ↔ `float4`, `UInt32` ↔ `uint`), and 16-byte alignment for SIMD types.
 
 ### Camera System
 
@@ -83,11 +90,16 @@ Three rotation styles: **arcball** (Ken Shoemake virtual sphere), **turntable** 
 - All value types and configs are `Sendable`: `CameraState`, `ViewportBody`, `BoundingBox`, `Ray`, `ViewportConfiguration`, `GestureConfiguration`, `LightingConfiguration`
 - MetalKit imported with `@preconcurrency` for MTL type conformance
 - `ViewportBody` uses `nonisolated(unsafe)` only for its static generation counter
+- `@Published` properties fire on main thread — no `.receive(on:)` needed in Combine subscriptions
 
 ## Key Conventions
 
-- The public API surface is re-exported via typealiases in `Sources/OCCTSwiftViewport/OCCTSwiftViewport.swift`
-- `ViewportBody` has convenience factory methods (`.box()`, `.cylinder()`, `.sphere()`, `.torus()`) in `Primitives.swift` for testing and demos
-- Platform-specific code uses `#if os(iOS)` / `#elseif os(macOS)` blocks
-- macOS uses a custom `ScrollCaptureMTKView` subclass for scroll/mouse events
-- Tests use the Swift Testing framework (`import Testing`, `@Test`, `@Suite`), not XCTest
+- **Public API re-export:** `Sources/OCCTSwiftViewport/OCCTSwiftViewport.swift` uses underscore-prefixed typealiases (`public typealias _CameraState = CameraState`) to aggregate ~40 public types. Consumers import the module and use `_TypeName` directly.
+- **Primitives for testing:** `ViewportBody` has factory methods (`.box()`, `.cylinder()`, `.sphere()`, `.torus()`) in `Primitives.swift`
+- **Platform branching:** `#if os(iOS)` / `#elseif os(macOS)` within shared files (not separate files per platform). macOS uses a custom `ScrollCaptureMTKView` subclass for scroll/mouse events.
+- **Tests:** Swift Testing framework (`import Testing`, `@Test`, `@Suite`), not XCTest
+- **Configuration presets:** `LightingConfiguration` (`.threePoint`, `.studio`, `.architectural`, `.flat`), `GestureConfiguration` (`.blender`, `.fusion360`, `.default`), `RotationStyle` (`.cadDefault`, `.modelingDefault`)
+
+## Demo App
+
+`Sources/OCCTSwiftMetalDemo/` is a gallery-based demo app exercising OCCTSwift features. Entry point is `MetalSpikeApp.swift` → `SpikeView.swift`. Each OCCTSwift capability gets its own gallery file (e.g., `Curve2DGallery.swift`, `SurfaceGallery.swift`, `OCCT8Gallery.swift`). The `SelectionManager` handles body/face selection with highlighting. New demos for each OCCTSwift release are added as gallery functions — see existing galleries for the pattern.
