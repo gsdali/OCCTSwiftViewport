@@ -4822,6 +4822,142 @@ enum OCCT8Gallery {
         )
     }
 
+    // MARK: - v0.54–v0.55: TDF/OCAF Framework & TDataStd Attributes
+
+    /// Document framework: labels, transactions, undo/redo, attributes, tree nodes, named data.
+    static func ocafFramework() -> Curve2DGallery.GalleryResult {
+        var bodies: [ViewportBody] = []
+        var descriptions: [String] = []
+
+        // --- Section A: Document creation and label tree ---
+        guard let doc = Document.create() else {
+            return Curve2DGallery.GalleryResult(bodies: [], description: "Document.create() failed")
+        }
+
+        if let main = doc.mainLabel {
+            descriptions.append("MainLabel: tag=\(main.tag) depth=\(main.depth) isRoot=\(main.isRoot)")
+
+            // Create child labels
+            if let child1 = main.findChild(tag: 1, create: true),
+               let child2 = main.findChild(tag: 2, create: true),
+               let child3 = main.findChild(tag: 3, create: true) {
+
+                // Set names (TDataStd_Name)
+                child1.setName("Part_A")
+                child2.setName("Part_B")
+                child3.setName("Assembly")
+
+                descriptions.append("Children: \(main.childCount) created, hasChild=\(main.hasChild)")
+
+                // --- Section B: TDF_Reference ---
+                child3.setReference(to: child1)
+                if let ref = child3.referencedLabel {
+                    descriptions.append("Reference: child3 → tag=\(ref.tag)")
+                }
+
+                // --- Section C: Descendants ---
+                // Create grandchildren
+                if let gc1 = child3.findChild(tag: 1, create: true),
+                   let gc2 = child3.findChild(tag: 2, create: true) {
+                    gc1.setName("SubPart_1")
+                    gc2.setName("SubPart_2")
+                    let allDesc = main.descendants(allLevels: true)
+                    let directDesc = main.descendants(allLevels: false)
+                    descriptions.append("Descendants: \(directDesc.count) direct, \(allDesc.count) all levels")
+                }
+
+                // --- Section D: Transactions & Undo/Redo ---
+                doc.setUndoLimit(10)
+
+                doc.openTransaction()
+                child1.setName("Part_A_Modified")
+                doc.commitTransaction()
+
+                doc.openTransaction()
+                child2.setName("Part_B_Modified")
+                doc.commitTransaction()
+
+                descriptions.append("Transactions: undoLimit=\(doc.undoLimit) undos=\(doc.availableUndos) redos=\(doc.availableRedos)")
+
+                doc.undo()
+                descriptions.append("After undo: undos=\(doc.availableUndos) redos=\(doc.availableRedos)")
+
+                doc.redo()
+                descriptions.append("After redo: undos=\(doc.availableUndos) redos=\(doc.availableRedos)")
+
+                // --- Section E: Label copy ---
+                if let dest = main.findChild(tag: 10, create: true) {
+                    doc.copyLabel(from: child1, to: dest)
+                    descriptions.append("CopyLabel: child1 → tag=10, attrs=\(dest.attributeCount)")
+                }
+
+                // --- Section F: Modified tracking ---
+                doc.clearModified()
+                doc.setModified(child1)
+                descriptions.append("Modified: child1=\(doc.isModified(child1)) child2=\(doc.isModified(child2))")
+
+                // --- Section G: TDataStd Scalar Attributes (v0.55) ---
+                child1.setInteger(42)
+                child1.setReal(3.14159)
+                child1.setAsciiString("hello_ocaf")
+                child1.setComment("Test comment")
+                descriptions.append("Scalars: int=\(child1.integer ?? -1) real=\(String(format: "%.5f", child1.real ?? 0)) str=\(child1.asciiString ?? "nil")")
+                descriptions.append("Comment: \(child1.comment ?? "nil")")
+
+                // --- Section H: Integer/Real Arrays (v0.55) ---
+                child2.initIntegerArray(lower: 0, upper: 4)
+                for i: Int32 in 0...4 { child2.setIntegerArrayValue(at: i, value: i * 10) }
+                let arrVals = (0...4 as ClosedRange<Int32>).compactMap { child2.integerArrayValue(at: $0) }
+                descriptions.append("IntArray: \(arrVals)")
+
+                child2.initRealArray(lower: 1, upper: 3)
+                child2.setRealArrayValue(at: 1, value: 1.1)
+                child2.setRealArrayValue(at: 2, value: 2.2)
+                child2.setRealArrayValue(at: 3, value: 3.3)
+                if let bounds = child2.realArrayBounds {
+                    descriptions.append("RealArray: bounds=[\(bounds.lower)..\(bounds.upper)]")
+                }
+
+                // --- Section I: TreeNode hierarchy (v0.55) ---
+                child1.setTreeNode()
+                child2.setTreeNode()
+                child3.setTreeNode()
+                child1.appendTreeChild(child2)
+                child1.appendTreeChild(child3)
+                descriptions.append("TreeNode: child1 children=\(child1.treeNodeChildCount) depth=\(child1.treeNodeDepth)")
+                if let first = child1.treeNodeFirstChild {
+                    descriptions.append("TreeNode: firstChild tag=\(first.tag) hasFather=\(first.treeNodeHasFather)")
+                    if let next = first.treeNodeNext {
+                        descriptions.append("TreeNode: nextSibling tag=\(next.tag)")
+                    }
+                }
+
+                // --- Section J: NamedData key-value store (v0.55) ---
+                child1.setNamedInteger("count", value: 7)
+                child1.setNamedReal("weight", value: 12.5)
+                child1.setNamedString("material", value: "aluminum")
+                let hasCount = child1.hasNamedInteger("count")
+                let weight = child1.namedReal("weight")
+                let material = child1.namedString("material")
+                descriptions.append("NamedData: count=\(child1.namedInteger("count") ?? -1) has=\(hasCount)")
+                descriptions.append("NamedData: weight=\(String(format: "%.1f", weight ?? 0)) material=\(material ?? "nil")")
+            }
+        }
+
+        // Show a reference box so the viewport isn't empty
+        if let box = Shape.box(width: 4, height: 4, depth: 4) {
+            let (body, _) = CADFileLoader.shapeToBodyAndMetadata(
+                box, id: "ocaf-ref", color: SIMD4(0.5, 0.7, 0.9, 0.6)
+            )
+            if let body { bodies.append(body) }
+        }
+
+        return Curve2DGallery.GalleryResult(
+            bodies: bodies,
+            description: descriptions.joined(separator: "\n")
+        )
+    }
+
     private static func polylineToBody(
         _ points: [SIMD3<Float>],
         id: String,

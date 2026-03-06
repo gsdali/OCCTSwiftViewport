@@ -564,6 +564,7 @@ struct SpikeView: View {
         case transformsAndTopology
         case brepFillAndHealing
         case geometry2DCompletions
+        case ocafFramework
     }
 
     private var occt8DemoSection: some View {
@@ -613,6 +614,7 @@ struct SpikeView: View {
             Button("Transforms & Topology") { loadOCCT8Demo(.transformsAndTopology) }
             Button("BRepFill & Healing") { loadOCCT8Demo(.brepFillAndHealing) }
             Button("2D Geometry Suite") { loadOCCT8Demo(.geometry2DCompletions) }
+            Button("OCAF Framework") { loadOCCT8Demo(.ocafFramework) }
         }
     }
 
@@ -713,6 +715,8 @@ struct SpikeView: View {
             result = OCCT8Gallery.brepFillAndHealing()
         case .geometry2DCompletions:
             result = OCCT8Gallery.geometry2DCompletions()
+        case .ocafFramework:
+            result = OCCT8Gallery.ocafFramework()
         }
 
         bodies = result.bodies
