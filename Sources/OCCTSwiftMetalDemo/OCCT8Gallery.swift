@@ -4958,6 +4958,208 @@ enum OCCT8Gallery {
         )
     }
 
+    // MARK: - v0.56–v0.58: Geometric Attributes, Persistence, STEP Control
+
+    /// TDataXtd geometric attributes, TFunction framework, TNaming deep copy,
+    /// OCAF persistence (binary/XML save/load), STEP mode-controlled I/O.
+    static func ocafPersistenceAndSTEP() -> Curve2DGallery.GalleryResult {
+        var bodies: [ViewportBody] = []
+        var descriptions: [String] = []
+
+        guard let doc = Document.create() else {
+            return Curve2DGallery.GalleryResult(bodies: [], description: "Document.create() failed")
+        }
+
+        guard let main = doc.mainLabel else {
+            return Curve2DGallery.GalleryResult(bodies: [], description: "No main label")
+        }
+
+        // --- Section A: TDataXtd Shape + Position + Geometry attributes (v0.56) ---
+        if let child1 = main.findChild(tag: 1, create: true) {
+            child1.setName("GeomLabel")
+
+            // Store a shape attribute
+            if let box = Shape.box(width: 3, height: 3, depth: 3) {
+                child1.setShapeAttribute(box)
+                let hasShape = child1.hasShapeAttribute
+                let retrieved = child1.shapeAttribute()
+                descriptions.append("ShapeAttr: set=\(hasShape) retrieved=\(retrieved != nil)")
+
+                // Show the retrieved shape
+                if let shape = retrieved {
+                    let (body, _) = CADFileLoader.shapeToBodyAndMetadata(
+                        shape, id: "xtd-shape", color: SIMD4(0.5, 0.7, 0.9, 0.8)
+                    )
+                    if let body { bodies.append(body) }
+                }
+            }
+
+            // Position attribute
+            child1.setPositionAttribute(x: 1, y: 2, z: 3)
+            if let pos = child1.positionAttribute() {
+                descriptions.append("PositionAttr: (\(pos.x), \(pos.y), \(pos.z))")
+            }
+
+            // Geometry type
+            child1.setGeometryType(.cylinder)
+            if let gt = child1.geometryType() {
+                descriptions.append("GeometryType: \(gt)")
+            }
+
+            // Point/Axis/Plane attributes
+            child1.setPointAttribute(x: 0, y: 0, z: 0)
+            child1.setAxisAttribute(originX: 0, originY: 0, originZ: 0,
+                                     directionX: 0, directionY: 0, directionZ: 1)
+            child1.setPlaneAttribute(originX: 0, originY: 0, originZ: 0,
+                                      normalX: 0, normalY: 0, normalZ: 1)
+            descriptions.append("Point/Axis/Plane attrs set on GeomLabel")
+        }
+
+        // --- Section B: Triangulation attribute (v0.56) ---
+        if let child2 = main.findChild(tag: 2, create: true),
+           let sphere = Shape.sphere(radius: 2) {
+            child2.setTriangulationFromShape(sphere, deflection: 0.5)
+            let nodes = child2.triangulationNodeCount
+            let tris = child2.triangulationTriangleCount
+            let defl = child2.triangulationDeflection
+            descriptions.append("Triangulation: \(nodes) nodes, \(tris) tris, defl=\(String(format: "%.1f", defl))")
+
+            // Show the sphere
+            let (body, _) = CADFileLoader.shapeToBodyAndMetadata(
+                sphere, id: "xtd-tri-sphere", color: SIMD4(0.4, 0.8, 0.5, 0.7)
+            )
+            if var body {
+                offsetBody(&body, dx: 6, dy: 0, dz: 0)
+                bodies.append(body)
+            }
+        }
+
+        // --- Section C: TFunction framework (v0.56) ---
+        if let funcLabel = main.findChild(tag: 3, create: true),
+           let depLabel = main.findChild(tag: 4, create: true) {
+            // Logbook
+            funcLabel.setLogbook()
+            funcLabel.logbookSetTouched(depLabel)
+            let isModified = funcLabel.logbookIsModified(depLabel)
+            let isEmpty = funcLabel.logbookIsEmpty
+            descriptions.append("Logbook: touched=\(isModified) empty=\(isEmpty)")
+
+            funcLabel.logbookClear()
+            descriptions.append("Logbook: after clear empty=\(funcLabel.logbookIsEmpty)")
+
+            // GraphNode
+            funcLabel.setGraphNode()
+            depLabel.setGraphNode()
+            funcLabel.graphNodeAddNext(tag: depLabel.tag)
+            funcLabel.setGraphNodeStatus(.succeeded)
+            if let status = funcLabel.graphNodeStatus() {
+                descriptions.append("GraphNode: status=\(status)")
+            }
+
+            // Function attribute
+            funcLabel.setFunctionAttribute()
+            descriptions.append("Function: isFailed=\(funcLabel.functionIsFailed)")
+        }
+
+        // --- Section D: TNaming deep copy (v0.56) ---
+        if let cyl = Shape.cylinder(radius: 1.5, height: 4) {
+            if let copy = cyl.deepCopy() {
+                let (body, _) = CADFileLoader.shapeToBodyAndMetadata(
+                    copy, id: "deep-copy", color: SIMD4(0.9, 0.6, 0.3, 0.8)
+                )
+                if var body {
+                    offsetBody(&body, dx: -6, dy: 0, dz: 0)
+                    bodies.append(body)
+                }
+                descriptions.append("DeepCopy: cylinder copied OK")
+            }
+        }
+
+        // --- Section E: OCAF persistence (v0.57) ---
+        // Create a document with format and test save/load
+        if let binDoc = Document.create(format: "BinOcaf") {
+            binDoc.defineFormatBin()
+            if let docMain = binDoc.mainLabel,
+               let testLabel = docMain.findChild(tag: 1, create: true) {
+                testLabel.setName("Persistence_Test")
+                testLabel.setInteger(99)
+                testLabel.setReal(2.718)
+
+                let tmpPath = NSTemporaryDirectory() + "test_ocaf.cbf"
+                let saveStatus = binDoc.saveOCAF(to: tmpPath)
+                descriptions.append("SaveOCAF: status=\(saveStatus) isSaved=\(binDoc.isSaved)")
+
+                // Load it back
+                let (loaded, loadStatus) = Document.loadOCAF(from: tmpPath)
+                descriptions.append("LoadOCAF: status=\(loadStatus) loaded=\(loaded != nil)")
+                if let loaded, let lMain = loaded.mainLabel,
+                   let lChild = lMain.findChild(tag: 1) {
+                    descriptions.append("Loaded: int=\(lChild.integer ?? -1) real=\(String(format: "%.3f", lChild.real ?? 0))")
+                }
+
+                // Clean up
+                try? FileManager.default.removeItem(atPath: tmpPath)
+            }
+
+            // Format info
+            if let fmt = binDoc.storageFormat {
+                descriptions.append("Format: \(fmt)")
+            }
+            let rFormats = binDoc.readingFormats
+            let wFormats = binDoc.writingFormats
+            descriptions.append("Formats: \(rFormats.count) reading, \(wFormats.count) writing")
+        }
+
+        // --- Section F: STEP mode-controlled I/O (v0.58) ---
+        if let box = Shape.box(width: 5, height: 5, depth: 5) {
+            let tmpStep = NSTemporaryDirectory() + "test_v58.step"
+
+            // Export with model type
+            do {
+                try box.writeSTEP(to: URL(fileURLWithPath: tmpStep), modelType: .manifoldSolidBrep)
+                descriptions.append("STEP export: manifoldSolidBrep OK")
+            } catch {
+                descriptions.append("STEP export: \(error)")
+            }
+
+            // Root inspection
+            let rootCount = Shape.stepRootCount(path: tmpStep)
+            let shapeCount = Shape.stepShapeCount(path: tmpStep)
+            descriptions.append("STEP inspect: \(rootCount) roots, \(shapeCount) shapes")
+
+            // Import specific root
+            if rootCount > 0 {
+                do {
+                    let imported = try Shape.loadSTEPRoot(fromPath: tmpStep, rootIndex: 1)
+                    let (body, _) = CADFileLoader.shapeToBodyAndMetadata(
+                        imported, id: "step-root", color: SIMD4(0.7, 0.5, 0.9, 0.8)
+                    )
+                    if var body {
+                        offsetBody(&body, dx: 0, dy: 8, dz: 0)
+                        bodies.append(body)
+                    }
+                    descriptions.append("STEP root import: OK")
+                } catch {
+                    descriptions.append("STEP root import: \(error)")
+                }
+            }
+
+            // Mode-controlled document import
+            let modes = STEPReaderModes(color: true, name: true, layer: false, props: false)
+            if let stepDoc = Document.loadSTEP(fromPath: tmpStep, modes: modes) {
+                let roots = stepDoc.rootNodes
+                descriptions.append("STEP doc import: \(roots.count) roots (color+name only)")
+            }
+
+            try? FileManager.default.removeItem(atPath: tmpStep)
+        }
+
+        return Curve2DGallery.GalleryResult(
+            bodies: bodies,
+            description: descriptions.joined(separator: "\n")
+        )
+    }
+
     private static func polylineToBody(
         _ points: [SIMD3<Float>],
         id: String,
