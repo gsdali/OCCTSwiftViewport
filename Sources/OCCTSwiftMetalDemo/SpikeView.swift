@@ -153,6 +153,7 @@ struct SpikeView: View {
                         .padding(10)
                         .background(.ultraThinMaterial, in: Circle())
                 }
+                .accessibilityIdentifier("settingsButton")
                 .padding(12)
             }
             .overlay(alignment: .bottom) { statusOverlay }
@@ -186,31 +187,82 @@ struct SpikeView: View {
 
     private var sidebar: some View {
         List {
-            fileSection
-            exportSection
-            healingSection
-            analysisSection
-            curve2DDemoSection
-            curve3DDemoSection
-            surfaceDemoSection
-            sweepDemoSection
-            projectionDemoSection
-            plateDemoSection
-            medialAxisDemoSection
-            namingDemoSection
-            annotationDemoSection
-            occt8DemoSection
+            DisclosureGroup("File & Tools") {
+                fileSection
+                exportSection
+                healingSection
+                analysisSection
+            }
+
+            DisclosureGroup("Geometry Demos") {
+                DisclosureGroup("Curves 2D") {
+                    curve2DDemoButtons
+                }
+                DisclosureGroup("Curves 3D") {
+                    curve3DDemoButtons
+                }
+                DisclosureGroup("Surfaces") {
+                    surfaceDemoButtons
+                }
+                DisclosureGroup("Sweeps") {
+                    sweepDemoButtons
+                }
+                DisclosureGroup("Projections") {
+                    projectionDemoButtons
+                }
+                DisclosureGroup("Plates") {
+                    plateDemoButtons
+                }
+            }
+
+            DisclosureGroup("Modeling Demos") {
+                DisclosureGroup("Medial Axis") {
+                    medialAxisDemoButtons
+                }
+                DisclosureGroup("Naming") {
+                    namingDemoButtons
+                }
+                DisclosureGroup("Annotations") {
+                    annotationDemoButtons
+                }
+            }
+
+            DisclosureGroup("OCCT 8 Features") {
+                DisclosureGroup("Primitives & Analysis") {
+                    occt8PrimitivesButtons
+                }
+                DisclosureGroup("Modeling Operations") {
+                    occt8ModelingButtons
+                }
+                DisclosureGroup("Advanced Operations") {
+                    occt8AdvancedButtons
+                }
+                DisclosureGroup("Curves & Geometry") {
+                    occt8CurvesButtons
+                }
+                DisclosureGroup("Transforms & OCAF") {
+                    occt8TransformsButtons
+                }
+                DisclosureGroup("I/O & Assembly") {
+                    occt8IOButtons
+                }
+            }
+
             gdtSection
-            selectionModeSection
-            selectionSection
-            standardViewsSection
-            displayModeSection
-            overlaysSection
-            projectionSection
-            lightingSection
-            shadowSection
-            dofSection
-            taaSection
+
+            DisclosureGroup("Viewport") {
+                selectionModeSection
+                selectionSection
+                standardViewsSection
+                displayModeSection
+                overlaysSection
+                projectionSection
+                lightingSection
+                shadowSection
+                dofSection
+                taaSection
+            }
+
             statusSection
         }
         .navigationTitle("OCCTSwift Metal Demo")
@@ -318,13 +370,12 @@ struct SpikeView: View {
         case showcase, intersections, hatching, gcc
     }
 
-    private var curve2DDemoSection: some View {
-        Section("Curve2D Demos") {
-            Button("Curve Showcase") { loadCurve2DDemo(.showcase) }
-            Button("Intersections") { loadCurve2DDemo(.intersections) }
-            Button("Hatching") { loadCurve2DDemo(.hatching) }
-            Button("Tangent Circles") { loadCurve2DDemo(.gcc) }
-        }
+    @ViewBuilder
+    private var curve2DDemoButtons: some View {
+        Button("Curve Showcase") { loadCurve2DDemo(.showcase) }
+        Button("Intersections") { loadCurve2DDemo(.intersections) }
+        Button("Hatching") { loadCurve2DDemo(.hatching) }
+        Button("Tangent Circles") { loadCurve2DDemo(.gcc) }
     }
 
     // MARK: - Curve3D Demo Section
@@ -333,13 +384,12 @@ struct SpikeView: View {
         case showcase, helixAndSpirals, curvatureCombs, bsplineFitting
     }
 
-    private var curve3DDemoSection: some View {
-        Section("Curve3D Demos") {
-            Button("3D Curve Showcase") { loadCurve3DDemo(.showcase) }
-            Button("Helix & Spirals") { loadCurve3DDemo(.helixAndSpirals) }
-            Button("Curvature Combs") { loadCurve3DDemo(.curvatureCombs) }
-            Button("BSpline Fitting") { loadCurve3DDemo(.bsplineFitting) }
-        }
+    @ViewBuilder
+    private var curve3DDemoButtons: some View {
+        Button("3D Curve Showcase") { loadCurve3DDemo(.showcase) }
+        Button("Helix & Spirals") { loadCurve3DDemo(.helixAndSpirals) }
+        Button("Curvature Combs") { loadCurve3DDemo(.curvatureCombs) }
+        Button("BSpline Fitting") { loadCurve3DDemo(.bsplineFitting) }
     }
 
     private func loadCurve3DDemo(_ demo: Curve3DDemo) {
@@ -377,13 +427,12 @@ struct SpikeView: View {
         case constant, linearTaper, sCurve, interpolated
     }
 
-    private var sweepDemoSection: some View {
-        Section("Sweep Demos") {
-            Button("Constant Pipe") { loadSweepDemo(.constant) }
-            Button("Linear Taper") { loadSweepDemo(.linearTaper) }
-            Button("S-Curve Sweep") { loadSweepDemo(.sCurve) }
-            Button("Interpolated Sweep") { loadSweepDemo(.interpolated) }
-        }
+    @ViewBuilder
+    private var sweepDemoButtons: some View {
+        Button("Constant Pipe") { loadSweepDemo(.constant) }
+        Button("Linear Taper") { loadSweepDemo(.linearTaper) }
+        Button("S-Curve Sweep") { loadSweepDemo(.sCurve) }
+        Button("Interpolated Sweep") { loadSweepDemo(.interpolated) }
     }
 
     private func loadSweepDemo(_ demo: SweepDemo) {
@@ -420,13 +469,12 @@ struct SpikeView: View {
         case rectangle, lShape, thicknessMap, customProfile
     }
 
-    private var medialAxisDemoSection: some View {
-        Section("Medial Axis Demos") {
-            Button("Rectangle Skeleton") { loadMedialAxisDemo(.rectangle) }
-            Button("L-Shape Skeleton") { loadMedialAxisDemo(.lShape) }
-            Button("Thickness Map") { loadMedialAxisDemo(.thicknessMap) }
-            Button("Custom Profile") { loadMedialAxisDemo(.customProfile) }
-        }
+    @ViewBuilder
+    private var medialAxisDemoButtons: some View {
+        Button("Rectangle Skeleton") { loadMedialAxisDemo(.rectangle) }
+        Button("L-Shape Skeleton") { loadMedialAxisDemo(.lShape) }
+        Button("Thickness Map") { loadMedialAxisDemo(.thicknessMap) }
+        Button("Custom Profile") { loadMedialAxisDemo(.customProfile) }
     }
 
     private func loadMedialAxisDemo(_ demo: MedialAxisDemo) {
@@ -463,13 +511,12 @@ struct SpikeView: View {
         case primitive, modification, tracing, selection
     }
 
-    private var namingDemoSection: some View {
-        Section("Naming Demos") {
-            Button("Primitive History") { loadNamingDemo(.primitive) }
-            Button("Modification Tracking") { loadNamingDemo(.modification) }
-            Button("Forward/Backward Trace") { loadNamingDemo(.tracing) }
-            Button("Named Selection") { loadNamingDemo(.selection) }
-        }
+    @ViewBuilder
+    private var namingDemoButtons: some View {
+        Button("Primitive History") { loadNamingDemo(.primitive) }
+        Button("Modification Tracking") { loadNamingDemo(.modification) }
+        Button("Forward/Backward Trace") { loadNamingDemo(.tracing) }
+        Button("Named Selection") { loadNamingDemo(.selection) }
     }
 
     private func loadNamingDemo(_ demo: NamingDemo) {
@@ -506,13 +553,12 @@ struct SpikeView: View {
         case length, radial, angle, labelsAndCloud
     }
 
-    private var annotationDemoSection: some View {
-        Section("Annotation Demos") {
-            Button("Length Dimensions") { loadAnnotationDemo(.length) }
-            Button("Radius & Diameter") { loadAnnotationDemo(.radial) }
-            Button("Angle Dimensions") { loadAnnotationDemo(.angle) }
-            Button("Labels & Point Cloud") { loadAnnotationDemo(.labelsAndCloud) }
-        }
+    @ViewBuilder
+    private var annotationDemoButtons: some View {
+        Button("Length Dimensions") { loadAnnotationDemo(.length) }
+        Button("Radius & Diameter") { loadAnnotationDemo(.radial) }
+        Button("Angle Dimensions") { loadAnnotationDemo(.angle) }
+        Button("Labels & Point Cloud") { loadAnnotationDemo(.labelsAndCloud) }
     }
 
     private func loadAnnotationDemo(_ demo: AnnotationDemo) {
@@ -566,58 +612,113 @@ struct SpikeView: View {
         case geometry2DCompletions
         case ocafFramework
         case ocafPersistenceAndSTEP
+        case fileIOFormats
+        case xdeAssembly
+        case splitAndContours
+        case pointCloudAndRays
+        case curvatureAndIntersection
+        case trihedronsAndFilling
+        case featBooleansAndContours
+        case tkG2dToolkit
+        case fairCurveAndAnalysis
+        case curveTransAndGeomFill
+        case plateAndGeomFill
+        case tkBoolIntersection
+        case tkFeatOps
+        case tkFilletOps
+        case tkHlrOps
+        case meshAndValidation
+        case blendAndSampling
     }
 
-    private var occt8DemoSection: some View {
-        Section("OCCT 8 Features") {
-            Button("Helix Curves") { loadOCCT8Demo(.helixCurves) }
-            Button("KD-Tree Queries") { loadOCCT8Demo(.kdTree) }
-            Button("Wedge Primitives") { loadOCCT8Demo(.wedges) }
-            Button("Hatch Patterns") { loadOCCT8Demo(.hatchPatterns) }
-            Button("Shape Operations") { loadOCCT8Demo(.shapeOps) }
-            Button("Polynomial Roots") { loadOCCT8Demo(.polynomials) }
-            Button("Transforms & Offset") { loadOCCT8Demo(.transformOps) }
-            Button("Shape Analysis") { loadOCCT8Demo(.shapeAnalysis) }
-            Button("Intersection Analysis") { loadOCCT8Demo(.intersections) }
-            Button("Volume & Connected") { loadOCCT8Demo(.volumeOps) }
-            Button("Curve Sampling") { loadOCCT8Demo(.quasiUniform) }
-            Button("Bezier Surface Fill") { loadOCCT8Demo(.bezierFill) }
-            Button("Revolution from Curve") { loadOCCT8Demo(.revolution) }
-            Button("Linear Rib") { loadOCCT8Demo(.linearRib) }
-            Button("Asymmetric Chamfer") { loadOCCT8Demo(.asymmetricChamfer) }
-            Button("Loft Advanced") { loadOCCT8Demo(.loftAdvanced) }
-            Button("Offset by Join") { loadOCCT8Demo(.offsetByJoin) }
-            Button("Feature Ops") { loadOCCT8Demo(.featureOps) }
-            Button("Pipe Transitions") { loadOCCT8Demo(.pipeTransitions) }
-            Button("Face from Surface") { loadOCCT8Demo(.faceFromSurface) }
-            Button("Section & Validation") { loadOCCT8Demo(.sectionAndValidation) }
-            Button("Shape Repair") { loadOCCT8Demo(.shapeRepair) }
-            Button("Multi-Fuse") { loadOCCT8Demo(.multiFuse) }
-            Button("Split Face by Wire") { loadOCCT8Demo(.splitFaceByWire) }
-            Button("Projection & Offset") { loadOCCT8Demo(.projectionAndOffset) }
-            Button("Face Division") { loadOCCT8Demo(.faceDivision) }
-            Button("Hollow & Analysis") { loadOCCT8Demo(.hollowAndAnalysis) }
-            Button("Oriented Bounding Box") { loadOCCT8Demo(.orientedBoundingBox) }
-            Button("Fuse & Blend") { loadOCCT8Demo(.fuseAndBlend) }
-            Button("Variable Offset") { loadOCCT8Demo(.variableOffset) }
-            Button("Free Bounds & Features") { loadOCCT8Demo(.freeBoundsAndFeatures) }
-            Button("Inertia & Distance") { loadOCCT8Demo(.inertiaAndDistance) }
-            Button("Surgery & Detection") { loadOCCT8Demo(.surgeryAndDetection) }
-            Button("Solid & 2D Fillets") { loadOCCT8Demo(.solidAnd2DFillets) }
-            Button("BSpline Fill & Subdivision") { loadOCCT8Demo(.bsplineFillAndSubdivision) }
-            Button("Extrema & Arcs") { loadOCCT8Demo(.extremaAndArcs) }
-            Button("Filling & Self-Intersection") { loadOCCT8Demo(.fillingAndSelfIntersection) }
-            Button("Concavity & Inertia") { loadOCCT8Demo(.concavityAndInertia) }
-            Button("Local Ops & Validation") { loadOCCT8Demo(.localOpsAndValidation) }
-            Button("Split Ops & Extrema") { loadOCCT8Demo(.splitOpsAndExtrema) }
-            Button("Extrema & Curve Analysis") { loadOCCT8Demo(.extremaAndCurveAnalysis) }
-            Button("Conics & Poly Distance") { loadOCCT8Demo(.conicsAndPolyDistance) }
-            Button("Transforms & Topology") { loadOCCT8Demo(.transformsAndTopology) }
-            Button("BRepFill & Healing") { loadOCCT8Demo(.brepFillAndHealing) }
-            Button("2D Geometry Suite") { loadOCCT8Demo(.geometry2DCompletions) }
-            Button("OCAF Framework") { loadOCCT8Demo(.ocafFramework) }
-            Button("OCAF Persistence & STEP") { loadOCCT8Demo(.ocafPersistenceAndSTEP) }
-        }
+    // MARK: - OCCT 8 Sub-groups
+
+    @ViewBuilder
+    private var occt8PrimitivesButtons: some View {
+        Button("Helix Curves") { loadOCCT8Demo(.helixCurves) }
+        Button("KD-Tree Queries") { loadOCCT8Demo(.kdTree) }
+        Button("Wedge Primitives") { loadOCCT8Demo(.wedges) }
+        Button("Hatch Patterns") { loadOCCT8Demo(.hatchPatterns) }
+        Button("Shape Operations") { loadOCCT8Demo(.shapeOps) }
+        Button("Polynomial Roots") { loadOCCT8Demo(.polynomials) }
+        Button("Transforms & Offset") { loadOCCT8Demo(.transformOps) }
+        Button("Shape Analysis") { loadOCCT8Demo(.shapeAnalysis) }
+        Button("Intersection Analysis") { loadOCCT8Demo(.intersections) }
+        Button("Volume & Connected") { loadOCCT8Demo(.volumeOps) }
+        Button("Curve Sampling") { loadOCCT8Demo(.quasiUniform) }
+        Button("Bezier Surface Fill") { loadOCCT8Demo(.bezierFill) }
+    }
+
+    @ViewBuilder
+    private var occt8ModelingButtons: some View {
+        Button("Revolution from Curve") { loadOCCT8Demo(.revolution) }
+        Button("Linear Rib") { loadOCCT8Demo(.linearRib) }
+        Button("Asymmetric Chamfer") { loadOCCT8Demo(.asymmetricChamfer) }
+        Button("Loft Advanced") { loadOCCT8Demo(.loftAdvanced) }
+        Button("Offset by Join") { loadOCCT8Demo(.offsetByJoin) }
+        Button("Feature Ops") { loadOCCT8Demo(.featureOps) }
+        Button("Pipe Transitions") { loadOCCT8Demo(.pipeTransitions) }
+        Button("Face from Surface") { loadOCCT8Demo(.faceFromSurface) }
+        Button("Section & Validation") { loadOCCT8Demo(.sectionAndValidation) }
+        Button("Shape Repair") { loadOCCT8Demo(.shapeRepair) }
+        Button("Multi-Fuse") { loadOCCT8Demo(.multiFuse) }
+        Button("Split Face by Wire") { loadOCCT8Demo(.splitFaceByWire) }
+    }
+
+    @ViewBuilder
+    private var occt8AdvancedButtons: some View {
+        Button("Projection & Offset") { loadOCCT8Demo(.projectionAndOffset) }
+        Button("Face Division") { loadOCCT8Demo(.faceDivision) }
+        Button("Hollow & Analysis") { loadOCCT8Demo(.hollowAndAnalysis) }
+        Button("Oriented Bounding Box") { loadOCCT8Demo(.orientedBoundingBox) }
+        Button("Fuse & Blend") { loadOCCT8Demo(.fuseAndBlend) }
+        Button("Variable Offset") { loadOCCT8Demo(.variableOffset) }
+        Button("Free Bounds & Features") { loadOCCT8Demo(.freeBoundsAndFeatures) }
+        Button("Inertia & Distance") { loadOCCT8Demo(.inertiaAndDistance) }
+        Button("Surgery & Detection") { loadOCCT8Demo(.surgeryAndDetection) }
+        Button("Solid & 2D Fillets") { loadOCCT8Demo(.solidAnd2DFillets) }
+        Button("BSpline Fill & Subdivision") { loadOCCT8Demo(.bsplineFillAndSubdivision) }
+        Button("Extrema & Arcs") { loadOCCT8Demo(.extremaAndArcs) }
+    }
+
+    @ViewBuilder
+    private var occt8CurvesButtons: some View {
+        Button("Filling & Self-Intersection") { loadOCCT8Demo(.fillingAndSelfIntersection) }
+        Button("Concavity & Inertia") { loadOCCT8Demo(.concavityAndInertia) }
+        Button("Local Ops & Validation") { loadOCCT8Demo(.localOpsAndValidation) }
+        Button("Split Ops & Extrema") { loadOCCT8Demo(.splitOpsAndExtrema) }
+        Button("Extrema & Curve Analysis") { loadOCCT8Demo(.extremaAndCurveAnalysis) }
+        Button("Conics & Poly Distance") { loadOCCT8Demo(.conicsAndPolyDistance) }
+    }
+
+    @ViewBuilder
+    private var occt8TransformsButtons: some View {
+        Button("Transforms & Topology") { loadOCCT8Demo(.transformsAndTopology) }
+        Button("BRepFill & Healing") { loadOCCT8Demo(.brepFillAndHealing) }
+        Button("2D Geometry Suite") { loadOCCT8Demo(.geometry2DCompletions) }
+        Button("OCAF Framework") { loadOCCT8Demo(.ocafFramework) }
+        Button("OCAF Persistence & STEP") { loadOCCT8Demo(.ocafPersistenceAndSTEP) }
+    }
+
+    @ViewBuilder
+    private var occt8IOButtons: some View {
+        Button("File I/O Formats") { loadOCCT8Demo(.fileIOFormats) }
+        Button("XDE Assembly") { loadOCCT8Demo(.xdeAssembly) }
+        Button("Split & Contours") { loadOCCT8Demo(.splitAndContours) }
+        Button("Point Cloud & Rays") { loadOCCT8Demo(.pointCloudAndRays) }
+        Button("Curvature & Intersection") { loadOCCT8Demo(.curvatureAndIntersection) }
+        Button("Trihedrons & Filling") { loadOCCT8Demo(.trihedronsAndFilling) }
+        Button("Feat Booleans & Contours") { loadOCCT8Demo(.featBooleansAndContours) }
+        Button("TkG2d Toolkit") { loadOCCT8Demo(.tkG2dToolkit) }
+        Button("FairCurve & Analysis") { loadOCCT8Demo(.fairCurveAndAnalysis) }
+        Button("CurveTrans & GeomFill") { loadOCCT8Demo(.curveTransAndGeomFill) }
+        Button("Plate & GeomFill") { loadOCCT8Demo(.plateAndGeomFill) }
+        Button("TKBool Intersection") { loadOCCT8Demo(.tkBoolIntersection) }
+        Button("TKFeat Operations") { loadOCCT8Demo(.tkFeatOps) }
+        Button("TKFillet Operations") { loadOCCT8Demo(.tkFilletOps) }
+        Button("HLR & Reflect Lines") { loadOCCT8Demo(.tkHlrOps) }
+        Button("Mesh & Validation") { loadOCCT8Demo(.meshAndValidation) }
+        Button("Blend & Sampling") { loadOCCT8Demo(.blendAndSampling) }
     }
 
     private func loadOCCT8Demo(_ demo: OCCT8Demo) {
@@ -721,6 +822,41 @@ struct SpikeView: View {
             result = OCCT8Gallery.ocafFramework()
         case .ocafPersistenceAndSTEP:
             result = OCCT8Gallery.ocafPersistenceAndSTEP()
+        case .fileIOFormats:
+            result = OCCT8Gallery.fileIOFormats()
+        case .xdeAssembly:
+            result = OCCT8Gallery.xdeAssembly()
+        case .splitAndContours:
+            result = OCCT8Gallery.splitAndContours()
+        case .pointCloudAndRays:
+            result = OCCT8Gallery.pointCloudAndRays()
+        case .curvatureAndIntersection:
+            result = OCCT8Gallery.curvatureAndIntersection()
+        case .trihedronsAndFilling:
+            result = OCCT8Gallery.trihedronsAndFilling()
+        case .featBooleansAndContours:
+            result = OCCT8Gallery.featBooleansAndContours()
+        case .tkG2dToolkit:
+            result = OCCT8Gallery.tkG2dToolkit()
+            useTopView = true
+        case .fairCurveAndAnalysis:
+            result = OCCT8Gallery.fairCurveAndAnalysis()
+        case .curveTransAndGeomFill:
+            result = OCCT8Gallery.curveTransAndGeomFill()
+        case .plateAndGeomFill:
+            result = OCCT8Gallery.plateAndGeomFill()
+        case .tkBoolIntersection:
+            result = OCCT8Gallery.tkBoolIntersection()
+        case .tkFeatOps:
+            result = OCCT8Gallery.tkFeatOps()
+        case .tkFilletOps:
+            result = OCCT8Gallery.tkFilletOps()
+        case .tkHlrOps:
+            result = OCCT8Gallery.tkHlrOps()
+        case .meshAndValidation:
+            result = OCCT8Gallery.meshAndValidation()
+        case .blendAndSampling:
+            result = OCCT8Gallery.blendAndSampling()
         }
 
         bodies = result.bodies
@@ -744,13 +880,12 @@ struct SpikeView: View {
         case curveOnCylinder, curveOnSphere, composite, pointProjection
     }
 
-    private var projectionDemoSection: some View {
-        Section("Projection Demos") {
-            Button("Curve on Cylinder") { loadProjectionDemo(.curveOnCylinder) }
-            Button("Curve on Sphere") { loadProjectionDemo(.curveOnSphere) }
-            Button("Composite Projection") { loadProjectionDemo(.composite) }
-            Button("Point Projection") { loadProjectionDemo(.pointProjection) }
-        }
+    @ViewBuilder
+    private var projectionDemoButtons: some View {
+        Button("Curve on Cylinder") { loadProjectionDemo(.curveOnCylinder) }
+        Button("Curve on Sphere") { loadProjectionDemo(.curveOnSphere) }
+        Button("Composite Projection") { loadProjectionDemo(.composite) }
+        Button("Point Projection") { loadProjectionDemo(.pointProjection) }
     }
 
     private func loadProjectionDemo(_ demo: ProjectionDemo) {
@@ -787,12 +922,11 @@ struct SpikeView: View {
         case fromPoints, deformed, tangent
     }
 
-    private var plateDemoSection: some View {
-        Section("Plate Demos") {
-            Button("Plate from Points") { loadPlateDemo(.fromPoints) }
-            Button("Deformed Plate (G0)") { loadPlateDemo(.deformed) }
-            Button("Tangent Deformation (G1)") { loadPlateDemo(.tangent) }
-        }
+    @ViewBuilder
+    private var plateDemoButtons: some View {
+        Button("Plate from Points") { loadPlateDemo(.fromPoints) }
+        Button("Deformed Plate (G0)") { loadPlateDemo(.deformed) }
+        Button("Tangent Deformation (G1)") { loadPlateDemo(.tangent) }
     }
 
     private func loadPlateDemo(_ demo: PlateDemo) {
@@ -860,14 +994,13 @@ struct SpikeView: View {
         case analytic, swept, freeform, pipe, isoCurves
     }
 
-    private var surfaceDemoSection: some View {
-        Section("Surface Demos") {
-            Button("Analytic Surfaces") { loadSurfaceDemo(.analytic) }
-            Button("Swept Surfaces") { loadSurfaceDemo(.swept) }
-            Button("Freeform Surfaces") { loadSurfaceDemo(.freeform) }
-            Button("Pipe Surfaces") { loadSurfaceDemo(.pipe) }
-            Button("Iso Curves") { loadSurfaceDemo(.isoCurves) }
-        }
+    @ViewBuilder
+    private var surfaceDemoButtons: some View {
+        Button("Analytic Surfaces") { loadSurfaceDemo(.analytic) }
+        Button("Swept Surfaces") { loadSurfaceDemo(.swept) }
+        Button("Freeform Surfaces") { loadSurfaceDemo(.freeform) }
+        Button("Pipe Surfaces") { loadSurfaceDemo(.pipe) }
+        Button("Iso Curves") { loadSurfaceDemo(.isoCurves) }
     }
 
     private func loadSurfaceDemo(_ demo: SurfaceDemo) {

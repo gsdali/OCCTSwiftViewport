@@ -14,7 +14,7 @@ OCCTSwiftViewport is a reusable Metal-based 3D viewport library for CAD applicat
 # Build (Swift Package Manager)
 swift build
 
-# Run all tests (Swift Testing framework, 5 suites)
+# Run all tests (Swift Testing framework, 9 suites)
 swift test
 
 # Run a single test suite
@@ -58,6 +58,8 @@ ViewportController (@MainActor, ObservableObject — central hub)
       ├─ Wireframe pipeline (contrast-adaptive edges, depth-biased)
       ├─ Grid pipeline (adaptive instanced dots)
       ├─ Axes pipeline (RGB colored lines)
+      ├─ Shadow map pipeline (ShadowMapManager — directional light depth pass)
+      ├─ Environment map (EnvironmentMapManager — image-based lighting)
       └─ Pick ID texture (R32Uint second color attachment, TBDR imageblock-based)
 ```
 
@@ -69,7 +71,7 @@ ViewportController (@MainActor, ObservableObject — central hub)
 
 ### GPU Picking
 
-Pick IDs are encoded as `objectIndex | (primitiveID << 16)` into a R32Uint texture rendered as a second color attachment. `PickTextureManager` handles texture lifecycle. CPU-side raycasting (`SceneRaycast`) provides broadphase AABB culling then narrowphase Moller-Trumbore triangle intersection.
+Pick IDs are encoded as `objectIndex | (primitiveID << 16)` into a R32Uint texture rendered as a second color attachment. `PickTextureManager` handles texture lifecycle. CPU-side raycasting (`SceneRaycast`) provides broadphase AABB culling then narrowphase Moller-Trumbore triangle intersection. `ProjectionUtility` provides screen-space ↔ world-space coordinate conversion.
 
 ### Shaders & Uniform Struct Sync
 
@@ -99,7 +101,9 @@ Three rotation styles: **arcball** (Ken Shoemake virtual sphere), **turntable** 
 - **Platform branching:** `#if os(iOS)` / `#elseif os(macOS)` within shared files (not separate files per platform). macOS uses a custom `ScrollCaptureMTKView` subclass for scroll/mouse events.
 - **Tests:** Swift Testing framework (`import Testing`, `@Test`, `@Suite`), not XCTest
 - **Configuration presets:** `LightingConfiguration` (`.threePoint`, `.studio`, `.architectural`, `.flat`), `GestureConfiguration` (`.blender`, `.fusion360`, `.default`), `RotationStyle` (`.cadDefault`, `.modelingDefault`)
+- **Clip planes:** `ClipPlane` in `Configuration/` for section views
+- **Measurements:** `Measurement` type + `MeasurementOverlay` SwiftUI view for dimension display
 
 ## Demo App
 
-`Sources/OCCTSwiftMetalDemo/` is a gallery-based demo app exercising OCCTSwift features. Entry point is `MetalSpikeApp.swift` → `SpikeView.swift`. Each OCCTSwift capability gets its own gallery file (e.g., `Curve2DGallery.swift`, `SurfaceGallery.swift`, `OCCT8Gallery.swift`). The `SelectionManager` handles body/face selection with highlighting. New demos for each OCCTSwift release are added as gallery functions — see existing galleries for the pattern.
+`Sources/OCCTSwiftMetalDemo/` is a gallery-based demo app exercising OCCTSwift features. Entry point is `MetalSpikeApp.swift` → `SpikeView.swift`. Each OCCTSwift capability gets its own gallery file (e.g., `Curve2DGallery.swift`, `SurfaceGallery.swift`, `OCCT8Gallery.swift`, `NamingGallery.swift`, `AnnotationGallery.swift`). The `SelectionManager` handles body/face selection with highlighting. `CADFileLoader` handles STEP/STL file import. New demos for each OCCTSwift release are added as gallery functions — see existing galleries for the pattern.

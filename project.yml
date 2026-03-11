@@ -38,3 +38,29 @@ targets:
           SWIFT_OPTIMIZATION_LEVEL: "-Onone"
         release:
           SWIFT_OPTIMIZATION_LEVEL: "-O"
+
+  OCCTSwiftMetalDemoUITests_macOS:
+    type: bundle.ui-testing
+    platform: macOS
+    sources:
+      - path: UITests/OCCTSwiftMetalDemoUITests
+    dependencies:
+      - target: OCCTSwiftMetalDemo_macOS
+    settings:
+      base:
+        SWIFT_VERSION: "6.0"
+        PRODUCT_BUNDLE_IDENTIFIER: com.occtswift.metal-demo.uitests
+        GENERATE_INFOPLIST_FILE: YES
+
+  OCCTSwiftMetalDemoUITests_iOS:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - path: UITests/OCCTSwiftMetalDemoUITests
+    dependencies:
+      - target: OCCTSwiftMetalDemo_iOS
+    settings:
+      base:
+        SWIFT_VERSION: "6.0"
+        PRODUCT_BUNDLE_IDENTIFIER: com.occtswift.metal-demo.uitests
+        GENERATE_INFOPLIST_FILE: YES
