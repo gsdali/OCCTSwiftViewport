@@ -7196,4 +7196,205 @@ enum OCCT8Gallery {
             description: descriptions.joined(separator: " | ")
         )
     }
+
+    // MARK: - v0.79: Evolved, DistanceSS, CoherentTri, GeomFill Advanced
+
+    /// Demonstrates CoherentTriangulation, evolved shapes, sub-shape distance,
+    /// Gauss-Kronrod volume, curve profiling, stretch fill, and section placement.
+    static func evolvedAndMeshOps() -> Curve2DGallery.GalleryResult {
+        var bodies: [ViewportBody] = []
+        var descriptions: [String] = []
+
+        // --- CoherentTriangulation: manual mesh ---
+        let ct = CoherentTriangulation.create()
+        let n0 = ct.setNode(x: 0, y: 0, z: 0)
+        let n1 = ct.setNode(x: 3, y: 0, z: 0)
+        let n2 = ct.setNode(x: 1.5, y: 3, z: 0)
+        let n3 = ct.setNode(x: 3, y: 3, z: 0)
+        _ = ct.addTriangle(n0, n1, n2)
+        _ = ct.addTriangle(n1, n3, n2)
+        let links = ct.computeLinks()
+        descriptions.append("CoherentTri: \(ct.triangleCount) tris, \(links) links")
+
+        // Visualize triangle edges
+        if let c0 = ct.nodeCoords(at: n0), let c1 = ct.nodeCoords(at: n1),
+           let c2 = ct.nodeCoords(at: n2), let c3 = ct.nodeCoords(at: n3) {
+            let p0 = SIMD3<Float>(Float(c0.x), Float(c0.y), Float(c0.z))
+            let p1 = SIMD3<Float>(Float(c1.x), Float(c1.y), Float(c1.z))
+            let p2 = SIMD3<Float>(Float(c2.x), Float(c2.y), Float(c2.z))
+            let p3 = SIMD3<Float>(Float(c3.x), Float(c3.y), Float(c3.z))
+            bodies.append(polylineToBody([p0, p1, p2, p0], id: "ct-t1", color: SIMD4(0.3, 0.8, 0.4, 1)))
+            bodies.append(polylineToBody([p1, p3, p2, p1], id: "ct-t2", color: SIMD4(0.4, 0.6, 0.9, 1)))
+        }
+
+        // --- BRepExtrema_DistanceSS ---
+        if let box1 = Shape.box(width: 2, height: 2, depth: 2),
+           let box2 = Shape.box(width: 2, height: 2, depth: 2) {
+            let moved = box2.translated(by: SIMD3(5, 0, 0))
+            if let movedShape = moved {
+                let distResult = box1.distanceSS(to: movedShape)
+                descriptions.append("DistSS: \(String(format: "%.2f", distResult.distance)) (\(distResult.solutionCount) sols)")
+
+                if let b1 = CADFileLoader.shapeToBodyAndMetadata(
+                    box1, id: "dist-b1", color: SIMD4(0.4, 0.7, 0.9, 1)).0 {
+                    bodies.append(b1)
+                }
+                if let b2 = CADFileLoader.shapeToBodyAndMetadata(
+                    movedShape, id: "dist-b2", color: SIMD4(0.9, 0.5, 0.3, 1)).0 {
+                    bodies.append(b2)
+                }
+                // Draw distance line
+                let dp1 = distResult.point1
+                let dp2 = distResult.point2
+                let fp1 = SIMD3<Float>(Float(dp1.x), Float(dp1.y), Float(dp1.z))
+                let fp2 = SIMD3<Float>(Float(dp2.x), Float(dp2.y), Float(dp2.z))
+                bodies.append(polylineToBody([fp1, fp2], id: "dist-line", color: SIMD4(1, 1, 0, 1)))
+            }
+        }
+
+        // --- VinertGK (Gauss-Kronrod volume) ---
+        if let cyl = Shape.cylinder(radius: 2, height: 4) {
+            let gk = cyl.vinertGK()
+            descriptions.append("VinertGK: mass=\(String(format: "%.2f", gk.mass))")
+        }
+
+        // --- CurveProfiler ---
+        if let c1 = Curve3D.circle(center: SIMD3(10, 0, 0), normal: SIMD3(0, 0, 1), radius: 1),
+           let c2 = Curve3D.circle(center: SIMD3(10, 0, 3), normal: SIMD3(0, 0, 1), radius: 2) {
+            let profiler = CurveProfiler.create()
+            profiler.addCurve(c1)
+            profiler.addCurve(c2)
+            if profiler.perform() {
+                descriptions.append("Profiler: deg=\(profiler.degree) poles=\(profiler.poleCount)")
+            }
+        }
+
+        // --- Stretch fill surface ---
+        let sf1: [SIMD3<Double>] = [SIMD3(0, 8, 0), SIMD3(1, 8, 0), SIMD3(2, 8, 0), SIMD3(3, 8, 0)]
+        let sf2: [SIMD3<Double>] = [SIMD3(3, 8, 0), SIMD3(3, 9, 0), SIMD3(3, 10, 0), SIMD3(3, 11, 0)]
+        let sf3: [SIMD3<Double>] = [SIMD3(3, 11, 0), SIMD3(2, 11, 1), SIMD3(1, 11, 1), SIMD3(0, 11, 0)]
+        let sf4: [SIMD3<Double>] = [SIMD3(0, 11, 0), SIMD3(0, 10, 0), SIMD3(0, 9, 0), SIMD3(0, 8, 0)]
+        if let stretchResult = Surface.stretchFill(p1: sf1, p2: sf2, p3: sf3, p4: sf4) {
+            descriptions.append("StretchFill: \(stretchResult.nbUPoles)x\(stretchResult.nbVPoles) poles")
+        }
+
+        // --- Section placement ---
+        if let path = Curve3D.line(through: SIMD3(0, 0, 0), direction: SIMD3(0, 0, 1)),
+           let section = Curve3D.circle(center: SIMD3(0, 0, 0), normal: SIMD3(0, 0, 1), radius: 1) {
+            let placement = path.sectionPlacement(section: section)
+            descriptions.append("SectPlace: param=\(String(format: "%.2f", placement.parameterOnPath)) done=\(placement.isDone)")
+        }
+
+        return Curve2DGallery.GalleryResult(
+            bodies: bodies,
+            description: descriptions.joined(separator: " | ")
+        )
+    }
+
+    // MARK: - v0.80: Extrema, Geometry Factories, Serialization
+
+    /// Demonstrates curve/surface extrema, gce_* geometry factories,
+    /// GeomTools serialization, and ProjLib projection.
+    static func extremaAndFactories() -> Curve2DGallery.GalleryResult {
+        var bodies: [ViewportBody] = []
+        var descriptions: [String] = []
+
+        // --- Curve-Curve extrema ---
+        if let c1 = Curve3D.line(through: SIMD3(0, 0, 0), direction: SIMD3(1, 0, 0)),
+           let c2 = Curve3D.line(through: SIMD3(0, 3, 0), direction: SIMD3(0, 0, 1)) {
+            let ext = c1.extremaCC(other: c2)
+            descriptions.append("ExtremaCC: \(ext.count) sols parallel=\(ext.isParallel)")
+            if ext.count > 0 {
+                let pt = c1.extremaCCPoint(other: c2, index: 0)
+                descriptions.append("MinDist: \(String(format: "%.2f", sqrt(pt.squareDistance)))")
+                bodies.append(polylineToBody([
+                    SIMD3(Float(pt.point1.x), Float(pt.point1.y), Float(pt.point1.z)),
+                    SIMD3(Float(pt.point2.x), Float(pt.point2.y), Float(pt.point2.z))
+                ], id: "ext-cc", color: SIMD4(1, 0.5, 0, 1)))
+            }
+        }
+
+        // --- Curve-Surface extrema ---
+        if let line = Curve3D.line(through: SIMD3(0, 5, 0), direction: SIMD3(0, 0, 1)),
+           let surf = Surface.sphere(center: SIMD3(2, 5, 0), radius: 1) {
+            let csExt = line.extremaCS(surface: surf)
+            descriptions.append("ExtremaCS: \(csExt.count) sols")
+        }
+
+        // --- Point-Surface extrema ---
+        if let surf = Surface.plane(origin: SIMD3(0, 0, 0), normal: SIMD3(0, 0, 1)) {
+            let psExt = surf.extremaPS(point: SIMD3(3, 4, 5))
+            descriptions.append("ExtremaPS: \(psExt.count) sols")
+            if psExt.count > 0 {
+                let closest = surf.extremaPSPoint(point: SIMD3(3, 4, 5), index: 0)
+                descriptions.append("PtDist: \(String(format: "%.2f", sqrt(closest.squareDistance)))")
+            }
+        }
+
+        // --- gce factories: circle through 3 points ---
+        let p1 = SIMD3<Double>(0, 0, 0)
+        let p2 = SIMD3<Double>(4, 0, 0)
+        let p3 = SIMD3<Double>(2, 3, 0)
+        if let circle3 = Curve3D.circleThrough3Points(p1, p2, p3) {
+            let pts = circle3.samplePoints(first: circle3.domain.lowerBound,
+                                            last: circle3.domain.upperBound, maxPoints: 40)
+            let fPts = pts.map { SIMD3(Float($0.x), Float($0.y), Float($0.z)) }
+            bodies.append(polylineToBody(fPts, id: "circ3pt", color: SIMD4(0.3, 0.8, 0.3, 1)))
+            descriptions.append("Circle3Pt: \(pts.count) pts")
+        }
+
+        // --- gce factory: ellipse ---
+        if let ellipse = Curve3D.ellipseFromCenterNormal(
+            center: SIMD3(10, 0, 0), normal: SIMD3(0, 0, 1),
+            majorRadius: 3, minorRadius: 1.5) {
+            let pts = ellipse.samplePoints(first: ellipse.domain.lowerBound,
+                                            last: ellipse.domain.upperBound, maxPoints: 40)
+            let fPts = pts.map { SIMD3(Float($0.x), Float($0.y), Float($0.z)) }
+            bodies.append(polylineToBody(fPts, id: "ellipse", color: SIMD4(0.8, 0.3, 0.8, 1)))
+            descriptions.append("Ellipse: \(pts.count) pts")
+        }
+
+        // --- gce factory: parabola ---
+        if let parab = Curve3D.parabolaFromCenterNormal(
+            center: SIMD3(0, 8, 0), normal: SIMD3(0, 0, 1), focal: 1.0) {
+            let pts = parab.samplePoints(first: -3, last: 3, maxPoints: 30)
+            let fPts = pts.map { SIMD3(Float($0.x), Float($0.y), Float($0.z)) }
+            bodies.append(polylineToBody(fPts, id: "parab", color: SIMD4(0.9, 0.6, 0.2, 1)))
+            descriptions.append("Parabola: \(pts.count) pts")
+        }
+
+        // --- 2D geometry factories ---
+        if let circ2d = Curve2D.circleFromCenterRadius(center: SIMD2(0, 0), radius: 2) {
+            let pts = sampleCurve2D(circ2d, count: 40)
+            bodies.append(polylineToBody(pts, id: "circ2d-fac", color: SIMD4(0.2, 0.7, 0.9, 1)))
+            descriptions.append("Circle2D factory ok")
+        }
+
+        // --- Surface factory: plane from 3 points ---
+        if let plane3 = Surface.planeFrom3Points(p1: SIMD3(0, 0, 0), p2: SIMD3(5, 0, 0), p3: SIMD3(0, 5, 0)) {
+            descriptions.append("Plane3Pt: isPlanar=\(plane3.isPlanar())")
+        }
+
+        // --- GeomTools serialization ---
+        if let c1 = Curve3D.line(through: SIMD3(0, 0, 0), direction: SIMD3(1, 0, 0)),
+           let c2 = Curve3D.circle(center: SIMD3(0, 0, 0), normal: SIMD3(0, 0, 1), radius: 1) {
+            if let serialized = Curve3D.serializeCurves([c1, c2]) {
+                if let restored = Curve3D.deserializeCurves(serialized) {
+                    descriptions.append("Serialize: \(restored.count) curves round-tripped")
+                }
+            }
+        }
+
+        // --- Surface-Surface extrema ---
+        if let s1 = Surface.sphere(center: SIMD3(0, 0, 0), radius: 2),
+           let s2 = Surface.sphere(center: SIMD3(6, 0, 0), radius: 1) {
+            let ssExt = s1.extremaSS(other: s2)
+            descriptions.append("ExtremaSS: \(ssExt.count) sols")
+        }
+
+        return Curve2DGallery.GalleryResult(
+            bodies: bodies,
+            description: descriptions.joined(separator: " | ")
+        )
+    }
 }

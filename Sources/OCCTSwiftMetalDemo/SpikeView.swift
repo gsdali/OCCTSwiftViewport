@@ -632,6 +632,8 @@ struct SpikeView: View {
         case geomEntitiesAndBisector
         case gccAnaSolvers
         case shapeModifiersAndPolygons
+        case evolvedAndMeshOps
+        case extremaAndFactories
     }
 
     // MARK: - OCCT 8 Sub-groups
@@ -725,6 +727,8 @@ struct SpikeView: View {
         Button("Geom Entities & Bisector") { loadOCCT8Demo(.geomEntitiesAndBisector) }
         Button("GccAna Solvers") { loadOCCT8Demo(.gccAnaSolvers) }
         Button("Modifiers & Polygons") { loadOCCT8Demo(.shapeModifiersAndPolygons) }
+        Button("Evolved & Mesh Ops") { loadOCCT8Demo(.evolvedAndMeshOps) }
+        Button("Extrema & Factories") { loadOCCT8Demo(.extremaAndFactories) }
     }
 
     private func loadOCCT8Demo(_ demo: OCCT8Demo) {
@@ -869,6 +873,10 @@ struct SpikeView: View {
             result = OCCT8Gallery.gccAnaSolvers()
         case .shapeModifiersAndPolygons:
             result = OCCT8Gallery.shapeModifiersAndPolygons()
+        case .evolvedAndMeshOps:
+            result = OCCT8Gallery.evolvedAndMeshOps()
+        case .extremaAndFactories:
+            result = OCCT8Gallery.extremaAndFactories()
         }
 
         bodies = result.bodies

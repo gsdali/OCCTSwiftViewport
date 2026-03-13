@@ -231,6 +231,8 @@ final class DemoSmokeTests: XCTestCase {
         tapDemo("Geom Entities & Bisector")
         tapDemo("GccAna Solvers")
         tapDemo("Modifiers & Polygons")
+        tapDemo("Evolved & Mesh Ops")
+        tapDemo("Extrema & Factories")
     }
 
     // MARK: - Helpers
