@@ -228,6 +228,9 @@ final class DemoSmokeTests: XCTestCase {
         tapDemo("HLR & Reflect Lines")
         tapDemo("Mesh & Validation")
         tapDemo("Blend & Sampling")
+        tapDemo("Geom Entities & Bisector")
+        tapDemo("GccAna Solvers")
+        tapDemo("Modifiers & Polygons")
     }
 
     // MARK: - Helpers

@@ -6940,4 +6940,260 @@ enum OCCT8Gallery {
             description: descriptions.joined(separator: " | ")
         )
     }
+
+    // MARK: - v0.76: Geom Entities, Axis Placement, Bisector
+
+    /// Demonstrates GeomPoint3D, GeomDirection, GeomVector3D, Axis placements,
+    /// ShapeConstruct_Curve segment conversion, and bisector intersection.
+    static func geomEntitiesAndBisector() -> Curve2DGallery.GalleryResult {
+        var bodies: [ViewportBody] = []
+        var descriptions: [String] = []
+
+        // --- GeomPoint3D ---
+        let p1 = GeomPoint3D(x: 0, y: 0, z: 0)
+        let p2 = GeomPoint3D(x: 3, y: 4, z: 0)
+        let dist = p1.distance(to: p2)
+        descriptions.append("Pt dist: \(String(format: "%.1f", dist))")
+
+        // Visualize points
+        bodies.append(makeMarker(at: SIMD3(Float(p1.x), Float(p1.y), Float(p1.z)),
+                                  radius: 0.15, id: "gp1", color: SIMD4(1, 0.3, 0.3, 1)))
+        bodies.append(makeMarker(at: SIMD3(Float(p2.x), Float(p2.y), Float(p2.z)),
+                                  radius: 0.15, id: "gp2", color: SIMD4(0.3, 1, 0.3, 1)))
+
+        // --- GeomDirection & GeomVector3D ---
+        let d1 = GeomDirection(x: 1, y: 0, z: 0)
+        let d2 = GeomDirection(x: 0, y: 1, z: 0)
+        if let crossed = d1.crossed(with: d2) {
+            descriptions.append("Cross: (\(String(format: "%.0f", crossed.coordinates.x)),\(String(format: "%.0f", crossed.coordinates.y)),\(String(format: "%.0f", crossed.coordinates.z)))")
+        }
+
+        let v1 = GeomVector3D(x: 3, y: 0, z: 0)
+        let v2 = GeomVector3D(x: 0, y: 4, z: 0)
+        let added = v1.added(v2)
+        descriptions.append("Vec mag: \(String(format: "%.1f", added.magnitude))")
+
+        // Visualize vector as line
+        let vecPts = [SIMD3<Float>(0, 0, 0.5), SIMD3(Float(added.coordinates.x), Float(added.coordinates.y), 0.5)]
+        bodies.append(polylineToBody(vecPts, id: "vec-add", color: SIMD4(0.9, 0.6, 0.2, 1)))
+
+        // --- Axis1Placement & Axis2Placement ---
+        let ax1 = Axis1Placement(origin: SIMD3(5, 0, 0), direction: SIMD3(0, 0, 1))
+        descriptions.append("Ax1 loc: (\(String(format: "%.0f", ax1.location.x)),\(String(format: "%.0f", ax1.location.y)),\(String(format: "%.0f", ax1.location.z)))")
+
+        let ax2 = Axis2Placement(origin: SIMD3(5, 0, 0), normal: SIMD3(0, 0, 1), xDirection: SIMD3(1, 0, 0))
+        descriptions.append("Ax2 Y: (\(String(format: "%.0f", ax2.yDirection.x)),\(String(format: "%.0f", ax2.yDirection.y)),\(String(format: "%.0f", ax2.yDirection.z)))")
+
+        // Visualize axes as markers
+        bodies.append(makeMarker(at: SIMD3(Float(ax1.location.x), Float(ax1.location.y), Float(ax1.location.z)),
+                                  radius: 0.2, id: "ax1-pt", color: SIMD4(0.3, 0.3, 1, 1)))
+
+        // --- ShapeConstruct_Curve: segment to BSpline ---
+        if let circle = Curve3D.circle(center: SIMD3(10, 0, 0), normal: SIMD3(0, 0, 1), radius: 2) {
+            let dom = circle.domain
+            let mid = (dom.lowerBound + dom.upperBound) / 2.0
+            if let segment = circle.convertSegmentToBSpline(first: dom.lowerBound, last: mid) {
+                let pts = segment.samplePoints(first: segment.domain.lowerBound,
+                                                last: segment.domain.upperBound, maxPoints: 30)
+                let fPts = pts.map { SIMD3(Float($0.x), Float($0.y), Float($0.z)) }
+                bodies.append(polylineToBody(fPts, id: "seg-bsp", color: SIMD4(0.2, 0.8, 0.8, 1)))
+                descriptions.append("SegToBSpline: \(pts.count) pts")
+            }
+        }
+
+        // --- Bisector intersection ---
+        let bisInter = bisectorIntersections(
+            a: (0, 0), b: (4, 0),
+            c: (2, -1), d: (2, 3)
+        )
+        descriptions.append("BisInter: \(bisInter.count) pts")
+        for (i, bi) in bisInter.enumerated() {
+            bodies.append(makeMarker(at: SIMD3(Float(bi.x), Float(bi.y), 0),
+                                      radius: 0.18, id: "bis-\(i)", color: SIMD4(1, 0.5, 1, 1)))
+        }
+
+        return Curve2DGallery.GalleryResult(
+            bodies: bodies,
+            description: descriptions.joined(separator: " | ")
+        )
+    }
+
+    // MARK: - v0.77: GeomLib, GccAna Solvers, Curve Splitting
+
+    /// Demonstrates GccAna circle/line solvers, BSpline tangent checks,
+    /// curve splitting by continuity, polynomial interpolation, and surface queries.
+    static func gccAnaSolvers() -> Curve2DGallery.GalleryResult {
+        var bodies: [ViewportBody] = []
+        var descriptions: [String] = []
+
+        // --- GccAna: circles tangent to two lines ---
+        let solutions = circlesTangentToLines(
+            SIMD2(0, 0), SIMD2(1, 0),
+            SIMD2(0, 0), SIMD2(0, 1),
+            radius: 2.0
+        )
+        descriptions.append("TanToLines: \(solutions.count) circles")
+        for (i, sol) in solutions.enumerated() {
+            bodies.append(makeMarker(at: SIMD3(Float(sol.center.x), Float(sol.center.y), 0),
+                                      radius: 0.15, id: "tan-c\(i)", color: SIMD4(0.9, 0.3, 0.3, 1)))
+        }
+        // Draw the two lines
+        bodies.append(polylineToBody([SIMD3<Float>(-1, 0, 0), SIMD3(5, 0, 0)],
+                                      id: "line1", color: SIMD4(0.5, 0.5, 0.5, 1)))
+        bodies.append(polylineToBody([SIMD3<Float>(0, -1, 0), SIMD3(0, 5, 0)],
+                                      id: "line2", color: SIMD4(0.5, 0.5, 0.5, 1)))
+
+        // --- GccAna: circles through two points with radius ---
+        let ptCircles = circlesThroughPointsWithRadius(
+            SIMD2(0, 0), SIMD2(3, 0), radius: 2.0
+        )
+        descriptions.append("ThruPts: \(ptCircles.count) circles")
+        for (i, sol) in ptCircles.enumerated() {
+            bodies.append(makeMarker(at: SIMD3(Float(sol.center.x), Float(sol.center.y), 0.2),
+                                      radius: 0.12, id: "pcirc-\(i)", color: SIMD4(0.3, 0.8, 0.3, 1)))
+        }
+
+        // --- GccAna: circle through point centered ---
+        if let centered = circleThroughPointCentered(point: SIMD2(5, 0), center: SIMD2(8, 0)) {
+            descriptions.append("Centered r=\(String(format: "%.1f", centered.radius))")
+        }
+
+        // --- GccAna: lines tangent to circle through point ---
+        let tanLines = linesTangentToCircleThroughPoint(
+            circleCenter: SIMD2(10, 0), circleRadius: 2.0,
+            point: SIMD2(15, 0)
+        )
+        descriptions.append("TanLines: \(tanLines.count)")
+        for (i, sol) in tanLines.enumerated() {
+            let o = sol.origin
+            let d = sol.direction
+            let end = SIMD3<Float>(Float(o.x + d.x * 5), Float(o.y + d.y * 5), 0)
+            bodies.append(polylineToBody([SIMD3(Float(o.x), Float(o.y), 0), end],
+                                          id: "tanl-\(i)", color: SIMD4(0.8, 0.6, 0.2, 1)))
+        }
+
+        // --- Curve3D: BSpline tangent check & split by continuity ---
+        if let bsp = Curve3D.circle(center: SIMD3(0, 8, 0), normal: SIMD3(0, 0, 1), radius: 3) {
+            if let tangents = bsp.checkBSplineTangents() {
+                descriptions.append("TanCheck: fix1=\(tangents.fixFirst) fix2=\(tangents.fixLast)")
+            }
+
+            let segments = bsp.splitByContinuity(criterion: 1)
+            descriptions.append("SplitC1: \(segments.count) segs")
+        }
+
+        // --- Surface: isPlanar check ---
+        if let plane = Surface.plane(origin: SIMD3(0, 0, 0), normal: SIMD3(0, 0, 1)) {
+            descriptions.append("IsPlanar: \(plane.isPlanar())")
+        }
+
+        return Curve2DGallery.GalleryResult(
+            bodies: bodies,
+            description: descriptions.joined(separator: " | ")
+        )
+    }
+
+    // MARK: - v0.78: BRepTools Modifiers, Surface Splitting, Polygon Types
+
+    /// Demonstrates shape transformations (trsf/gtrsf), BSpline restriction,
+    /// surface splitting, curve-to-analytical recognition, and polygon data types.
+    static func shapeModifiersAndPolygons() -> Curve2DGallery.GalleryResult {
+        var bodies: [ViewportBody] = []
+        var descriptions: [String] = []
+
+        // --- Shape trsf modification (scale 2x in X) ---
+        if let box = Shape.box(width: 2, height: 2, depth: 2) {
+            if let scaled = Shape.trsfModification(box,
+                a11: 2, a12: 0, a13: 0, a14: 0,
+                a21: 0, a22: 1, a23: 0, a24: 0,
+                a31: 0, a32: 0, a33: 1, a34: 0) {
+                if let sb = CADFileLoader.shapeToBodyAndMetadata(
+                    scaled, id: "trsf-scaled", color: SIMD4(0.4, 0.7, 0.9, 1)).0 {
+                    bodies.append(sb)
+                }
+                descriptions.append("Trsf scale: \(scaled.faceCount) faces")
+            }
+        }
+
+        // --- Shape gtrsf modification (shear) ---
+        if let box2 = Shape.box(width: 2, height: 2, depth: 2) {
+            if let sheared = Shape.gtrsfModification(box2,
+                a11: 1, a12: 0.3, a13: 0, a14: 6,
+                a21: 0, a22: 1, a23: 0, a24: 0,
+                a31: 0, a32: 0, a33: 1, a34: 0) {
+                if let sb = CADFileLoader.shapeToBodyAndMetadata(
+                    sheared, id: "gtrsf-shear", color: SIMD4(0.9, 0.5, 0.3, 1)).0 {
+                    bodies.append(sb)
+                }
+                descriptions.append("Gtrsf shear: \(sheared.faceCount) faces")
+            }
+        }
+
+        // --- Deep copy ---
+        if let cyl = Shape.cylinder(radius: 1, height: 3) {
+            if let copy = Shape.deepCopy(cyl) {
+                if var cb = CADFileLoader.shapeToBodyAndMetadata(
+                    copy, id: "deep-copy", color: SIMD4(0.5, 0.9, 0.5, 1)).0 {
+                    offsetBody(&cb, dx: 12, dy: 0, dz: 0)
+                    bodies.append(cb)
+                }
+                descriptions.append("DeepCopy: \(copy.faceCount) faces")
+            }
+        }
+
+        // --- BSpline restriction ---
+        if let sphere = Shape.sphere(radius: 2) {
+            if let restricted = Shape.bsplineRestrictionAdvanced(sphere, maxDegree: 3, maxSegments: 10) {
+                if var rb = CADFileLoader.shapeToBodyAndMetadata(
+                    restricted, id: "bsp-restrict", color: SIMD4(0.7, 0.4, 0.9, 1)).0 {
+                    offsetBody(&rb, dx: 0, dy: 8, dz: 0)
+                    bodies.append(rb)
+                }
+                descriptions.append("BSpRestrict: \(restricted.faceCount) faces")
+            }
+        }
+
+        // --- Surface splitting by continuity ---
+        if let surf = Surface.sphere(center: SIMD3(8, 8, 0), radius: 2) {
+            if let splitResult = surf.splitSurfaceByContinuity(criterion: 1, tolerance: 1e-3) {
+                descriptions.append("SurfSplit: U=\(splitResult.uSplitCount) V=\(splitResult.vSplitCount)")
+            }
+        }
+
+        // --- Curve-to-analytical recognition ---
+        if let circle = Curve3D.circle(center: SIMD3(0, 0, 5), normal: SIMD3(0, 0, 1), radius: 3) {
+            let dom = circle.domain
+            if let analytic = circle.toAnalytical(tolerance: 0.01, first: dom.lowerBound, last: dom.upperBound) {
+                descriptions.append("ToAnalytical gap=\(String(format: "%.4f", analytic.gap))")
+            }
+        }
+
+        // --- Polygon2D ---
+        let pts2d: [SIMD2<Double>] = [SIMD2(0, 0), SIMD2(3, 0), SIMD2(3, 3), SIMD2(0, 3)]
+        if let poly2d = Polygon2D.create(points: pts2d) {
+            descriptions.append("Poly2D: \(poly2d.nodeCount) nodes")
+            let nodes = poly2d.nodes()
+            let fPts = nodes.map { SIMD3(Float($0.x), Float($0.y), Float(0)) } + [SIMD3(Float(nodes[0].x), Float(nodes[0].y), 0)]
+            bodies.append(polylineToBody(fPts, id: "poly2d", color: SIMD4(0.2, 0.9, 0.6, 1)))
+        }
+
+        // --- Polygon3D ---
+        let pts3d: [SIMD3<Double>] = [SIMD3(16, 0, 0), SIMD3(19, 0, 0), SIMD3(19, 3, 0), SIMD3(16, 3, 0), SIMD3(16, 0, 3)]
+        if let poly3d = Polygon3D.create(points: pts3d) {
+            descriptions.append("Poly3D: \(poly3d.nodeCount) nodes")
+            let nodes = poly3d.nodes()
+            let fPts = nodes.map { SIMD3(Float($0.x), Float($0.y), Float($0.z)) }
+            bodies.append(polylineToBody(fPts, id: "poly3d", color: SIMD4(0.9, 0.2, 0.6, 1)))
+        }
+
+        // --- Linear point check ---
+        let linPts: [SIMD3<Double>] = [SIMD3(0, 0, 0), SIMD3(1, 0, 0), SIMD3(2, 0.001, 0)]
+        let linResult = Curve3D.arePointsLinear(linPts, tolerance: 0.01)
+        descriptions.append("Linear: \(linResult.isLinear) dev=\(String(format: "%.4f", linResult.deviation))")
+
+        return Curve2DGallery.GalleryResult(
+            bodies: bodies,
+            description: descriptions.joined(separator: " | ")
+        )
+    }
 }

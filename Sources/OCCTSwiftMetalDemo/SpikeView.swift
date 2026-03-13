@@ -629,6 +629,9 @@ struct SpikeView: View {
         case tkHlrOps
         case meshAndValidation
         case blendAndSampling
+        case geomEntitiesAndBisector
+        case gccAnaSolvers
+        case shapeModifiersAndPolygons
     }
 
     // MARK: - OCCT 8 Sub-groups
@@ -719,6 +722,9 @@ struct SpikeView: View {
         Button("HLR & Reflect Lines") { loadOCCT8Demo(.tkHlrOps) }
         Button("Mesh & Validation") { loadOCCT8Demo(.meshAndValidation) }
         Button("Blend & Sampling") { loadOCCT8Demo(.blendAndSampling) }
+        Button("Geom Entities & Bisector") { loadOCCT8Demo(.geomEntitiesAndBisector) }
+        Button("GccAna Solvers") { loadOCCT8Demo(.gccAnaSolvers) }
+        Button("Modifiers & Polygons") { loadOCCT8Demo(.shapeModifiersAndPolygons) }
     }
 
     private func loadOCCT8Demo(_ demo: OCCT8Demo) {
@@ -857,6 +863,12 @@ struct SpikeView: View {
             result = OCCT8Gallery.meshAndValidation()
         case .blendAndSampling:
             result = OCCT8Gallery.blendAndSampling()
+        case .geomEntitiesAndBisector:
+            result = OCCT8Gallery.geomEntitiesAndBisector()
+        case .gccAnaSolvers:
+            result = OCCT8Gallery.gccAnaSolvers()
+        case .shapeModifiersAndPolygons:
+            result = OCCT8Gallery.shapeModifiersAndPolygons()
         }
 
         bodies = result.bodies
