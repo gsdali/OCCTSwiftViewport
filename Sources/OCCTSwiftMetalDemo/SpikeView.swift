@@ -634,6 +634,9 @@ struct SpikeView: View {
         case shapeModifiersAndPolygons
         case evolvedAndMeshOps
         case extremaAndFactories
+        case colorAndMaterial
+        case dateAndPixMap
+        case xcafDocAttributes
     }
 
     // MARK: - OCCT 8 Sub-groups
@@ -729,6 +732,9 @@ struct SpikeView: View {
         Button("Modifiers & Polygons") { loadOCCT8Demo(.shapeModifiersAndPolygons) }
         Button("Evolved & Mesh Ops") { loadOCCT8Demo(.evolvedAndMeshOps) }
         Button("Extrema & Factories") { loadOCCT8Demo(.extremaAndFactories) }
+        Button("Color & Material") { loadOCCT8Demo(.colorAndMaterial) }
+        Button("Date & PixMap") { loadOCCT8Demo(.dateAndPixMap) }
+        Button("XCAF Attributes") { loadOCCT8Demo(.xcafDocAttributes) }
     }
 
     private func loadOCCT8Demo(_ demo: OCCT8Demo) {
@@ -877,6 +883,12 @@ struct SpikeView: View {
             result = OCCT8Gallery.evolvedAndMeshOps()
         case .extremaAndFactories:
             result = OCCT8Gallery.extremaAndFactories()
+        case .colorAndMaterial:
+            result = OCCT8Gallery.colorAndMaterial()
+        case .dateAndPixMap:
+            result = OCCT8Gallery.dateAndPixMap()
+        case .xcafDocAttributes:
+            result = OCCT8Gallery.xcafDocAttributes()
         }
 
         bodies = result.bodies

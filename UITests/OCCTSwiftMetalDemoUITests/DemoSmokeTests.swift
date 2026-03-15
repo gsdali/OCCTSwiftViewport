@@ -233,6 +233,9 @@ final class DemoSmokeTests: XCTestCase {
         tapDemo("Modifiers & Polygons")
         tapDemo("Evolved & Mesh Ops")
         tapDemo("Extrema & Factories")
+        tapDemo("Color & Material")
+        tapDemo("Date & PixMap")
+        tapDemo("XCAF Attributes")
     }
 
     // MARK: - Helpers

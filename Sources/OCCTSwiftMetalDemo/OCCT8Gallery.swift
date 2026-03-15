@@ -7397,4 +7397,273 @@ enum OCCT8Gallery {
             description: descriptions.joined(separator: " | ")
         )
     }
+
+    // MARK: - v0.81: Color & Material APIs
+
+    /// Demonstrates Quantity_Color conversions, color distance metrics,
+    /// hex encoding, HLS color space, and predefined material queries.
+    static func colorAndMaterial() -> Curve2DGallery.GalleryResult {
+        var bodies: [ViewportBody] = []
+        var descriptions: [String] = []
+
+        // --- Color from name ---
+        if let red = Color.fromName("RED") {
+            descriptions.append("RED: r=\(String(format: "%.1f", red.red)) g=\(String(format: "%.1f", red.green)) b=\(String(format: "%.1f", red.blue))")
+
+            // Hex encoding
+            if let hex = red.toHex() {
+                descriptions.append("Hex: \(hex)")
+            }
+
+            // HLS color space
+            let hls = red.hls
+            descriptions.append("HLS: H=\(String(format: "%.0f", hls.hue)) L=\(String(format: "%.2f", hls.lightness)) S=\(String(format: "%.2f", hls.saturation))")
+        }
+
+        // --- Color from hex ---
+        if let fromHex = Color.fromHex("#3366CC") {
+            descriptions.append("FromHex: r=\(String(format: "%.2f", fromHex.red)) g=\(String(format: "%.2f", fromHex.green)) b=\(String(format: "%.2f", fromHex.blue))")
+
+            // sRGB conversion
+            let srgb = fromHex.sRGB
+            descriptions.append("sRGB: r=\(String(format: "%.2f", srgb.red))")
+        }
+
+        // --- Color distance ---
+        if let c1 = Color.fromName("RED"), let c2 = Color.fromName("BLUE") {
+            let dist = c1.distance(to: c2)
+            let de2000 = c1.deltaE2000(to: c2)
+            descriptions.append("Dist: \(String(format: "%.2f", dist)) dE2000: \(String(format: "%.1f", de2000))")
+
+            // Lab color space
+            let lab = c1.lab
+            descriptions.append("Lab: L=\(String(format: "%.1f", lab.l)) a=\(String(format: "%.1f", lab.a)) b=\(String(format: "%.1f", lab.b))")
+        }
+
+        // --- Color from HLS ---
+        let hlsColor = Color.fromHLS(hue: 120, lightness: 0.5, saturation: 1.0)
+        descriptions.append("HLS→RGB: r=\(String(format: "%.2f", hlsColor.red)) g=\(String(format: "%.2f", hlsColor.green))")
+
+        // --- Color epsilon ---
+        descriptions.append("Epsilon: \(String(format: "%.6f", Color.epsilon))")
+
+        // Visualize colors as spheres
+        let colorNames = ["RED", "GREEN", "BLUE", "YELLOW", "CYAN", "MAGENTA"]
+        for (i, name) in colorNames.enumerated() {
+            if let color = Color.fromName(name) {
+                let x = Float(i) * 2.5
+                bodies.append(makeMarker(at: SIMD3(x, 0, 0), radius: 0.8, id: "col-\(name)",
+                    color: SIMD4(Float(color.red), Float(color.green), Float(color.blue), 1)))
+            }
+        }
+
+        // --- Predefined materials ---
+        let matCount = Material.predefinedMaterialCount
+        descriptions.append("Materials: \(matCount) predefined")
+
+        if let gold = Material.predefinedMaterial(named: "GOLD") {
+            descriptions.append("Gold: shin=\(String(format: "%.2f", gold.shininess)) met=\(String(format: "%.2f", gold.pbrMetallic))")
+        }
+
+        if let brass = Material.predefinedMaterial(named: "BRASS") {
+            descriptions.append("Brass: rough=\(String(format: "%.2f", brass.pbrRoughness))")
+        }
+
+        // Roughness/metallic from specular
+        if let specColor = Color.fromName("GOLD") {
+            let roughness = Material.roughnessFromSpecular(color: specColor, shininess: 0.8)
+            let metallic = Material.metallicFromSpecular(color: specColor)
+            descriptions.append("Spec→PBR: rough=\(String(format: "%.2f", roughness)) met=\(String(format: "%.2f", metallic))")
+        }
+
+        return Curve2DGallery.GalleryResult(
+            bodies: bodies,
+            description: descriptions.joined(separator: " | ")
+        )
+    }
+
+    // MARK: - v0.82: Date, Period, Font, PixMap
+
+    /// Demonstrates Quantity_Date/Period arithmetic, font manager queries,
+    /// and PixMap image creation.
+    static func dateAndPixMap() -> Curve2DGallery.GalleryResult {
+        var bodies: [ViewportBody] = []
+        var descriptions: [String] = []
+
+        // --- Date creation and arithmetic ---
+        if let date1 = OCCTDate(month: 3, day: 15, year: 2026, hour: 10, minute: 30) {
+            descriptions.append("Date: \(date1.year)-\(date1.month)-\(date1.day) \(date1.hour):\(date1.minute)")
+
+            // Add period
+            if let period = Period(days: 5, hours: 3) {
+                let date2 = date1.adding(period)
+                descriptions.append("Added: \(date2.month)/\(date2.day) \(date2.hour)h")
+            }
+        }
+
+        // --- Period arithmetic ---
+        if let p1 = Period(hours: 2, minutes: 30),
+           let p2 = Period(hours: 1, minutes: 45) {
+            let sum = p1 + p2
+            descriptions.append("Period sum: \(sum.totalSeconds)s")
+        }
+
+        // --- Leap year check ---
+        descriptions.append("2024 leap: \(OCCTDate.isLeap(year: 2024))")
+        descriptions.append("2025 leap: \(OCCTDate.isLeap(year: 2025))")
+
+        // --- Date validation ---
+        let valid = OCCTDate.isValid(month: 2, day: 29, year: 2024)
+        let invalid = OCCTDate.isValid(month: 2, day: 29, year: 2025)
+        descriptions.append("Feb29/2024: \(valid) Feb29/2025: \(invalid)")
+
+        // --- Font manager ---
+        FontManager.initDatabase()
+        let fontCount = FontManager.fontCount
+        descriptions.append("Fonts: \(fontCount)")
+
+        if fontCount > 0 {
+            if let firstName = FontManager.fontName(at: 0) {
+                descriptions.append("Font[0]: \(firstName)")
+            }
+        }
+
+        // --- PixMap ---
+        if let pm = PixMap() {
+            pm.initTrash(format: .rgba, width: 4, height: 4)
+            descriptions.append("PixMap: \(pm.width)x\(pm.height) fmt=\(pm.format.bytesPerPixel)bpp")
+
+            // Set some pixels
+            if let red = Color.fromName("RED") {
+                pm.setPixel(at: 0, y: 0, color: red)
+                let readBack = pm.pixel(at: 0, y: 0)
+                descriptions.append("Pixel: r=\(String(format: "%.1f", readBack.red))")
+            }
+        }
+
+        // Show a placeholder visualization
+        bodies.append(makeMarker(at: SIMD3(0, 0, 0), radius: 0.5, id: "date-marker",
+                                  color: SIMD4(0.3, 0.7, 0.9, 1)))
+
+        return Curve2DGallery.GalleryResult(
+            bodies: bodies,
+            description: descriptions.joined(separator: " | ")
+        )
+    }
+
+    // MARK: - v0.83: XCAFDoc Attributes, Notes, Assembly Graph
+
+    /// Demonstrates XCAFDoc attributes (color, material, location, notes),
+    /// assembly graph queries, view objects, and presentation styles.
+    static func xcafDocAttributes() -> Curve2DGallery.GalleryResult {
+        var bodies: [ViewportBody] = []
+        var descriptions: [String] = []
+
+        // --- Create a document and add shapes ---
+        if let doc = Document.create(format: "XmlOcaf") {
+            // Add a simple box shape
+            if let box = Shape.box(width: 3, height: 3, depth: 3) {
+                _ = doc.addShape(box)
+
+                // Get the node via rootNodes
+                if let node = doc.rootNodes.first {
+                    // Set color attribute
+                    let colorSet = node.setColorAttribute(red: 0.8, green: 0.2, blue: 0.3)
+                    descriptions.append("SetColor: \(colorSet)")
+
+                    if let color = node.colorAttribute {
+                        descriptions.append("Color: r=\(String(format: "%.1f", color.red)) g=\(String(format: "%.1f", color.green))")
+                    }
+
+                    // Set material attribute
+                    let matSet = node.setMaterialAttribute(
+                        name: "Steel", description: "Carbon steel",
+                        density: 7850, densityName: "kg/m3", densityValueType: "POSITIVE_LENGTH_MEASURE")
+                    descriptions.append("SetMat: \(matSet)")
+
+                    if let matName = node.materialAttributeName {
+                        descriptions.append("Mat: \(matName)")
+                    }
+
+                    // Set location
+                    let locSet = node.setLocationTranslation(x: 5, y: 0, z: 0)
+                    descriptions.append("SetLoc: \(locSet)")
+                    if let loc = node.locationTranslation {
+                        descriptions.append("Loc: (\(String(format: "%.0f", loc.x)),\(String(format: "%.0f", loc.y)),\(String(format: "%.0f", loc.z)))")
+                    }
+
+                    // Set note
+                    let noteSet = node.setNoteComment(
+                        userName: "Demo", timeStamp: "2026-03-15", comment: "Test note")
+                    descriptions.append("SetNote: \(noteSet)")
+                    if let noteText = node.noteCommentText {
+                        descriptions.append("Note: \(noteText)")
+                    }
+                }
+
+                // Visualize the box
+                if let bb = CADFileLoader.shapeToBodyAndMetadata(
+                    box, id: "xcaf-box", color: SIMD4(0.8, 0.2, 0.3, 1)).0 {
+                    bodies.append(bb)
+                }
+            }
+
+            // --- Notes tool ---
+            if let commentNode = doc.notesToolCreateComment(
+                userName: "Demo", timeStamp: "2026-03-15", comment: "Assembly note") {
+                descriptions.append("NotesTool: comment created")
+                if let text = commentNode.noteCommentText {
+                    descriptions.append("NoteText: \(text)")
+                }
+            }
+            descriptions.append("NoteCount: \(doc.notesToolNoteCount)")
+
+            // --- Clipping plane tool ---
+            if let clipNode = doc.clippingPlaneToolAdd(
+                originX: 0, originY: 0, originZ: 1.5,
+                normalX: 0, normalY: 0, normalZ: 1,
+                name: "MidClip", capping: true) {
+                descriptions.append("ClipPlane: added")
+                if let plane = doc.clippingPlaneToolGet(clipNode) {
+                    descriptions.append("ClipZ: \(String(format: "%.1f", plane.originZ))")
+                }
+            }
+
+            // --- Assembly graph ---
+            if let graph = AssemblyGraph(document: doc) {
+                descriptions.append("Graph: \(graph.nodeCount) nodes, \(graph.linkCount) links, \(graph.rootCount) roots")
+            }
+        }
+
+        // --- View object ---
+        if let view = ViewObject() {
+            view.setType(.parallel)
+            view.setViewDirection(x: 0, y: -1, z: 0.5)
+            view.setUpDirection(x: 0, y: 0, z: 1)
+            view.setName("Front-Iso")
+            descriptions.append("View: \(view.name ?? "?") type=\(view.type.rawValue)")
+        }
+
+        // --- Presentation style ---
+        let style = PresentationStyle(surfaceRed: 0.5, surfaceGreen: 0.7, surfaceBlue: 0.9, surfaceAlpha: 0.8)
+        descriptions.append("Style: visible=\(style.isVisible) empty=\(style.isEmpty)")
+
+        // --- VisMaterialPBR ---
+        var pbr = VisMaterialPBR()
+        pbr.baseColor = (red: 0.8, green: 0.6, blue: 0.2)
+        pbr.metallic = 0.9
+        pbr.roughness = 0.3
+        descriptions.append("PBR: met=\(pbr.metallic) rough=\(pbr.roughness)")
+
+        // --- VisMaterialCommon ---
+        var common = VisMaterialCommon()
+        common.diffuseColor = (red: 0.7, green: 0.3, blue: 0.3)
+        common.shininess = 0.8
+        descriptions.append("Common: shin=\(common.shininess)")
+
+        return Curve2DGallery.GalleryResult(
+            bodies: bodies,
+            description: descriptions.joined(separator: " | ")
+        )
+    }
 }
