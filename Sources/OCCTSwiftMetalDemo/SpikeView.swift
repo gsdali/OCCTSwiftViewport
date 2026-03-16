@@ -637,6 +637,9 @@ struct SpikeView: View {
         case colorAndMaterial
         case dateAndPixMap
         case xcafDocAttributes
+        case vrmlAndDocAttributes
+        case unitsAndBinaryIO
+        case extendedAttributesAndShapeFix
     }
 
     // MARK: - OCCT 8 Sub-groups
@@ -735,6 +738,9 @@ struct SpikeView: View {
         Button("Color & Material") { loadOCCT8Demo(.colorAndMaterial) }
         Button("Date & PixMap") { loadOCCT8Demo(.dateAndPixMap) }
         Button("XCAF Attributes") { loadOCCT8Demo(.xcafDocAttributes) }
+        Button("VRML & Doc Attributes") { loadOCCT8Demo(.vrmlAndDocAttributes) }
+        Button("Units & Binary I/O") { loadOCCT8Demo(.unitsAndBinaryIO) }
+        Button("Ext Attributes & Fix") { loadOCCT8Demo(.extendedAttributesAndShapeFix) }
     }
 
     private func loadOCCT8Demo(_ demo: OCCT8Demo) {
@@ -889,6 +895,12 @@ struct SpikeView: View {
             result = OCCT8Gallery.dateAndPixMap()
         case .xcafDocAttributes:
             result = OCCT8Gallery.xcafDocAttributes()
+        case .vrmlAndDocAttributes:
+            result = OCCT8Gallery.vrmlAndDocAttributes()
+        case .unitsAndBinaryIO:
+            result = OCCT8Gallery.unitsAndBinaryIO()
+        case .extendedAttributesAndShapeFix:
+            result = OCCT8Gallery.extendedAttributesAndShapeFix()
         }
 
         bodies = result.bodies

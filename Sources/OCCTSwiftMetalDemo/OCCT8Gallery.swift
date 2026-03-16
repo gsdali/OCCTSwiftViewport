@@ -7666,4 +7666,273 @@ enum OCCT8Gallery {
             description: descriptions.joined(separator: " | ")
         )
     }
+
+    // MARK: - v0.84: VRML Export, TDataStd Directory/Variable/Expression, XLink
+
+    /// Demonstrates VRML export, TDataStd directory/variable/expression attributes,
+    /// TDocStd_XLink, DimTol tool, DriverTable, and TObjApplication.
+    static func vrmlAndDocAttributes() -> Curve2DGallery.GalleryResult {
+        var bodies: [ViewportBody] = []
+        var descriptions: [String] = []
+
+        // --- VRML export ---
+        if let box = Shape.box(width: 3, height: 3, depth: 3) {
+            let tmpURL = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("test.wrl")
+            let wrote = box.writeVRML(to: tmpURL, version: 2, deflection: 0.01)
+            descriptions.append("VRML write: \(wrote)")
+            try? FileManager.default.removeItem(at: tmpURL)
+
+            if let bb = CADFileLoader.shapeToBodyAndMetadata(
+                box, id: "vrml-box", color: SIMD4(0.4, 0.7, 0.9, 1)).0 {
+                bodies.append(bb)
+            }
+        }
+
+        // --- TDataStd_Directory ---
+        if let doc = Document.create(format: "XmlOcaf") {
+            let dirCreated = doc.createDirectory()
+            descriptions.append("Dir: \(dirCreated) has=\(doc.hasDirectory())")
+
+            // Add sub-directory
+            if let subTag = doc.addSubDirectory() {
+                descriptions.append("SubDir tag: \(subTag)")
+            }
+
+            // --- TDataStd_Variable ---
+            let varTag = 10
+            let varSet = doc.setVariable(at: varTag)
+            _ = doc.setVariableName("radius", at: varTag)
+            _ = doc.setVariableValue(5.0, at: varTag)
+            _ = doc.setVariableUnit("mm", at: varTag)
+            _ = doc.setVariableConstant(false, at: varTag)
+            descriptions.append("Var: set=\(varSet) name=\(doc.variableName(at: varTag) ?? "?") val=\(doc.variableValue(at: varTag))")
+
+            // --- TDataStd_Expression ---
+            let exprTag = 20
+            _ = doc.setExpression(at: exprTag)
+            _ = doc.setExpressionString("radius * 2", at: exprTag)
+            descriptions.append("Expr: \(doc.expressionString(at: exprTag) ?? "?")")
+
+            // --- TDocStd_XLink ---
+            let xlTag = 30
+            _ = doc.setXLink(at: xlTag)
+            _ = doc.setXLinkDocumentEntry("external.xml", at: xlTag)
+            _ = doc.setXLinkLabelEntry("0:1:2", at: xlTag)
+            descriptions.append("XLink: doc=\(doc.xLinkDocumentEntry(at: xlTag) ?? "?") label=\(doc.xLinkLabelEntry(at: xlTag) ?? "?")")
+
+            // --- DimTolTool ---
+            descriptions.append("DimTol: dims=\(doc.dimTolToolDimensionCount) tols=\(doc.dimTolToolToleranceCount)")
+        }
+
+        // --- DriverTable ---
+        DriverTable.initStandard()
+        descriptions.append("DriverTable: exists=\(DriverTable.exists)")
+
+        // --- TObjApplication ---
+        if let tobj = TObjApplication.shared {
+            descriptions.append("TObj: verbose=\(tobj.isVerbose)")
+        }
+
+        return Curve2DGallery.GalleryResult(
+            bodies: bodies,
+            description: descriptions.joined(separator: " | ")
+        )
+    }
+
+    // MARK: - v0.85: Units, Binary I/O, Messenger, CoordinateSystem
+
+    /// Demonstrates UnitsAPI conversion, binary shape I/O, Message_Messenger/Report,
+    /// coordinate system conversion, and TDF_IDFilter.
+    static func unitsAndBinaryIO() -> Curve2DGallery.GalleryResult {
+        var bodies: [ViewportBody] = []
+        var descriptions: [String] = []
+
+        // --- UnitsAPI ---
+        let mmToInch = Units.convert(25.4, from: "mm", to: "in")
+        descriptions.append("25.4mm = \(String(format: "%.2f", mmToInch))in")
+
+        let toSI = Units.toSI(1.0, from: "km")
+        descriptions.append("1km = \(String(format: "%.0f", toSI))m(SI)")
+
+        descriptions.append("LocalSys: \(Units.localSystem.rawValue)")
+
+        // --- Binary shape I/O ---
+        if let sphere = Shape.sphere(radius: 2) {
+            if let data = sphere.toBinaryData() {
+                descriptions.append("BinExport: \(data.count) bytes")
+
+                if let restored = Shape.fromBinaryData(data) {
+                    descriptions.append("BinImport: \(restored.faceCount) faces")
+                    if let sb = CADFileLoader.shapeToBodyAndMetadata(
+                        restored, id: "bin-sphere", color: SIMD4(0.3, 0.8, 0.5, 1)).0 {
+                        bodies.append(sb)
+                    }
+                }
+            }
+
+            // File-based binary I/O
+            let tmpURL = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("test.brep.bin")
+            let wrote = sphere.writeBinary(to: tmpURL)
+            if wrote, let loaded = Shape.loadBinary(from: tmpURL) {
+                descriptions.append("FileIO: \(loaded.faceCount) faces")
+            }
+            try? FileManager.default.removeItem(at: tmpURL)
+        }
+
+        // --- Messenger ---
+        if let messenger = Messenger() {
+            messenger.send("Test info message", gravity: .info)
+            messenger.send("Test warning", gravity: .warning)
+            descriptions.append("Messenger: \(messenger.printerCount) printers")
+        }
+
+        // --- Report ---
+        if let report = Report() {
+            report.limit = 100
+            let dump = report.dump()
+            descriptions.append("Report: limit=\(report.limit) dump=\(dump.count)ch")
+        }
+
+        // --- CoordinateSystem conversion ---
+        let converted = convertCoordinateSystem(
+            x: 1, y: 2, z: 3,
+            from: .zUp, inputUnit: 1.0,
+            to: .yUp, outputUnit: 1.0)
+        descriptions.append("ZUp→YUp: (\(String(format: "%.0f", converted.x)),\(String(format: "%.0f", converted.y)),\(String(format: "%.0f", converted.z)))")
+
+        let upDir = coordinateSystemUpDirection(.zUp)
+        descriptions.append("ZUp dir: (\(String(format: "%.0f", upDir.x)),\(String(format: "%.0f", upDir.y)),\(String(format: "%.0f", upDir.z)))")
+
+        // --- IDFilter ---
+        if let filter = IDFilter(ignoreAll: true) {
+            filter.keep("2a96b606-ec8b-11d0-bee7-080009dc3db4") // TDataStd_Integer GUID
+            descriptions.append("IDFilter: ignoreAll=\(filter.isIgnoreAll)")
+        }
+
+        return Curve2DGallery.GalleryResult(
+            bodies: bodies,
+            description: descriptions.joined(separator: " | ")
+        )
+    }
+
+    // MARK: - v0.86: TDataStd Extended Attributes, ShapeFix, Contigous Edges
+
+    /// Demonstrates TDataStd extended attributes (boolean/byte/integer/real/string arrays
+    /// and lists, reference arrays, relations), ShapeFix_Solid, and contigous edge finding.
+    static func extendedAttributesAndShapeFix() -> Curve2DGallery.GalleryResult {
+        var bodies: [ViewportBody] = []
+        var descriptions: [String] = []
+
+        if let doc = Document.create(format: "XmlOcaf") {
+            // --- BooleanArray ---
+            let tag1 = 10
+            _ = doc.setBooleanArray(tag: tag1, values: [true, false, true, true])
+            if let bools = doc.booleanArray(tag: tag1) {
+                descriptions.append("BoolArr: \(bools)")
+            }
+
+            // --- BooleanList ---
+            let tag2 = 11
+            _ = doc.setBooleanList(tag: tag2, values: [false, true])
+            _ = doc.booleanListAppend(tag: tag2, value: true)
+            if let boolList = doc.booleanList(tag: tag2) {
+                descriptions.append("BoolList: \(boolList.count) items")
+            }
+
+            // --- ByteArray ---
+            let tag3 = 12
+            _ = doc.setByteArray(tag: tag3, values: [0x41, 0x42, 0x43]) // "ABC"
+            if let bytes = doc.byteArray(tag: tag3) {
+                descriptions.append("ByteArr: \(bytes.count) bytes")
+            }
+
+            // --- IntegerList ---
+            let tag4 = 13
+            _ = doc.setIntegerList(tag: tag4, values: [10, 20, 30])
+            _ = doc.integerListAppend(tag: tag4, value: 40)
+            if let ints = doc.integerList(tag: tag4) {
+                descriptions.append("IntList: \(ints)")
+            }
+
+            // --- RealList ---
+            let tag5 = 14
+            _ = doc.setRealList(tag: tag5, values: [1.1, 2.2, 3.3])
+            _ = doc.realListAppend(tag: tag5, value: 4.4)
+            if let reals = doc.realList(tag: tag5) {
+                descriptions.append("RealList: \(reals.count) items")
+            }
+
+            // --- ExtStringArray ---
+            let tag6 = 15
+            _ = doc.setExtStringArray(tag: tag6, values: ["hello", "world", "test"])
+            if let len = doc.extStringArrayLength(tag: tag6) {
+                let first = doc.extStringArrayValue(tag: tag6, index: 0) ?? "?"
+                descriptions.append("StrArr: \(len) items, first=\(first)")
+            }
+
+            // --- ExtStringList ---
+            let tag7 = 16
+            _ = doc.setExtStringList(tag: tag7, values: ["alpha", "beta"])
+            _ = doc.extStringListAppend(tag: tag7, value: "gamma")
+            if let count = doc.extStringListCount(tag: tag7) {
+                descriptions.append("StrList: \(count) items")
+            }
+
+            // --- ReferenceArray ---
+            let tag8 = 17
+            _ = doc.setReferenceArray(tag: tag8, refTags: [1, 2, 3])
+            if let refs = doc.referenceArray(tag: tag8) {
+                descriptions.append("RefArr: \(refs)")
+            }
+
+            // --- ReferenceList ---
+            let tag9 = 18
+            _ = doc.setReferenceList(tag: tag9, refTags: [10, 20])
+            _ = doc.referenceListAppend(tag: tag9, refTag: 30)
+            if let refList = doc.referenceList(tag: tag9) {
+                descriptions.append("RefList: \(refList)")
+            }
+
+            // --- Relation ---
+            let tag10 = 19
+            _ = doc.setRelation(tag: tag10, relation: "width = height * 2")
+            if let rel = doc.relation(tag: tag10) {
+                descriptions.append("Relation: \(rel)")
+            }
+        }
+
+        // --- ShapeFix_Solid ---
+        if let box = Shape.box(width: 3, height: 3, depth: 3) {
+            if let fixed = box.fixSolid() {
+                if let fb = CADFileLoader.shapeToBodyAndMetadata(
+                    fixed, id: "fix-solid", color: SIMD4(0.4, 0.8, 0.6, 1)).0 {
+                    bodies.append(fb)
+                }
+                descriptions.append("FixSolid: \(fixed.faceCount) faces")
+            }
+        }
+
+        // --- ShapeFix_EdgeConnect ---
+        if let cyl = Shape.cylinder(radius: 2, height: 4) {
+            if let fixed = cyl.fixEdgeConnect() {
+                if var cb = CADFileLoader.shapeToBodyAndMetadata(
+                    fixed, id: "fix-edge", color: SIMD4(0.8, 0.5, 0.3, 1)).0 {
+                    offsetBody(&cb, dx: 8, dy: 0, dz: 0)
+                    bodies.append(cb)
+                }
+                descriptions.append("FixEdge: \(fixed.faceCount) faces")
+            }
+        }
+
+        // --- FindContigousEdges ---
+        if let box2 = Shape.box(width: 4, height: 4, depth: 4) {
+            let result = box2.findContigousEdges()
+            descriptions.append("Contigous: \(result.contigousEdgeCount) edges, \(result.degeneratedShapeCount) degen")
+        }
+
+        return Curve2DGallery.GalleryResult(
+            bodies: bodies,
+            description: descriptions.joined(separator: " | ")
+        )
+    }
 }

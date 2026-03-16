@@ -236,6 +236,9 @@ final class DemoSmokeTests: XCTestCase {
         tapDemo("Color & Material")
         tapDemo("Date & PixMap")
         tapDemo("XCAF Attributes")
+        tapDemo("VRML & Doc Attributes")
+        tapDemo("Units & Binary I/O")
+        tapDemo("Ext Attributes & Fix")
     }
 
     // MARK: - Helpers
