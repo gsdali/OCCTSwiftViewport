@@ -36,6 +36,7 @@ enum CADFileFormat: String, Sendable {
     case step
     case stl
     case obj
+    case brep
 
     init?(fileExtension ext: String) {
         switch ext.lowercased() {
@@ -45,6 +46,8 @@ enum CADFileFormat: String, Sendable {
             self = .stl
         case "obj":
             self = .obj
+        case "brep", "brp":
+            self = .brep
         default:
             return nil
         }
@@ -71,6 +74,8 @@ enum CADFileLoader {
             return try loadSTL(from: url)
         case .obj:
             return try loadOBJ(from: url)
+        case .brep:
+            return try loadBREP(from: url)
         }
     }
 
@@ -178,6 +183,60 @@ enum CADFileLoader {
             metadata[bodyID] = meta
         }
         return CADLoadResult(bodies: [body], metadata: metadata, shapes: [shape])
+    }
+
+    // MARK: - BREP Loading
+
+    private static func loadBREP(from url: URL) throws -> CADLoadResult {
+        let shape = try Shape.loadBREP(from: url)
+        let bodyID = "brep-0"
+        let color = SIMD4<Float>(0.7, 0.7, 0.7, 1.0)
+
+        let (body, meta) = shapeToBodyAndMetadata(shape, id: bodyID, color: color)
+        guard let body else {
+            return CADLoadResult(bodies: [], metadata: [:], shapes: [shape])
+        }
+
+        var metadata: [String: CADBodyMetadata] = [:]
+        if let meta {
+            metadata[bodyID] = meta
+        }
+        return CADLoadResult(bodies: [body], metadata: metadata, shapes: [shape])
+    }
+
+    // MARK: - Manifest Loading
+
+    /// Loads bodies from a script manifest (manifest.json + BREP files).
+    static func loadFromManifest(at url: URL) throws -> CADLoadResult {
+        let data = try Data(contentsOf: url)
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let manifest = try decoder.decode(ScriptManifest.self, from: data)
+        let baseDir = url.deletingLastPathComponent()
+
+        var bodies: [ViewportBody] = []
+        var metadata: [String: CADBodyMetadata] = [:]
+        var shapes: [Shape] = []
+
+        for (index, descriptor) in manifest.bodies.enumerated() {
+            let fileURL = baseDir.appendingPathComponent(descriptor.file)
+            guard FileManager.default.fileExists(atPath: fileURL.path) else { continue }
+
+            let shape = try Shape.loadBREP(from: fileURL)
+            let bodyID = "script-\(descriptor.id ?? "\(index)")"
+            let color = descriptor.color ?? SIMD4<Float>(0.7, 0.7, 0.7, 1.0)
+
+            let (body, meta) = shapeToBodyAndMetadata(shape, id: bodyID, color: color)
+            if let body {
+                bodies.append(body)
+                shapes.append(shape)
+                if let meta {
+                    metadata[bodyID] = meta
+                }
+            }
+        }
+
+        return CADLoadResult(bodies: bodies, metadata: metadata, shapes: shapes)
     }
 
     // MARK: - Shape → Body Conversion

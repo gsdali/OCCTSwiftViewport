@@ -89,6 +89,10 @@ struct SpikeView: View {
     @State private var columnVisibility: NavigationSplitViewVisibility = .detailOnly
     @State private var showSettings = false
 
+    #if os(macOS)
+    @StateObject private var scriptWatcher = ScriptWatcher()
+    #endif
+
     var body: some View {
         viewportLayout
         .onAppear {
@@ -128,7 +132,9 @@ struct SpikeView: View {
         let stpType = UTType(filenameExtension: "stp") ?? .data
         let stlType = UTType(filenameExtension: "stl") ?? .data
         let objType = UTType(filenameExtension: "obj") ?? .data
-        return [stepType, stpType, stlType, objType]
+        let brepType = UTType(filenameExtension: "brep") ?? .data
+        let brpType = UTType(filenameExtension: "brp") ?? .data
+        return [stepType, stpType, stlType, objType, brepType, brpType]
     }
 
     // MARK: - Layout
@@ -192,6 +198,9 @@ struct SpikeView: View {
                 exportSection
                 healingSection
                 analysisSection
+                #if os(macOS)
+                scriptWatcherSection
+                #endif
             }
 
             DisclosureGroup("Geometry Demos") {
@@ -283,7 +292,7 @@ struct SpikeView: View {
                     showFileImporter = true
                 }
             } label: {
-                Label("Open File (STEP/STL/OBJ)...", systemImage: "doc.badge.plus")
+                Label("Open File (STEP/STL/OBJ/BREP)...", systemImage: "doc.badge.plus")
             }
             .disabled(isLoadingFile)
 
@@ -322,9 +331,64 @@ struct SpikeView: View {
                 pendingExportFormat = .ply
                 showExportDialog = true
             }
+            Button("Export as STEP...") {
+                pendingExportFormat = .step
+                showExportDialog = true
+            }
+            Button("Export as BREP...") {
+                pendingExportFormat = .brep
+                showExportDialog = true
+            }
         }
         .disabled(loadedShapes.isEmpty)
     }
+
+    // MARK: - Script Watcher Section
+
+    #if os(macOS)
+    private var scriptWatcherSection: some View {
+        Section("Script Watcher") {
+            Toggle("Watch Scripts", isOn: $scriptWatcher.isWatching)
+
+            if scriptWatcher.isWatching {
+                Button("Reload") {
+                    scriptWatcher.reload()
+                }
+
+                if !scriptWatcher.scriptBodies.isEmpty {
+                    Text("\(scriptWatcher.scriptBodies.count) bodies loaded")
+                        .foregroundStyle(.secondary)
+                        .font(.caption)
+                }
+
+                if let time = scriptWatcher.lastLoadTime {
+                    Text("Last: \(time.formatted(.dateTime.hour().minute().second()))")
+                        .foregroundStyle(.secondary)
+                        .font(.caption)
+                }
+
+                if let error = scriptWatcher.lastError {
+                    Text(error)
+                        .foregroundStyle(.red)
+                        .font(.caption)
+                }
+            }
+        }
+        .onChange(of: scriptWatcher.lastLoadTime) {
+            guard !scriptWatcher.scriptBodies.isEmpty else { return }
+            // Replace only script-prefixed bodies, keep others
+            bodies.removeAll { $0.id.hasPrefix("script-") }
+            bodies.append(contentsOf: scriptWatcher.scriptBodies)
+            // Update shapes
+            loadedShapes = scriptWatcher.scriptShapes
+            // Update original colors
+            for body in scriptWatcher.scriptBodies {
+                originalColors[body.id] = body.color
+            }
+            focusOnBounds()
+        }
+    }
+    #endif
 
     // MARK: - Healing Section
 

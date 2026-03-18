@@ -106,4 +106,77 @@ Three rotation styles: **arcball** (Ken Shoemake virtual sphere), **turntable** 
 
 ## Demo App
 
-`Sources/OCCTSwiftMetalDemo/` is a gallery-based demo app exercising OCCTSwift features. Entry point is `MetalSpikeApp.swift` → `SpikeView.swift`. Each OCCTSwift capability gets its own gallery file (e.g., `Curve2DGallery.swift`, `SurfaceGallery.swift`, `OCCT8Gallery.swift`, `NamingGallery.swift`, `AnnotationGallery.swift`). The `SelectionManager` handles body/face selection with highlighting. `CADFileLoader` handles STEP/STL file import. New demos for each OCCTSwift release are added as gallery functions — see existing galleries for the pattern.
+`Sources/OCCTSwiftMetalDemo/` is a gallery-based demo app exercising OCCTSwift features. Entry point is `MetalSpikeApp.swift` → `SpikeView.swift`. Each OCCTSwift capability gets its own gallery file (e.g., `Curve2DGallery.swift`, `SurfaceGallery.swift`, `OCCT8Gallery.swift`, `NamingGallery.swift`, `AnnotationGallery.swift`). The `SelectionManager` handles body/face selection with highlighting. `CADFileLoader` handles STEP/STL/OBJ/BREP file import. New demos for each OCCTSwift release are added as gallery functions — see existing galleries for the pattern.
+
+## Script Harness
+
+A companion SPM package at `/Users/elb/Projects/OCCTSwiftScripts/` provides a CadQuery/OpenSCAD-like workflow for OCCTSwift. Edit `Sources/Script/main.swift` using the **full OCCTSwift API** (~400+ methods), run `swift run Script`, and geometry appears automatically in the viewport.
+
+The script has access to everything: primitives, sketches (`Wire.polygon`, `.circle`, `.rectangle`), extrude/revolve/sweep/loft, booleans (union/cut/intersect), fillets/chamfers, holes/pockets/bosses, offset/shell, transforms, patterns, curves (2D/3D), surfaces, constraint solvers (`GccAna`), `Document` (XDE assembly + GD&T), file I/O, and analysis.
+
+### How It Works
+
+```
+OCCTSwiftScripts/Sources/Script/main.swift  (full OCCTSwift API access)
+    │  swift run Script (~1-2s incremental)
+    ▼
+~/.occtswift-scripts/output/
+    ├─ body-0.brep          (wire sketch — wireframe)
+    ├─ body-1.brep          (filleted solid)
+    ├─ body-2.brep          (bolt assembly)
+    ├─ output.step           (combined — for external tools)
+    └─ manifest.json         (written LAST — triggers watcher)
+    │  kqueue file watcher (200ms debounce)
+    ▼
+Demo app (ScriptWatcher auto-reloads geometry into viewport)
+```
+
+### Usage
+
+```bash
+cd /Users/elb/Projects/OCCTSwiftScripts
+swift build          # First time ~30s
+# Edit Sources/Script/main.swift, then:
+swift run Script     # ~1-2s incremental
+```
+
+In the demo app (macOS only): sidebar → File & Tools → Script Watcher → toggle on.
+
+### ScriptContext API
+
+```swift
+let ctx = ScriptContext()           // also writes output.step on emit
+let ctx = ScriptContext(exportSTEP: false)  // BREP only, faster
+let C = ScriptContext.Colors.self   // .red .blue .steel .brass etc.
+
+// Solids
+try ctx.add(shape, id: "part", color: C.steel, name: "Bracket")
+
+// Wires / sketches (displayed as wireframe edges)
+try ctx.add(wire, id: "sketch", color: C.yellow)
+
+// Edges
+try ctx.add(edge, id: "axis", color: C.red)
+
+// Compounds (assemblies)
+try ctx.addCompound([part1, part2], id: "asm", color: C.gray)
+
+// Emit — writes output.step + manifest.json (call LAST)
+try ctx.emit(description: "My parametric design")
+```
+
+### Key Files
+
+| File | Purpose |
+|------|---------|
+| `OCCTSwiftScripts/Sources/Script/main.swift` | User-editable script (full OCCTSwift API) |
+| `OCCTSwiftScripts/Sources/ScriptHarness/ScriptContext.swift` | Shape/Wire/Edge accumulator, BREP+STEP writer |
+| `OCCTSwiftScripts/Sources/ScriptHarness/Manifest.swift` | `ScriptManifest` / `BodyDescriptor` Codable types |
+| `Sources/OCCTSwiftMetalDemo/ScriptWatcher.swift` | kqueue file watcher (macOS only) |
+| `Sources/OCCTSwiftMetalDemo/ScriptManifest.swift` | Demo-side manifest Codable types |
+
+### File Format Support
+
+- **Import:** STEP (.step/.stp), STL (.stl), OBJ (.obj), BREP (.brep/.brp)
+- **Export:** OBJ, PLY, STEP, BREP
+- **Script output:** BREP per body (~1ms each) + combined STEP for external tools

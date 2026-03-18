@@ -312,17 +312,35 @@ public struct MetalViewportView: View {
                 lastDragValue = value.translation
 
                 let modifiers = NSApp.currentEvent?.modifierFlags ?? []
+                let gc = controller.configuration.gestureConfiguration
+                print("[GESTURE] mouseDrag=\(gc.mouseDrag) shift=\(modifiers.contains(.shift))")
 
-                if modifiers.contains(.shift) {
+                let action: GestureAction
+                if modifiers.contains(.command) {
+                    action = gc.commandDrag
+                } else if modifiers.contains(.shift) {
+                    action = gc.shiftDrag
+                } else if modifiers.contains(.option) {
+                    action = gc.optionDrag
+                } else {
+                    action = gc.mouseDrag
+                }
+
+                switch action {
+                case .pan:
                     activeDragMode = .pan
                     controller.handlePan(translation: delta)
-                } else if modifiers.contains(.option) {
+                case .zoom:
                     activeDragMode = .zoom
                     let zoomDelta = 1.0 + delta.height * 0.02
                     controller.handleZoom(magnification: zoomDelta)
-                } else {
+                case .orbit:
                     activeDragMode = .orbit
                     controller.handleOrbit(translation: CGSize(width: -delta.width, height: delta.height))
+                case .none:
+                    break
+                default:
+                    break
                 }
             }
             .onEnded { value in

@@ -39,6 +39,8 @@ class ScrollCaptureMTKView: MTKView {
     var onScrollWheel: ((CGFloat, CGPoint, CGSize) -> Void)?
     var onMouseDown: ((CGPoint, CGSize) -> Void)?
 
+    override var acceptsFirstResponder: Bool { true }
+
     override func scrollWheel(with event: NSEvent) {
         let delta = event.scrollingDeltaY
         let locationInView = convert(event.locationInWindow, from: nil)
@@ -50,7 +52,8 @@ class ScrollCaptureMTKView: MTKView {
         let locationInView = convert(event.locationInWindow, from: nil)
         let viewSize = bounds.size
         onMouseDown?(locationInView, viewSize)
-        super.mouseDown(with: event)
+        // Do NOT call super — it starts an NSView mouse-tracking loop
+        // that prevents SwiftUI DragGesture from receiving the drag.
     }
 }
 

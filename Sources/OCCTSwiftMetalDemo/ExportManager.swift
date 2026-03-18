@@ -10,9 +10,16 @@ import OCCTSwift
 enum ExportFormat: String, CaseIterable, Sendable {
     case obj = "OBJ"
     case ply = "PLY"
+    case step = "STEP"
+    case brep = "BREP"
 
     var fileExtension: String {
-        rawValue.lowercased()
+        switch self {
+        case .obj: return "obj"
+        case .ply: return "ply"
+        case .step: return "step"
+        case .brep: return "brep"
+        }
     }
 }
 
@@ -65,6 +72,10 @@ enum ExportManager {
             try Exporter.writeOBJ(shape: shape, to: url, deflection: deflection)
         case .ply:
             try Exporter.writePLY(shape: shape, to: url, deflection: deflection)
+        case .step:
+            try Exporter.writeSTEP(shape: shape, to: url, modelType: .asIs)
+        case .brep:
+            try Exporter.writeBREP(shape: shape, to: url)
         }
     }
 }
