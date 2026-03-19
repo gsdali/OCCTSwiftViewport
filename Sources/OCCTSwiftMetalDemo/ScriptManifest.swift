@@ -12,6 +12,7 @@ struct ScriptManifest: Codable, Sendable {
     let timestamp: Date
     let description: String?
     let bodies: [BodyDescriptor]
+    let metadata: ManifestMetadata?
 
     struct BodyDescriptor: Codable, Sendable {
         let id: String?
@@ -33,5 +34,15 @@ struct ScriptManifest: Codable, Sendable {
             case id, file, format, name, roughness, metallic
             case colorArray = "color"
         }
+    }
+
+    struct ManifestMetadata: Codable, Sendable {
+        let name: String
+        let revision: String?
+        let dateCreated: Date?
+        let dateModified: Date?
+        let source: String?
+        let tags: [String]?
+        let notes: String?
     }
 }
