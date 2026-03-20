@@ -89,9 +89,7 @@ struct SpikeView: View {
     @State private var columnVisibility: NavigationSplitViewVisibility = .detailOnly
     @State private var showSettings = false
 
-    #if os(macOS)
     @StateObject private var scriptWatcher = ScriptWatcher()
-    #endif
 
     var body: some View {
         viewportLayout
@@ -198,9 +196,7 @@ struct SpikeView: View {
                 exportSection
                 healingSection
                 analysisSection
-                #if os(macOS)
                 scriptWatcherSection
-                #endif
             }
 
             DisclosureGroup("Geometry Demos") {
@@ -345,7 +341,6 @@ struct SpikeView: View {
 
     // MARK: - Script Watcher Section
 
-    #if os(macOS)
     private var scriptWatcherSection: some View {
         Section("Script Watcher") {
             Toggle("Watch Scripts", isOn: $scriptWatcher.isWatching)
@@ -353,6 +348,30 @@ struct SpikeView: View {
             if scriptWatcher.isWatching {
                 Button("Reload") {
                     scriptWatcher.reload()
+                }
+
+                // Metadata display
+                if let meta = scriptWatcher.manifestMetadata {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(meta.name)
+                            .font(.caption.bold())
+                        if let rev = meta.revision {
+                            Text("Rev \(rev)")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                        }
+                        if let source = meta.source {
+                            Text(source)
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                        }
+                        if let tags = meta.tags, !tags.isEmpty {
+                            Text(tags.joined(separator: ", "))
+                                .font(.caption2)
+                                .foregroundStyle(.tertiary)
+                        }
+                    }
+                    .padding(.vertical, 2)
                 }
 
                 if !scriptWatcher.scriptBodies.isEmpty {
@@ -373,6 +392,28 @@ struct SpikeView: View {
                         .font(.caption)
                 }
             }
+
+            // Gallery of available scripts
+            if !scriptWatcher.availableScripts.isEmpty {
+                ForEach(scriptWatcher.availableScripts) { entry in
+                    Button {
+                        scriptWatcher.loadScript(entry)
+                    } label: {
+                        HStack {
+                            VStack(alignment: .leading, spacing: 1) {
+                                Text(entry.name)
+                                    .font(.caption)
+                                Text("\(entry.bodyCount) bodies · \(entry.timestamp.formatted(.dateTime.month().day().hour().minute()))")
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                            Image(systemName: "cube")
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+            }
         }
         .onChange(of: scriptWatcher.lastLoadTime) {
             guard !scriptWatcher.scriptBodies.isEmpty else { return }
@@ -388,7 +429,6 @@ struct SpikeView: View {
             focusOnBounds()
         }
     }
-    #endif
 
     // MARK: - Healing Section
 
