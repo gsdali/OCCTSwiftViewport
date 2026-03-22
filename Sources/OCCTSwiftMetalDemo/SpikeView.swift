@@ -744,6 +744,13 @@ struct SpikeView: View {
         case vrmlAndDocAttributes
         case unitsAndBinaryIO
         case extendedAttributesAndShapeFix
+        case transformAndRecognition
+        case tnamingAndPackedMaps
+        case transactionsAndDeltas
+        case pathAndPresentation
+        case curveEvalAndQuaternion
+        case obbAndClassification
+        case patternsAndInterpolation
     }
 
     // MARK: - OCCT 8 Sub-groups
@@ -845,6 +852,13 @@ struct SpikeView: View {
         Button("VRML & Doc Attributes") { loadOCCT8Demo(.vrmlAndDocAttributes) }
         Button("Units & Binary I/O") { loadOCCT8Demo(.unitsAndBinaryIO) }
         Button("Ext Attributes & Fix") { loadOCCT8Demo(.extendedAttributesAndShapeFix) }
+        Button("Transform & Recognition") { loadOCCT8Demo(.transformAndRecognition) }
+        Button("TNaming & PackedMaps") { loadOCCT8Demo(.tnamingAndPackedMaps) }
+        Button("Transactions & Deltas") { loadOCCT8Demo(.transactionsAndDeltas) }
+        Button("Path & Presentation") { loadOCCT8Demo(.pathAndPresentation) }
+        Button("Curve Eval & Quaternion") { loadOCCT8Demo(.curveEvalAndQuaternion) }
+        Button("OBB & Classification") { loadOCCT8Demo(.obbAndClassification) }
+        Button("Patterns & Interpolation") { loadOCCT8Demo(.patternsAndInterpolation) }
     }
 
     private func loadOCCT8Demo(_ demo: OCCT8Demo) {
@@ -1005,6 +1019,20 @@ struct SpikeView: View {
             result = OCCT8Gallery.unitsAndBinaryIO()
         case .extendedAttributesAndShapeFix:
             result = OCCT8Gallery.extendedAttributesAndShapeFix()
+        case .transformAndRecognition:
+            result = OCCT8Gallery.transformAndRecognition()
+        case .tnamingAndPackedMaps:
+            result = OCCT8Gallery.tnamingAndPackedMaps()
+        case .transactionsAndDeltas:
+            result = OCCT8Gallery.transactionsAndDeltas()
+        case .pathAndPresentation:
+            result = OCCT8Gallery.pathAndPresentation()
+        case .curveEvalAndQuaternion:
+            result = OCCT8Gallery.curveEvalAndQuaternion()
+        case .obbAndClassification:
+            result = OCCT8Gallery.obbAndClassification()
+        case .patternsAndInterpolation:
+            result = OCCT8Gallery.patternsAndInterpolation()
         }
 
         bodies = result.bodies

@@ -44,8 +44,8 @@ final class ScriptWatcher: ObservableObject {
     private var dispatchSource: DispatchSourceFileSystemObject?
     private var dirFD: Int32 = -1
     #endif
-    private var pollTimer: Timer?
-    private var debounceTimer: Timer?
+    private var pollTimer: Foundation.Timer?
+    private var debounceTimer: Foundation.Timer?
     private var lastManifestDate: Date?
 
     init() {

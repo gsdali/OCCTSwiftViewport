@@ -7935,4 +7935,866 @@ enum OCCT8Gallery {
             description: descriptions.joined(separator: " | ")
         )
     }
+
+    // MARK: - v0.87: GeomTransformation, Offset Curves, Trimmed Surfaces, Shell Analysis, Canonical Recognition
+
+    /// Demonstrates mutable GeomTransformation (translate/rotate/scale/mirror),
+    /// 3D offset curves, rectangular trimmed surfaces, shell analysis, and
+    /// canonical surface/curve recognition.
+    static func transformAndRecognition() -> Curve2DGallery.GalleryResult {
+        var bodies: [ViewportBody] = []
+        var descriptions: [String] = []
+
+        // --- GeomTransformation: compose translate + rotate ---
+        if let box = Shape.box(width: 3, height: 2, depth: 1) {
+            // Original
+            if var b = CADFileLoader.shapeToBodyAndMetadata(
+                box, id: "gt-original", color: SIMD4(0.4, 0.4, 0.8, 0.5)).0 {
+                bodies.append(b)
+            }
+
+            if let t = GeomTransformation() {
+                // Translate then rotate
+                t.setTranslation(dx: 8, dy: 0, dz: 0)
+                let p = t.apply(x: 0, y: 0, z: 0)
+                descriptions.append("Translate: (\(String(format: "%.0f", p.0)),\(String(format: "%.0f", p.1)),\(String(format: "%.0f", p.2)))")
+
+                if let t2 = GeomTransformation() {
+                    t2.setRotation(originX: 0, originY: 0, originZ: 0,
+                                   dirX: 0, dirY: 0, dirZ: 1, angle: .pi / 4)
+                    if let combined = t.multiplied(by: t2) {
+                        let p2 = combined.apply(x: 1, y: 0, z: 0)
+                        descriptions.append("Scale=\(String(format: "%.1f", combined.scaleFactor))")
+                    }
+                }
+
+                // Scale
+                t.setScale(centerX: 0, centerY: 0, centerZ: 0, factor: 2.0)
+                let scaled = t.apply(x: 1, y: 1, z: 1)
+                descriptions.append("2x: (\(String(format: "%.0f", scaled.0)),\(String(format: "%.0f", scaled.1)),\(String(format: "%.0f", scaled.2)))")
+
+                // Mirror
+                t.setMirrorPoint(x: 0, y: 0, z: 0)
+                descriptions.append("Neg=\(t.isNegative)")
+            }
+
+            // Show translated copy
+            if let moved = box.translated(by: SIMD3(8, 0, 0)) {
+                if var b = CADFileLoader.shapeToBodyAndMetadata(
+                    moved, id: "gt-translated", color: SIMD4(0.2, 0.8, 0.4, 1)).0 {
+                    bodies.append(b)
+                }
+            }
+
+            // Show rotated copy
+            if let rotated = box.rotated(axis: SIMD3(0, 0, 1), angle: .pi / 4)?
+                .translated(by: SIMD3(16, 0, 0)) {
+                if var b = CADFileLoader.shapeToBodyAndMetadata(
+                    rotated, id: "gt-rotated", color: SIMD4(0.8, 0.6, 0.2, 1)).0 {
+                    bodies.append(b)
+                }
+            }
+
+            // Show scaled copy
+            if let scaled = box.scaled(by: 2.0)?.translated(by: SIMD3(0, 8, 0)) {
+                if var b = CADFileLoader.shapeToBodyAndMetadata(
+                    scaled, id: "gt-scaled", color: SIMD4(0.8, 0.3, 0.3, 1)).0 {
+                    bodies.append(b)
+                }
+            }
+        }
+
+        // --- Offset Curve ---
+        if let line = Curve3D.line(
+            through: SIMD3(0, -5, 5),
+            direction: SIMD3(1, 0, 0)
+        ) {
+            // Offset in Z direction
+            if let offset = Curve3D.offset(basis: line, offset: 3.0,
+                                            dirX: 0, dirY: 0, dirZ: 1) {
+                descriptions.append("Offset=\(String(format: "%.1f", offset.offsetValue))")
+                // Sample offset curve
+                var pts: [SIMD3<Float>] = []
+                for i in 0...20 {
+                    let u = Double(i) * 0.5
+                    let p = offset.point(at: u)
+                    pts.append(SIMD3<Float>(Float(p.x), Float(p.y), Float(p.z)))
+                }
+                if pts.count >= 2 {
+                    bodies.append(ViewportBody(id: "offset-curve", vertexData: [],
+                                               indices: [], edges: [pts],
+                                               color: SIMD4(1, 0.5, 0, 1)))
+                }
+            }
+        }
+
+        // --- Shell Analysis ---
+        if let cyl = Shape.cylinder(radius: 3, height: 6) {
+            let result = cyl.analyzeShell()
+            descriptions.append("Shell: orient=\(result.hasOrientationProblems) free=\(result.freeEdgeCount)")
+        }
+
+        // --- Canonical Surface Recognition ---
+        if let sphere = Shape.sphere(radius: 5) {
+            let result = sphere.recognizeCanonicalSurface()
+            descriptions.append("Recog: \(result.type)")
+            if var sb = CADFileLoader.shapeToBodyAndMetadata(
+                sphere, id: "recog-sphere", color: SIMD4(0.3, 0.7, 0.9, 0.6)).0 {
+                offsetBody(&sb, dx: 0, dy: 0, dz: 12)
+                bodies.append(sb)
+            }
+        }
+
+        // --- Tick and CurrentLabel ---
+        if let doc = Document.create(format: "XmlOcaf") {
+            _ = doc.setTick(tag: 500)
+            let hasTick = doc.hasTick(tag: 500)
+            _ = doc.setCurrentLabel(tag: 510)
+            let curTag = doc.currentLabel()
+            descriptions.append("Tick=\(hasTick) Cur=\(curTag ?? -1)")
+        }
+
+        return Curve2DGallery.GalleryResult(
+            bodies: bodies,
+            description: descriptions.joined(separator: " | ")
+        )
+    }
+
+    // MARK: - v0.88: TNaming Extensions, IntPackedMap, NoteBook, UAttribute
+
+    /// Demonstrates TNaming shape history tracking (record/query/version),
+    /// integer packed maps, notebooks, and user-defined attributes.
+    static func tnamingAndPackedMaps() -> Curve2DGallery.GalleryResult {
+        var bodies: [ViewportBody] = []
+        var descriptions: [String] = []
+
+        if let doc = Document.create(format: "XmlOcaf") {
+            // --- TNaming: record shape evolution ---
+            if let box = Shape.box(width: 5, height: 5, depth: 5),
+               let sphere = Shape.sphere(radius: 3) {
+
+                // Create a label for naming
+                if let label = doc.createLabel() {
+                    // Record primitive creation
+                    let recorded = doc.recordNaming(on: label, evolution: .primitive, newShape: box)
+                    let empty = doc.namingIsEmpty(on: label)
+                    descriptions.append("Naming: rec=\(recorded) empty=\(empty)")
+
+                    // Check version
+                    let version = doc.namingVersion(on: label)
+                    descriptions.append("Ver=\(version)")
+
+                    // Get original shape back
+                    if let orig = doc.namingOriginalShape(on: label) {
+                        descriptions.append("OrigFaces=\(orig.faceCount)")
+                    }
+
+                    // Label lookup
+                    let hasLabel = doc.namingHasLabel(shape: box)
+                    descriptions.append("HasLabel=\(hasLabel)")
+                }
+
+                // Show the box
+                if var b = CADFileLoader.shapeToBodyAndMetadata(
+                    box, id: "naming-box", color: SIMD4(0.4, 0.6, 0.9, 1)).0 {
+                    bodies.append(b)
+                }
+
+                // Show sphere (modified shape)
+                if var b = CADFileLoader.shapeToBodyAndMetadata(
+                    sphere, id: "naming-sphere", color: SIMD4(0.9, 0.5, 0.3, 0.7)).0 {
+                    offsetBody(&b, dx: 10, dy: 0, dz: 0)
+                    bodies.append(b)
+                }
+            }
+
+            // --- IntPackedMap ---
+            _ = doc.setIntPackedMap(tag: 100)
+            _ = doc.intPackedMapAdd(tag: 100, value: 10)
+            _ = doc.intPackedMapAdd(tag: 100, value: 20)
+            _ = doc.intPackedMapAdd(tag: 100, value: 30)
+            let contains = doc.intPackedMapContains(tag: 100, value: 20)
+            let count = doc.intPackedMapCount(tag: 100)
+            descriptions.append("PackedMap: \(count) items, has20=\(contains)")
+
+            // --- NoteBook ---
+            _ = doc.setNoteBook(tag: 200)
+            let childReal = doc.noteBookAppendReal(tag: 200, value: 3.14159)
+            let childInt = doc.noteBookAppendInteger(tag: 200, value: 42)
+            descriptions.append("NoteBook: real→\(childReal ?? -1) int→\(childInt ?? -1)")
+
+            // --- UAttribute ---
+            let guid = "12345678-1234-1234-1234-123456789012"
+            _ = doc.setUAttribute(tag: 300, guid: guid)
+            let hasUA = doc.hasUAttribute(tag: 300, guid: guid)
+            descriptions.append("UAttr=\(hasUA)")
+
+            // --- ChildNodeIterator ---
+            let childCount = doc.childNodeCount(tag: 200)
+            descriptions.append("Children=\(childCount)")
+        }
+
+        return Curve2DGallery.GalleryResult(
+            bodies: bodies,
+            description: descriptions.joined(separator: " | ")
+        )
+    }
+
+    // MARK: - v0.89: Named Transactions, Delta Tracking, XLink
+
+    /// Demonstrates named transactions with undo deltas, cross-link operations,
+    /// function execution status, and function scope management.
+    static func transactionsAndDeltas() -> Curve2DGallery.GalleryResult {
+        var bodies: [ViewportBody] = []
+        var descriptions: [String] = []
+
+        if let doc = Document.create(format: "XmlOcaf") {
+            // --- Named Transaction ---
+            let txnNum = doc.openNamedTransaction("Create Parts")
+            descriptions.append("Txn#\(txnNum)")
+
+            // Make changes inside transaction
+            if let label = doc.createLabel() {
+                _ = label.setName("Part A")
+            }
+
+            // Commit with delta
+            if let delta = doc.commitWithDelta() {
+                let isEmpty = delta.isEmpty
+                let attrCount = delta.attributeDeltaCount
+                delta.setName("Batch Create")
+                let name = delta.name
+                descriptions.append("Delta: empty=\(isEmpty) attrs=\(attrCount) name=\(name)")
+            }
+
+            // Transaction number
+            let currentTxn = doc.transactionNumber
+            descriptions.append("CurTxn=\(currentTxn)")
+
+            // --- Self-contained check ---
+            if let box = Shape.box(width: 2, height: 2, depth: 2) {
+                let rootId = doc.addShape(box)
+                let selfContained = doc.isSelfContained(labelId: rootId)
+                descriptions.append("SelfCont=\(selfContained)")
+
+                // --- XLink copy ---
+                let targetId = doc.newShapeLabel()
+                let copied = doc.xlinkCopy(targetLabelId: targetId,
+                                           sourceLabelId: rootId)
+                descriptions.append("XLinkCopy=\(copied)")
+            }
+
+            // --- Function scope ---
+            _ = doc.setFunctionScope()
+            let fnLabelId = doc.newShapeLabel()
+            if fnLabelId >= 0 {
+                _ = doc.functionScopeAdd(labelId: fnLabelId)
+                let has = doc.functionScopeHas(labelId: fnLabelId)
+                let count = doc.functionScopeCount
+                descriptions.append("FnScope: has=\(has) count=\(count)")
+            }
+
+            // --- Attribute count ---
+            if let box = Shape.box(width: 1, height: 1, depth: 1) {
+                let attrLabelId = doc.addShape(box)
+                let count = doc.attributeCount(labelId: attrLabelId)
+                descriptions.append("Attrs=\(count)")
+            }
+        }
+
+        // Visual: show a box with "before" and "after" transaction states
+        if let box = Shape.box(width: 4, height: 4, depth: 4) {
+            if var b = CADFileLoader.shapeToBodyAndMetadata(
+                box, id: "txn-before", color: SIMD4(0.5, 0.5, 0.8, 1)).0 {
+                bodies.append(b)
+            }
+            // "After modification" — filleted
+            if let filleted = box.filleted(radius: 0.5) {
+                if var b = CADFileLoader.shapeToBodyAndMetadata(
+                    filleted, id: "txn-after", color: SIMD4(0.3, 0.8, 0.4, 1)).0 {
+                    offsetBody(&b, dx: 8, dy: 0, dz: 0)
+                    bodies.append(b)
+                }
+            }
+        }
+
+        return Curve2DGallery.GalleryResult(
+            bodies: bodies,
+            description: descriptions.joined(separator: " | ")
+        )
+    }
+
+    // MARK: - v0.90: PathParser, NamingScope, Placement, Presentation, DimTol
+
+    /// Demonstrates file path parsing, naming scope validation, placement/presentation
+    /// attributes, dimension tolerances, and assembly item counting.
+    static func pathAndPresentation() -> Curve2DGallery.GalleryResult {
+        var bodies: [ViewportBody] = []
+        var descriptions: [String] = []
+
+        // --- PathParser ---
+        if let trek = PathParser.trek("/home/user/models/bracket.step") {
+            descriptions.append("Trek=\(trek)")
+        }
+        if let name = PathParser.name("bracket_v2.step") {
+            descriptions.append("Name=\(name)")
+        }
+        if let ext = PathParser.fileExtension("model.step") {
+            descriptions.append("Ext=\(ext)")
+        }
+
+        // --- FunctionDriverTable ---
+        let hasDrv = FunctionDriverTable.hasDriver(
+            guid: "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee")
+        descriptions.append("HasDrv=\(hasDrv)")
+
+        if let doc = Document.create(format: "XmlOcaf") {
+            // --- NamingScope ---
+            let scopeId = doc.newShapeLabel()
+            if scopeId >= 0 {
+                let valid = doc.namingScopeValid(labelId: scopeId)
+                let isValid = doc.namingScopeIsValid(labelId: scopeId)
+                descriptions.append("Scope: v=\(valid) is=\(isValid)")
+            }
+
+            // --- Placement ---
+            let placeId = doc.newShapeLabel()
+            if placeId >= 0 {
+                _ = doc.setPlacement(labelId: placeId)
+                let hasP = doc.hasPlacement(labelId: placeId)
+                descriptions.append("Place=\(hasP)")
+            }
+
+            // --- Presentation ---
+            let presId = doc.newShapeLabel()
+            if presId >= 0 {
+                let drvGUID = "12345678-1234-1234-1234-123456789abc"
+                _ = doc.setPresentation(labelId: presId, driverGUID: drvGUID)
+                let hasPresent = doc.hasPresentation(labelId: presId)
+                doc.presentationSetColor(labelId: presId, colorIndex: 5)
+                doc.presentationSetTransparency(labelId: presId, value: 0.3)
+                doc.presentationSetWidth(labelId: presId, width: 2.0)
+                doc.presentationSetMode(labelId: presId, mode: 1)
+                doc.presentationSetDisplayed(labelId: presId, displayed: true)
+                let color = doc.presentationGetColor(labelId: presId)
+                let transp = doc.presentationGetTransparency(labelId: presId)
+                descriptions.append("Pres: has=\(hasPresent) color=\(color ?? -1) t=\(String(format: "%.1f", transp ?? 0))")
+            }
+
+            // --- DimTol ---
+            let tolId = doc.newShapeLabel()
+            if tolId >= 0 {
+                doc.setDimTol(labelId: tolId, kind: 1,
+                              values: [0.01, 0.05],
+                              name: "Flatness",
+                              description: "Surface flatness tolerance")
+                let kind = doc.dimTolKind(labelId: tolId)
+                let name = doc.dimTolName(labelId: tolId)
+                descriptions.append("DimTol: k=\(kind ?? -1) n=\(name ?? "?")")
+            }
+
+            // --- Assembly item count ---
+            let itemCount = doc.assemblyItemCount()
+            descriptions.append("AsmItems=\(itemCount)")
+
+            // --- Translator copy ---
+            if let box = Shape.box(width: 3, height: 3, depth: 3) {
+                if let copy = box.translatorCopy() {
+                    if var b = CADFileLoader.shapeToBodyAndMetadata(
+                        copy, id: "translator-copy", color: SIMD4(0.6, 0.4, 0.8, 1)).0 {
+                        bodies.append(b)
+                    }
+                    descriptions.append("Copy: \(copy.faceCount) faces")
+                }
+            }
+        }
+
+        // --- IntTools ---
+        let mid = IntTools.intermediatePoint(first: 0.0, last: 1.0)
+        let coinc = IntTools.isDirsCoinside(dx1: 1, dy1: 0, dz1: 0,
+                                             dx2: 1, dy2: 0, dz2: 0)
+        descriptions.append("Mid=\(String(format: "%.2f", mid)) Coinc=\(coinc)")
+
+        return Curve2DGallery.GalleryResult(
+            bodies: bodies,
+            description: descriptions.joined(separator: " | ")
+        )
+    }
+
+    // MARK: - v0.91: ElCLib, ElSLib, Quaternion, Timer
+
+    /// Demonstrates elementary curve/surface evaluation (ElCLib/ElSLib),
+    /// quaternion rotations, and OCCT timing.
+    static func curveEvalAndQuaternion() -> Curve2DGallery.GalleryResult {
+        var bodies: [ViewportBody] = []
+        var descriptions: [String] = []
+
+        // --- ElCLib: sample points on elementary curves ---
+
+        // Circle points
+        let circleCenter = SIMD3<Double>(0, 0, 0)
+        let circleNormal = SIMD3<Double>(0, 0, 1)
+        let radius = 8.0
+        var circlePts: [SIMD3<Float>] = []
+        for i in 0...60 {
+            let u = Double(i) / 60.0 * 2.0 * .pi
+            let p = ElCLib.valueOnCircle(u: u, center: circleCenter,
+                                          normal: circleNormal, radius: radius)
+            circlePts.append(SIMD3<Float>(Float(p.x), Float(p.y), Float(p.z)))
+        }
+        bodies.append(ViewportBody(id: "elclib-circle", vertexData: [],
+                                    indices: [], edges: [circlePts],
+                                    color: SIMD4(0.2, 0.6, 1, 1)))
+
+        // Tangent vectors at cardinal points
+        for i in 0..<4 {
+            let u = Double(i) * .pi / 2.0
+            let d1 = ElCLib.d1OnCircle(u: u, center: circleCenter,
+                                        normal: circleNormal, radius: radius)
+            let p = SIMD3<Float>(Float(d1.point.x), Float(d1.point.y), Float(d1.point.z))
+            let t = SIMD3<Float>(Float(d1.tangent.x), Float(d1.tangent.y), Float(d1.tangent.z))
+            let scale: Float = 2.0
+            let end = p + simd_normalize(t) * scale
+            bodies.append(ViewportBody(id: "tangent-\(i)", vertexData: [],
+                                        indices: [], edges: [[p, end]],
+                                        color: SIMD4(1, 0.3, 0.2, 1)))
+        }
+
+        // Ellipse points
+        var ellipsePts: [SIMD3<Float>] = []
+        for i in 0...60 {
+            let u = Double(i) / 60.0 * 2.0 * .pi
+            let p = ElCLib.valueOnEllipse(u: u, center: SIMD3(20, 0, 0),
+                                           normal: SIMD3(0, 0, 1),
+                                           majorRadius: 6, minorRadius: 3)
+            ellipsePts.append(SIMD3<Float>(Float(p.x), Float(p.y), Float(p.z)))
+        }
+        bodies.append(ViewportBody(id: "elclib-ellipse", vertexData: [],
+                                    indices: [], edges: [ellipsePts],
+                                    color: SIMD4(0.9, 0.6, 0.2, 1)))
+
+        // Line parameterization
+        let lineP = ElCLib.valueOnLine(u: 5.0, origin: SIMD3(0, 0, 0),
+                                        direction: SIMD3(1, 0, 0))
+        let lineParam = ElCLib.parameterOnLine(origin: SIMD3(0, 0, 0),
+                                                direction: SIMD3(1, 0, 0),
+                                                point: SIMD3(7, 0, 0))
+        descriptions.append("Line: u=5→(\(String(format: "%.0f", lineP.x))) param@7=\(String(format: "%.0f", lineParam))")
+
+        // Period adjustment
+        let adjusted = ElCLib.inPeriod(u: 7.0, uFirst: 0.0, uLast: 2 * .pi)
+        descriptions.append("InPeriod: 7→\(String(format: "%.2f", adjusted))")
+
+        // --- ElSLib: surface evaluation ---
+
+        // Sphere sampling
+        var spherePts: [[SIMD3<Float>]] = []
+        let sphOrigin = SIMD3<Double>(0, 15, 0)
+        let sphAxis = SIMD3<Double>(0, 0, 1)
+        let sphR = 5.0
+        for uIdx in 0..<12 {
+            var ring: [SIMD3<Float>] = []
+            let u = Double(uIdx) / 12.0 * 2.0 * .pi
+            for vIdx in 0...8 {
+                let v = Double(vIdx) / 8.0 * .pi - .pi / 2.0
+                let p = ElSLib.valueOnSphere(u: u, v: v, origin: sphOrigin,
+                                              axis: sphAxis, radius: sphR)
+                ring.append(SIMD3<Float>(Float(p.x), Float(p.y), Float(p.z)))
+            }
+            spherePts.append(ring)
+        }
+        bodies.append(ViewportBody(id: "elslib-sphere", vertexData: [],
+                                    indices: [], edges: spherePts,
+                                    color: SIMD4(0.4, 0.8, 0.5, 1)))
+
+        // Torus sampling
+        var torusPts: [[SIMD3<Float>]] = []
+        let torOrigin = SIMD3<Double>(20, 15, 0)
+        for uIdx in 0...24 {
+            var ring: [SIMD3<Float>] = []
+            let u = Double(uIdx) / 24.0 * 2.0 * .pi
+            for vIdx in 0...12 {
+                let v = Double(vIdx) / 12.0 * 2.0 * .pi
+                let p = ElSLib.valueOnTorus(u: u, v: v, origin: torOrigin,
+                                             axis: SIMD3(0, 0, 1),
+                                             majorRadius: 6, minorRadius: 2)
+                ring.append(SIMD3<Float>(Float(p.x), Float(p.y), Float(p.z)))
+            }
+            torusPts.append(ring)
+        }
+        bodies.append(ViewportBody(id: "elslib-torus", vertexData: [],
+                                    indices: [], edges: torusPts,
+                                    color: SIMD4(0.8, 0.4, 0.7, 1)))
+
+        // Inverse parameterization
+        let uv = ElSLib.parametersOnSphere(origin: sphOrigin, axis: sphAxis,
+                                            radius: sphR, point: SIMD3(sphR, 15, 0))
+        descriptions.append("SphUV: u=\(String(format: "%.2f", uv.u)) v=\(String(format: "%.2f", uv.v))")
+
+        // --- Quaternion ---
+        let q1 = Quaternion.fromAxisAngle(axis: SIMD3(0, 0, 1), angle: .pi / 2)
+        let rotated = q1.rotate(SIMD3(1, 0, 0))
+        descriptions.append("Qrot: (1,0,0)→(\(String(format: "%.1f", rotated.x)),\(String(format: "%.1f", rotated.y)),\(String(format: "%.1f", rotated.z)))")
+
+        // Compose rotations
+        let q2 = Quaternion.fromAxisAngle(axis: SIMD3(1, 0, 0), angle: .pi / 4)
+        let q3 = q1.multiplied(by: q2)
+        let aa = q3.axisAngle
+        descriptions.append("Composed: angle=\(String(format: "%.2f", aa.angle))rad")
+
+        // Euler angles
+        let qe = Quaternion.fromAxisAngle(axis: SIMD3(0, 1, 0), angle: .pi / 6)
+        qe.setEulerAngles(order: 8, alpha: .pi / 4, beta: .pi / 6, gamma: 0)
+        let euler = qe.getEulerAngles(order: 8)
+        descriptions.append("Euler: α=\(String(format: "%.2f", euler.alpha))")
+
+        // Vector-to-vector rotation
+        let qv = Quaternion.fromVectors(from: SIMD3(1, 0, 0), to: SIMD3(0, 1, 0))
+        let vResult = qv.rotate(SIMD3(1, 0, 0))
+        descriptions.append("Vec→Vec: (\(String(format: "%.0f", vResult.x)),\(String(format: "%.0f", vResult.y)),\(String(format: "%.0f", vResult.z)))")
+
+        // Visualize quaternion rotation: rotate a box shape
+        if let box = Shape.box(width: 3, height: 1, depth: 1) {
+            // Show rotated copies around Z axis
+            for i in 0..<6 {
+                let angle = Double(i) * .pi / 3.0
+                if let rotShape = box.rotated(axis: SIMD3(0, 0, 1), angle: angle)?
+                    .translated(by: SIMD3(35 + 5 * cos(angle), 5 * sin(angle), 0)) {
+                    if var b = CADFileLoader.shapeToBodyAndMetadata(
+                        rotShape, id: "quat-\(i)",
+                        color: SIMD4(Float(0.3 + 0.1 * Double(i)), 0.5, Float(0.8 - 0.1 * Double(i)), 1)).0 {
+                        bodies.append(b)
+                    }
+                }
+            }
+        }
+
+        // --- Timer ---
+        let timer = OCCTSwift.Timer()
+        timer.start()
+        // Do some work
+        var sum = 0.0
+        for i in 0..<10000 { sum += sin(Double(i)) }
+        timer.stop()
+        descriptions.append("Timer: \(String(format: "%.4f", timer.elapsedTime))s")
+
+        return Curve2DGallery.GalleryResult(
+            bodies: bodies,
+            description: descriptions.joined(separator: " | ")
+        )
+    }
+
+    // MARK: - v0.92: OBB, Range, Point Classification, Constraints
+
+    /// Demonstrates oriented bounding boxes, 1D range intervals,
+    /// point-in-solid classification, and document constraints.
+    static func obbAndClassification() -> Curve2DGallery.GalleryResult {
+        var bodies: [ViewportBody] = []
+        var descriptions: [String] = []
+
+        // --- OBB from a rotated box ---
+        if let box = Shape.box(width: 8, height: 4, depth: 3),
+           let rotated = box.rotated(axis: SIMD3(0, 0, 1), angle: .pi / 6) {
+
+            // Show the rotated box
+            if var b = CADFileLoader.shapeToBodyAndMetadata(
+                rotated, id: "obb-shape", color: SIMD4(0.3, 0.6, 0.9, 0.8)).0 {
+                bodies.append(b)
+            }
+
+            // Compute OBB
+            if let obb = OBB.fromShape(rotated) {
+                let c = obb.center
+                let hs = obb.halfSizes
+                descriptions.append("OBB: c=(\(String(format: "%.1f", c.x)),\(String(format: "%.1f", c.y)),\(String(format: "%.1f", c.z)))")
+                descriptions.append("Half=(\(String(format: "%.1f", hs.x)),\(String(format: "%.1f", hs.y)),\(String(format: "%.1f", hs.z)))")
+                descriptions.append("SqExt=\(String(format: "%.1f", obb.squareExtent))")
+
+                // Point containment test
+                let inside = !obb.isOut(point: c) // center should be inside
+                let outside = obb.isOut(point: SIMD3(100, 100, 100))
+                descriptions.append("Center_in=\(inside) Far_out=\(outside)")
+
+                // Visualize OBB as wireframe box (axis-aligned approximation)
+                let cx = Float(c.x), cy = Float(c.y), cz = Float(c.z)
+                let hx = Float(hs.x), hy = Float(hs.y), hz = Float(hs.z)
+                // Draw OBB edges (simplified as AABB since we don't have axis dirs from API)
+                let corners: [SIMD3<Float>] = [
+                    SIMD3(cx - hx, cy - hy, cz - hz), SIMD3(cx + hx, cy - hy, cz - hz),
+                    SIMD3(cx + hx, cy + hy, cz - hz), SIMD3(cx - hx, cy + hy, cz - hz),
+                    SIMD3(cx - hx, cy - hy, cz + hz), SIMD3(cx + hx, cy - hy, cz + hz),
+                    SIMD3(cx + hx, cy + hy, cz + hz), SIMD3(cx - hx, cy + hy, cz + hz),
+                ]
+                let obbEdges: [[SIMD3<Float>]] = [
+                    [corners[0], corners[1], corners[2], corners[3], corners[0]], // bottom
+                    [corners[4], corners[5], corners[6], corners[7], corners[4]], // top
+                    [corners[0], corners[4]], [corners[1], corners[5]],           // verticals
+                    [corners[2], corners[6]], [corners[3], corners[7]],
+                ]
+                bodies.append(ViewportBody(id: "obb-wireframe", vertexData: [],
+                                            indices: [], edges: obbEdges,
+                                            color: SIMD4(1, 0.8, 0, 1)))
+
+                // OBB vs OBB test
+                let obb2 = OBB(center: SIMD3(50, 50, 50),
+                               xDir: SIMD3(1, 0, 0), yDir: SIMD3(0, 1, 0), zDir: SIMD3(0, 0, 1),
+                               hx: 1, hy: 1, hz: 1)
+                let separated = obb.isOut(obb2)
+                descriptions.append("OBB_sep=\(separated)")
+
+                // Enlarge
+                obb.enlarge(by: 2.0)
+                let newHs = obb.halfSizes
+                descriptions.append("Enlarged=(\(String(format: "%.1f", newHs.x)),\(String(format: "%.1f", newHs.y)),\(String(format: "%.1f", newHs.z)))")
+            }
+        }
+
+        // --- BRepClass3d: Point Classification ---
+        if let box = Shape.box(width: 10, height: 10, depth: 10)?
+            .translated(by: SIMD3(20, 0, 0)) {
+
+            if var b = CADFileLoader.shapeToBodyAndMetadata(
+                box, id: "classify-box", color: SIMD4(0.5, 0.8, 0.5, 0.4)).0 {
+                bodies.append(b)
+            }
+
+            // Test points
+            let testPoints: [(SIMD3<Double>, String)] = [
+                (SIMD3(25, 5, 5), "center"),
+                (SIMD3(50, 50, 50), "far"),
+                (SIMD3(20, 5, 5), "surface"),
+            ]
+            for (pt, label) in testPoints {
+                let state = box.classifyPoint(pt)
+                let color: SIMD4<Float>
+                switch state {
+                case .inside: color = SIMD4(0, 1, 0, 1)
+                case .outside: color = SIMD4(1, 0, 0, 1)
+                case .on: color = SIMD4(1, 1, 0, 1)
+                default: color = SIMD4(0.5, 0.5, 0.5, 1)
+                }
+                bodies.append(makeMarker(
+                    at: SIMD3<Float>(Float(pt.x), Float(pt.y), Float(pt.z)),
+                    radius: 0.4, id: "pt-\(label)", color: color))
+                descriptions.append("\(label)=\(state)")
+            }
+        }
+
+        // --- Range ---
+        let r1 = OCCTSwift.Range(min: 1.0, max: 5.0)
+        let r2 = OCCTSwift.Range(min: 3.0, max: 8.0)
+        let contains = r1.contains(3.0)
+        let delta = r1.delta
+        r1.common(r2) // intersection
+        if let bounds = r1.bounds {
+            descriptions.append("Range∩: [\(String(format: "%.0f", bounds.first)),\(String(format: "%.0f", bounds.last))]")
+        }
+        descriptions.append("Delta=\(String(format: "%.0f", delta)) has3=\(contains)")
+
+        // --- TDataXtd_Constraint ---
+        if let doc = Document.create(format: "XmlOcaf") {
+            let cLabelId = doc.newShapeLabel()
+            if cLabelId >= 0 {
+                _ = doc.setConstraint(labelId: cLabelId)
+                doc.constraintSetType(labelId: cLabelId, type: .parallel)
+                if let ctype = doc.constraintGetType(labelId: cLabelId) {
+                    descriptions.append("Constraint=\(ctype)")
+                }
+                let isPlanar = doc.constraintIsPlanar(labelId: cLabelId)
+                let isDim = doc.constraintIsDimension(labelId: cLabelId)
+                doc.constraintSetVerified(labelId: cLabelId, verified: true)
+                let verified = doc.constraintGetVerified(labelId: cLabelId)
+                descriptions.append("Planar=\(isPlanar) Dim=\(isDim) Vfy=\(verified)")
+            }
+        }
+
+        return Curve2DGallery.GalleryResult(
+            bodies: bodies,
+            description: descriptions.joined(separator: " | ")
+        )
+    }
+
+    // MARK: - v0.93: 2D Interpolation, Patterns, Evolved, Glue, MemInfo
+
+    /// Demonstrates 2D curve interpolation/approximation, linear and circular patterns,
+    /// evolved shapes, shape gluing, memory info, and edge projection.
+    static func patternsAndInterpolation() -> Curve2DGallery.GalleryResult {
+        var bodies: [ViewportBody] = []
+        var descriptions: [String] = []
+
+        // --- Curve2D interpolation ---
+        let pts2d: [(Double, Double)] = [
+            (0, 0), (2, 3), (5, 4), (8, 2), (10, 5), (12, 1), (15, 3)
+        ]
+        if let interpCurve = Curve2D.interpolate2D(points: pts2d) {
+            // Sample the curve
+            var curvePts: [SIMD3<Float>] = []
+            let interpDomain = interpCurve.domain
+            for i in 0...100 {
+                let t = interpDomain.lowerBound + Double(i) / 100.0 *
+                    (interpDomain.upperBound - interpDomain.lowerBound)
+                let p = interpCurve.point(at: t)
+                curvePts.append(SIMD3<Float>(Float(p.x), Float(p.y), 0))
+            }
+            if curvePts.count >= 2 {
+                bodies.append(ViewportBody(id: "interp-curve", vertexData: [],
+                                            indices: [], edges: [curvePts],
+                                            color: SIMD4(0.2, 0.8, 0.4, 1)))
+            }
+            // Show control points
+            for (i, pt) in pts2d.enumerated() {
+                bodies.append(makeMarker(
+                    at: SIMD3<Float>(Float(pt.0), Float(pt.1), 0),
+                    radius: 0.25, id: "interp-pt-\(i)",
+                    color: SIMD4(1, 0.3, 0.2, 1)))
+            }
+            descriptions.append("Interp: \(pts2d.count) pts")
+        }
+
+        // --- Curve2D approximation ---
+        let approxPts: [(Double, Double)] = [
+            (0, 0), (1, 2), (2, 1), (3, 3), (4, 0),
+            (5, 2), (6, -1), (7, 1), (8, 0)
+        ]
+        if let approxCurve = Curve2D.approximate2D(points: approxPts) {
+            var curvePts: [SIMD3<Float>] = []
+            let approxDomain = approxCurve.domain
+            for i in 0...100 {
+                let t = approxDomain.lowerBound + Double(i) / 100.0 *
+                    (approxDomain.upperBound - approxDomain.lowerBound)
+                let p = approxCurve.point(at: t)
+                curvePts.append(SIMD3<Float>(Float(p.x), Float(p.y) + 10, 0))
+            }
+            if curvePts.count >= 2 {
+                bodies.append(ViewportBody(id: "approx-curve", vertexData: [],
+                                            indices: [], edges: [curvePts],
+                                            color: SIMD4(0.8, 0.5, 0.2, 1)))
+            }
+            // Show data points
+            for (i, pt) in approxPts.enumerated() {
+                bodies.append(makeMarker(
+                    at: SIMD3<Float>(Float(pt.0), Float(pt.1) + 10, 0),
+                    radius: 0.2, id: "approx-pt-\(i)",
+                    color: SIMD4(0.5, 0.3, 0.8, 1)))
+            }
+            descriptions.append("Approx: \(approxPts.count) pts")
+        }
+
+        // --- Periodic interpolation ---
+        let periodicPts: [(Double, Double)] = [
+            (0, 0), (2, 3), (4, 0), (2, -3)
+        ]
+        if let periodic = Curve2D.interpolate2D(points: periodicPts, periodic: true) {
+            var curvePts: [SIMD3<Float>] = []
+            let periodicDomain = periodic.domain
+            for i in 0...100 {
+                let t = periodicDomain.lowerBound + Double(i) / 100.0 *
+                    (periodicDomain.upperBound - periodicDomain.lowerBound)
+                let p = periodic.point(at: t)
+                curvePts.append(SIMD3<Float>(Float(p.x) + 20, Float(p.y), 0))
+            }
+            if curvePts.count >= 2 {
+                bodies.append(ViewportBody(id: "periodic-curve", vertexData: [],
+                                            indices: [], edges: [curvePts],
+                                            color: SIMD4(0.3, 0.6, 1, 1)))
+            }
+            descriptions.append("Periodic✓")
+        }
+
+        // --- Linear Pattern ---
+        if let cyl = Shape.cylinder(radius: 1, height: 4) {
+            if let pattern = cyl.linearPattern(direction: SIMD3(4, 0, 0),
+                                                spacing: 4, count: 5) {
+                if let moved = pattern.translated(by: SIMD3(0, 20, 0)) {
+                    if var b = CADFileLoader.shapeToBodyAndMetadata(
+                        moved, id: "linear-pattern",
+                        color: SIMD4(0.4, 0.7, 0.9, 1)).0 {
+                        bodies.append(b)
+                    }
+                }
+                descriptions.append("LinPat: 5 copies")
+            }
+        }
+
+        // --- Circular Pattern ---
+        if let box = Shape.box(width: 2, height: 1, depth: 1)?
+            .translated(by: SIMD3(8, 0, 0)) {
+            if let pattern = box.circularPattern(
+                axisPoint: SIMD3(0, 0, 0),
+                axisDirection: SIMD3(0, 0, 1),
+                count: 8) {
+                if let moved = pattern.translated(by: SIMD3(0, 35, 0)) {
+                    if var b = CADFileLoader.shapeToBodyAndMetadata(
+                        moved, id: "circ-pattern",
+                        color: SIMD4(0.9, 0.5, 0.3, 1)).0 {
+                        bodies.append(b)
+                    }
+                }
+                descriptions.append("CircPat: 8 copies")
+            }
+        }
+
+        // --- Evolved shape ---
+        if let spine = Wire.rectangle(width: 10, height: 10),
+           let profile = Wire.circle(radius: 1) {
+            if let evolved = Shape.evolved(spine: spine, profile: profile) {
+                if let moved = evolved.translated(by: SIMD3(30, 20, 0)) {
+                    if var b = CADFileLoader.shapeToBodyAndMetadata(
+                        moved, id: "evolved-shape",
+                        color: SIMD4(0.6, 0.8, 0.4, 1)).0 {
+                        bodies.append(b)
+                    }
+                }
+                descriptions.append("Evolved: \(evolved.faceCount) faces")
+            }
+        }
+
+        // --- Glue ---
+        if let box1 = Shape.box(width: 5, height: 5, depth: 5),
+           let box2 = Shape.box(width: 5, height: 5, depth: 5)?
+            .translated(by: SIMD3(5, 0, 0)) {
+            if let glued = Shape.glue(box1, box2) {
+                if let moved = glued.translated(by: SIMD3(30, 0, 0)) {
+                    if var b = CADFileLoader.shapeToBodyAndMetadata(
+                        moved, id: "glued-boxes",
+                        color: SIMD4(0.7, 0.5, 0.8, 1)).0 {
+                        bodies.append(b)
+                    }
+                }
+                descriptions.append("Glue: \(glued.faceCount) faces")
+            }
+        }
+
+        // --- Edge projection aux ---
+        if let box = Shape.box(width: 3, height: 3, depth: 3) {
+            if let result = box.edgeProjAux(faceIndex: 0, edgeIndex: 0) {
+                descriptions.append("EdgeProj: [\(String(format: "%.2f", result.first)),\(String(format: "%.2f", result.last))]")
+            }
+        }
+
+        // --- Face restrictor ---
+        if let box = Shape.box(width: 3, height: 3, depth: 3) {
+            let count = box.faceRestrictAlgo(faceIndex: 0)
+            descriptions.append("FaceRestr: \(count)")
+        }
+
+        // --- MemInfo ---
+        let heapMiB = MemInfo.heapUsageMiB
+        descriptions.append("Heap: \(String(format: "%.1f", heapMiB)) MiB")
+
+        // --- Pattern metadata in document ---
+        if let doc = Document.create(format: "XmlOcaf") {
+            let patLabelId = doc.newShapeLabel()
+            if patLabelId >= 0 {
+                _ = doc.setPattern(labelId: patLabelId)
+                let hasPat = doc.hasPattern(labelId: patLabelId)
+                descriptions.append("DocPat=\(hasPat)")
+            }
+        }
+
+        return Curve2DGallery.GalleryResult(
+            bodies: bodies,
+            description: descriptions.joined(separator: " | ")
+        )
+    }
 }
