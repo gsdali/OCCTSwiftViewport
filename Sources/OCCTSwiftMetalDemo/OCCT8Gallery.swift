@@ -8797,4 +8797,564 @@ enum OCCT8Gallery {
             description: descriptions.joined(separator: " | ")
         )
     }
+
+    // MARK: - v0.94: Linear Algebra, Circle/Sphere→BSpline, Environment
+
+    /// Demonstrates MathMatrix, Gauss/SVD/Jacobi solvers, polynomial roots,
+    /// circle-to-BSpline and sphere-to-BSpline conversions, and environment variables.
+    static func linearAlgebraAndConversions() -> Curve2DGallery.GalleryResult {
+        var bodies: [ViewportBody] = []
+        var descriptions: [String] = []
+
+        // --- MathMatrix ---
+        let m = MathMatrix(rows: 3, cols: 3)
+        m.setValue(row: 1, col: 1, value: 2); m.setValue(row: 1, col: 2, value: 1); m.setValue(row: 1, col: 3, value: 0)
+        m.setValue(row: 2, col: 1, value: 0); m.setValue(row: 2, col: 2, value: 3); m.setValue(row: 2, col: 3, value: 1)
+        m.setValue(row: 3, col: 1, value: 1); m.setValue(row: 3, col: 2, value: 0); m.setValue(row: 3, col: 3, value: 4)
+        let det = m.determinant
+        descriptions.append("Det=\(String(format: "%.1f", det))")
+
+        // Transpose
+        let m2 = MathMatrix(rows: 2, cols: 3, initialValue: 1.0)
+        m2.setValue(row: 1, col: 2, value: 2.0)
+        descriptions.append("Mat \(m2.rows)x\(m2.cols)")
+
+        // --- MathGauss: solve 3x3 system ---
+        // 2x + y = 5, 3y + z = 7, x + 4z = 9
+        if let solution = MathGauss.solve(
+            matrix: [2, 1, 0, 0, 3, 1, 1, 0, 4],
+            rhs: [5, 7, 9]
+        ) {
+            let x = String(format: "%.2f", solution[0])
+            let y = String(format: "%.2f", solution[1])
+            let z = String(format: "%.2f", solution[2])
+            descriptions.append("Gauss: x=\(x) y=\(y) z=\(z)")
+        }
+
+        // --- MathSVD ---
+        if let svdSolution = MathSVD.solve(
+            matrix: [1, 0, 0, 1, 1, 0, 0, 0, 1],
+            rows: 3, cols: 3, rhs: [1, 2, 3]
+        ) {
+            descriptions.append("SVD: \(svdSolution.count) vals")
+        }
+
+        // --- MathPolynomialRoots: x² - 5x + 6 = 0 → x=2, x=3 ---
+        if let roots = MathPolynomialRoots.solve(coefficients: [1, -5, 6]) {
+            let rootStrs = roots.map { String(format: "%.1f", $0) }.joined(separator: ",")
+            descriptions.append("Roots: \(rootStrs)")
+        }
+
+        // --- MathJacobi: eigenvalues of symmetric 2x2 ---
+        if let eigenvals = MathJacobi.eigenvalues(matrix: [4, 1, 1, 3], n: 2) {
+            let evStrs = eigenvals.map { String(format: "%.2f", $0) }.joined(separator: ",")
+            descriptions.append("Eigen: \(evStrs)")
+        }
+
+        // --- Circle arc → BSpline ---
+        if let circArc = Curve2D.fromCircleArc(
+            centerX: 0, centerY: 0, radius: 8,
+            u1: 0, u2: .pi
+        ) {
+            var pts: [SIMD3<Float>] = []
+            let dom = circArc.domain
+            for i in 0...50 {
+                let t = dom.lowerBound + Double(i) / 50.0 * (dom.upperBound - dom.lowerBound)
+                let p = circArc.point(at: t)
+                pts.append(SIMD3<Float>(Float(p.x), Float(p.y), 0))
+            }
+            if pts.count >= 2 {
+                bodies.append(ViewportBody(id: "circle-bspline", vertexData: [],
+                                            indices: [], edges: [pts],
+                                            color: SIMD4(0.2, 0.7, 1.0, 1)))
+            }
+            descriptions.append("CircArc→BSpline✓")
+        }
+
+        // --- Sphere → BSpline surface ---
+        if let sphSurf = Surface.fromSphere(
+            origin: SIMD3(15, 0, 0), axis: SIMD3(0, 0, 1), radius: 4
+        ) {
+            // Sample the surface as wireframe rings
+            var rings: [[SIMD3<Float>]] = []
+            for uIdx in 0..<8 {
+                var ring: [SIMD3<Float>] = []
+                let u = Double(uIdx) / 8.0 * 2.0 * .pi
+                for vIdx in 0...12 {
+                    let v = -Double.pi / 2.0 + Double(vIdx) / 12.0 * .pi
+                    let p = sphSurf.point(atU: u, v: v)
+                    ring.append(SIMD3<Float>(Float(p.x), Float(p.y), Float(p.z)))
+                }
+                rings.append(ring)
+            }
+            bodies.append(ViewportBody(id: "sphere-bspline", vertexData: [],
+                                        indices: [], edges: rings,
+                                        color: SIMD4(0.8, 0.5, 0.2, 1)))
+            descriptions.append("Sphere→BSpline✓")
+        }
+
+        // --- Environment ---
+        let oldVal = Environment.get("OCCTSWIFT_TEST_VAR")
+        _ = Environment.set("OCCTSWIFT_TEST_VAR", value: "demo")
+        let newVal = Environment.get("OCCTSWIFT_TEST_VAR")
+        Environment.remove("OCCTSWIFT_TEST_VAR")
+        descriptions.append("Env: \(oldVal ?? "nil")→\(newVal ?? "nil")")
+
+        return Curve2DGallery.GalleryResult(
+            bodies: bodies,
+            description: descriptions.joined(separator: " | ")
+        )
+    }
+
+    // MARK: - v0.95: Conic→BSpline, Surface Conversions, Householder/Crout, FaceConnect
+
+    /// Demonstrates ellipse/hyperbola/parabola arc conversion to BSpline,
+    /// cylinder/cone/torus surface conversion, Householder/Crout solvers,
+    /// and face intersection wire fixing.
+    static func conicConversionsAndSolvers() -> Curve2DGallery.GalleryResult {
+        var bodies: [ViewportBody] = []
+        var descriptions: [String] = []
+
+        // --- Ellipse arc → BSpline ---
+        if let ellArc = Curve2D.fromEllipseArc(
+            centerX: 0, centerY: 0, majorRadius: 8, minorRadius: 4,
+            u1: 0, u2: .pi * 1.5
+        ) {
+            var pts: [SIMD3<Float>] = []
+            let dom = ellArc.domain
+            for i in 0...60 {
+                let t = dom.lowerBound + Double(i) / 60.0 * (dom.upperBound - dom.lowerBound)
+                let p = ellArc.point(at: t)
+                pts.append(SIMD3<Float>(Float(p.x), Float(p.y), 0))
+            }
+            if pts.count >= 2 {
+                bodies.append(ViewportBody(id: "ellipse-bspline", vertexData: [],
+                                            indices: [], edges: [pts],
+                                            color: SIMD4(0.9, 0.4, 0.2, 1)))
+            }
+            descriptions.append("Ellipse✓")
+        }
+
+        // --- Hyperbola arc → BSpline ---
+        if let hypArc = Curve2D.fromHyperbolaArc(
+            centerX: 20, centerY: 0, majorRadius: 4, minorRadius: 3,
+            u1: -1.0, u2: 1.0
+        ) {
+            var pts: [SIMD3<Float>] = []
+            let dom = hypArc.domain
+            for i in 0...40 {
+                let t = dom.lowerBound + Double(i) / 40.0 * (dom.upperBound - dom.lowerBound)
+                let p = hypArc.point(at: t)
+                pts.append(SIMD3<Float>(Float(p.x), Float(p.y), 0))
+            }
+            if pts.count >= 2 {
+                bodies.append(ViewportBody(id: "hyperbola-bspline", vertexData: [],
+                                            indices: [], edges: [pts],
+                                            color: SIMD4(0.3, 0.8, 0.4, 1)))
+            }
+            descriptions.append("Hyperbola✓")
+        }
+
+        // --- Parabola arc → BSpline ---
+        if let parArc = Curve2D.fromParabolaArc(
+            centerX: 40, centerY: 0, focal: 2.0,
+            u1: -5, u2: 5
+        ) {
+            var pts: [SIMD3<Float>] = []
+            let dom = parArc.domain
+            for i in 0...40 {
+                let t = dom.lowerBound + Double(i) / 40.0 * (dom.upperBound - dom.lowerBound)
+                let p = parArc.point(at: t)
+                pts.append(SIMD3<Float>(Float(p.x), Float(p.y), 0))
+            }
+            if pts.count >= 2 {
+                bodies.append(ViewportBody(id: "parabola-bspline", vertexData: [],
+                                            indices: [], edges: [pts],
+                                            color: SIMD4(0.6, 0.3, 0.9, 1)))
+            }
+            descriptions.append("Parabola✓")
+        }
+
+        // --- Cylinder → BSpline surface ---
+        if let cylSurf = Surface.fromCylinder(
+            origin: SIMD3(0, 15, 0), axis: SIMD3(0, 0, 1), radius: 3,
+            u1: 0, u2: .pi * 2, v1: 0, v2: 8
+        ) {
+            var rings: [[SIMD3<Float>]] = []
+            for vIdx in 0...4 {
+                var ring: [SIMD3<Float>] = []
+                let v = Double(vIdx) / 4.0 * 8.0
+                for uIdx in 0...20 {
+                    let u = Double(uIdx) / 20.0 * 2.0 * .pi
+                    let p = cylSurf.point(atU: u, v: v)
+                    ring.append(SIMD3<Float>(Float(p.x), Float(p.y), Float(p.z)))
+                }
+                rings.append(ring)
+            }
+            bodies.append(ViewportBody(id: "cyl-bspline", vertexData: [],
+                                        indices: [], edges: rings,
+                                        color: SIMD4(0.4, 0.7, 0.9, 1)))
+            descriptions.append("Cyl→BSpline✓")
+        }
+
+        // --- Cone → BSpline surface ---
+        if let coneSurf = Surface.fromCone(
+            origin: SIMD3(15, 15, 0), axis: SIMD3(0, 0, 1),
+            semiAngle: .pi / 6, refRadius: 4,
+            u1: 0, u2: .pi * 2, v1: 0, v2: 6
+        ) {
+            var rings: [[SIMD3<Float>]] = []
+            for vIdx in 0...3 {
+                var ring: [SIMD3<Float>] = []
+                let v = Double(vIdx) / 3.0 * 6.0
+                for uIdx in 0...20 {
+                    let u = Double(uIdx) / 20.0 * 2.0 * .pi
+                    let p = coneSurf.point(atU: u, v: v)
+                    ring.append(SIMD3<Float>(Float(p.x), Float(p.y), Float(p.z)))
+                }
+                rings.append(ring)
+            }
+            bodies.append(ViewportBody(id: "cone-bspline", vertexData: [],
+                                        indices: [], edges: rings,
+                                        color: SIMD4(0.9, 0.6, 0.3, 1)))
+            descriptions.append("Cone→BSpline✓")
+        }
+
+        // --- Torus → BSpline surface ---
+        if let torusSurf = Surface.fromTorus(
+            origin: SIMD3(35, 15, 0), axis: SIMD3(0, 0, 1),
+            majorRadius: 5, minorRadius: 1.5
+        ) {
+            var rings: [[SIMD3<Float>]] = []
+            for uIdx in 0...16 {
+                var ring: [SIMD3<Float>] = []
+                let u = Double(uIdx) / 16.0 * 2.0 * .pi
+                for vIdx in 0...12 {
+                    let v = Double(vIdx) / 12.0 * 2.0 * .pi
+                    let p = torusSurf.point(atU: u, v: v)
+                    ring.append(SIMD3<Float>(Float(p.x), Float(p.y), Float(p.z)))
+                }
+                rings.append(ring)
+            }
+            bodies.append(ViewportBody(id: "torus-bspline", vertexData: [],
+                                        indices: [], edges: rings,
+                                        color: SIMD4(0.7, 0.3, 0.7, 1)))
+            descriptions.append("Torus→BSpline✓")
+        }
+
+        // --- MathHouseholder ---
+        if let hhSolution = MathHouseholder.solve(
+            matrix: [1, 0, 0, 1, 1, 0, 0, 0, 1],
+            rows: 3, cols: 3, rhs: [2, 3, 4]
+        ) {
+            descriptions.append("HH: \(hhSolution.count) vals")
+        }
+
+        // --- MathCrout (symmetric) ---
+        let croutDet = MathCrout.determinant(matrix: [4, 2, 2, 5], n: 2)
+        descriptions.append("Crout det=\(String(format: "%.0f", croutDet))")
+
+        // --- fixIntersectingWires ---
+        if let box = Shape.box(width: 5, height: 5, depth: 5) {
+            let fixed = box.fixIntersectingWires(faceIndex: 0)
+            descriptions.append("FixWires=\(fixed)")
+        }
+
+        return Curve2DGallery.GalleryResult(
+            bodies: bodies,
+            description: descriptions.joined(separator: " | ")
+        )
+    }
+
+    // MARK: - v0.96: Assembly ItemRef, Shape History, OSD_Path, 2D Classification
+
+    /// Demonstrates assembly item references, BRepAlgo_Image shape history,
+    /// file path utilities, 2D point classification, and face domain properties.
+    static func assemblyRefAndPaths() -> Curve2DGallery.GalleryResult {
+        var bodies: [ViewportBody] = []
+        var descriptions: [String] = []
+
+        // --- ShapeImage: track old→new shape mapping ---
+        let image = ShapeImage()
+        if let box = Shape.box(width: 4, height: 4, depth: 4),
+           let filleted = box.filleted(radius: 0.5) {
+            image.setRoot(box)
+            image.bind(old: box, new: filleted)
+            let hasImg = image.hasImage(box)
+            let isImg = image.isImage(filleted)
+            descriptions.append("Image: has=\(hasImg) is=\(isImg)")
+
+            if var b = CADFileLoader.shapeToBodyAndMetadata(
+                box, id: "image-old", color: SIMD4(0.5, 0.5, 0.8, 0.5)).0 {
+                bodies.append(b)
+            }
+            if var b = CADFileLoader.shapeToBodyAndMetadata(
+                filleted, id: "image-new", color: SIMD4(0.3, 0.8, 0.4, 1)).0 {
+                offsetBody(&b, dx: 8, dy: 0, dz: 0)
+                bodies.append(b)
+            }
+        }
+
+        // --- OSDPath utilities ---
+        if let name = OSDPath.name("/home/user/models/bracket_v2.step") {
+            descriptions.append("Name=\(name)")
+        }
+        if let ext = OSDPath.fileExtension("model.step") {
+            descriptions.append("Ext=\(ext)")
+        }
+        let isValid = OSDPath.isValid("/usr/local/bin")
+        let isRel = OSDPath.isRelative("../models/part.step")
+        let isAbs = OSDPath.isAbsolute("/usr/local/bin")
+        descriptions.append("Valid=\(isValid) Rel=\(isRel) Abs=\(isAbs)")
+
+        if let parts = OSDPath.folderAndFile("/home/user/model.step") {
+            descriptions.append("Folder=\(parts.folder) File=\(parts.file)")
+        }
+
+        // --- 2D point classification (BRepClass_FClassifier) ---
+        if let box = Shape.box(width: 10, height: 10, depth: 10) {
+            // Classify UV point on face 0
+            let state = box.classifyPoint2D(faceIndex: 0, u: 0.5, v: 0.5)
+            descriptions.append("2DClassify=\(state)")
+        }
+
+        // --- Face domain edge count ---
+        if let cyl = Shape.cylinder(radius: 3, height: 6) {
+            let domEdges = cyl.faceDomainEdgeCount(faceIndex: 0)
+            descriptions.append("DomEdges=\(domEdges)")
+        }
+
+        // --- Build loops ---
+        if let box = Shape.box(width: 5, height: 5, depth: 5) {
+            let loops = box.buildLoops(faceIndex: 0)
+            descriptions.append("Loops=\(loops)")
+        }
+
+        // --- Assembly item reference ---
+        if let doc = Document.create(format: "XmlOcaf") {
+            let labelId = doc.newShapeLabel()
+            if labelId >= 0 {
+                _ = doc.setAssemblyItemRef(labelId: labelId, itemPath: "0:1:1:1")
+                if let path = doc.assemblyItemRefPath(labelId: labelId) {
+                    descriptions.append("AsmRef=\(path)")
+                }
+                let isOrphan = doc.assemblyItemRefIsOrphan(labelId: labelId)
+                descriptions.append("Orphan=\(isOrphan)")
+            }
+        }
+
+        return Curve2DGallery.GalleryResult(
+            bodies: bodies,
+            description: descriptions.joined(separator: " | ")
+        )
+    }
+
+    // MARK: - v0.97: BoundSortBox, TNaming_Naming, Precision Constants
+
+    /// Demonstrates spatial bounding box queries, naming attributes,
+    /// and OCCT precision constants.
+    static func spatialQueryAndPrecision() -> Curve2DGallery.GalleryResult {
+        var bodies: [ViewportBody] = []
+        var descriptions: [String] = []
+
+        // --- BoundSortBox: spatial query ---
+        // Create a grid of bounding boxes and query which ones overlap a region
+        var boxes: [[Double]] = []
+        for ix in 0..<5 {
+            for iy in 0..<5 {
+                let x = Double(ix) * 4.0
+                let y = Double(iy) * 4.0
+                boxes.append([x, y, 0, x + 3, y + 3, 3])
+            }
+        }
+        let sortBox = BoundSortBox(boxes: boxes)
+
+        // Query: which boxes overlap the region [4,4,0] → [12,12,3]?
+        let hits = sortBox.compare(xmin: 4, ymin: 4, zmin: 0,
+                                    xmax: 12, ymax: 12, zmax: 3)
+        descriptions.append("SpatialQ: \(hits.count) of \(boxes.count) hit")
+
+        // Visualize all boxes and highlight hits
+        for (i, box) in boxes.enumerated() {
+            let isHit = hits.contains(i)
+            let cx = Float((box[0] + box[3]) / 2)
+            let cy = Float((box[1] + box[4]) / 2)
+            let color: SIMD4<Float> = isHit
+                ? SIMD4(0.2, 0.8, 0.3, 1.0)  // green = hit
+                : SIMD4(0.6, 0.6, 0.6, 0.4)  // gray = miss
+            var marker = ViewportBody.box(id: "sortbox-\(i)", width: 2.5, height: 2.5, depth: 2.5, color: color)
+            offsetBody(&marker, dx: cx, dy: cy, dz: 1.5)
+            bodies.append(marker)
+        }
+
+        // Draw the query region as wireframe
+        let qEdges: [[SIMD3<Float>]] = [
+            [SIMD3(4, 4, 0), SIMD3(12, 4, 0), SIMD3(12, 12, 0), SIMD3(4, 12, 0), SIMD3(4, 4, 0)],
+            [SIMD3(4, 4, 3), SIMD3(12, 4, 3), SIMD3(12, 12, 3), SIMD3(4, 12, 3), SIMD3(4, 4, 3)],
+            [SIMD3(4, 4, 0), SIMD3(4, 4, 3)], [SIMD3(12, 4, 0), SIMD3(12, 4, 3)],
+            [SIMD3(12, 12, 0), SIMD3(12, 12, 3)], [SIMD3(4, 12, 0), SIMD3(4, 12, 3)],
+        ]
+        bodies.append(ViewportBody(id: "query-region", vertexData: [],
+                                    indices: [], edges: qEdges,
+                                    color: SIMD4(1, 0.8, 0, 1)))
+
+        // --- TNaming_Naming ---
+        if let doc = Document.create(format: "XmlOcaf") {
+            let labelId = doc.newShapeLabel()
+            if labelId >= 0 {
+                _ = doc.insertNaming(labelId: labelId)
+                let defined = doc.namingIsDefined(labelId: labelId)
+                descriptions.append("Naming: def=\(defined)")
+            }
+        }
+
+        // --- Precision constants ---
+        let confusion = OCCTPrecision.confusion
+        let angular = OCCTPrecision.angular
+        let intersection = OCCTPrecision.intersection
+        let approx = OCCTPrecision.approximation
+        let isInf = OCCTPrecision.isInfinite(1e100)
+        descriptions.append("Prec: conf=\(String(format: "%.0e", confusion)) ang=\(String(format: "%.0e", angular))")
+        descriptions.append("Inter=\(String(format: "%.0e", intersection)) approx=\(String(format: "%.0e", approx))")
+        descriptions.append("Inf=\(String(format: "%.0e", OCCTPrecision.infinite)) isInf(1e100)=\(isInf)")
+
+        return Curve2DGallery.GalleryResult(
+            bodies: bodies,
+            description: descriptions.joined(separator: " | ")
+        )
+    }
+
+    // MARK: - v0.98: IntAna Intersections, CPU/Process Info, Draft Modification
+
+    /// Demonstrates analytic line-plane, line-sphere, plane-plane, plane-sphere,
+    /// three-plane, and line-torus intersections, CPU timing, process info,
+    /// and draft angle modification.
+    static func analyticIntersections() -> Curve2DGallery.GalleryResult {
+        var bodies: [ViewportBody] = []
+        var descriptions: [String] = []
+
+        // --- Line-Plane intersection ---
+        let lpResult = IntAna.linePlane(
+            lineOrigin: SIMD3(0, 0, -5), lineDir: SIMD3(0, 0, 1),
+            planeOrigin: SIMD3(0, 0, 0), planeNormal: SIMD3(0, 0, 1)
+        )
+        if let pt = lpResult.points.first {
+            descriptions.append("L∩P: (\(String(format: "%.0f", pt.x)),\(String(format: "%.0f", pt.y)),\(String(format: "%.0f", pt.z)))")
+            bodies.append(makeMarker(
+                at: SIMD3<Float>(Float(pt.x), Float(pt.y), Float(pt.z)),
+                radius: 0.3, id: "lp-hit", color: SIMD4(1, 0.3, 0.2, 1)))
+        }
+        // Draw the line
+        bodies.append(ViewportBody(id: "lp-line", vertexData: [], indices: [],
+                                    edges: [[SIMD3(0, 0, -5), SIMD3(0, 0, 5)]],
+                                    color: SIMD4(0.3, 0.6, 1, 1)))
+        // Draw the plane as a grid
+        var planeEdges: [[SIMD3<Float>]] = []
+        for i in -3...3 {
+            let f = Float(i) * 2
+            planeEdges.append([SIMD3(-6, f, 0), SIMD3(6, f, 0)])
+            planeEdges.append([SIMD3(f, -6, 0), SIMD3(f, 6, 0)])
+        }
+        bodies.append(ViewportBody(id: "lp-plane", vertexData: [], indices: [],
+                                    edges: planeEdges, color: SIMD4(0.5, 0.5, 0.5, 0.5)))
+
+        // --- Line-Sphere intersection ---
+        let lsResult = IntAna.lineSphere(
+            lineOrigin: SIMD3(-10, 15, 0), lineDir: SIMD3(1, 0, 0),
+            sphereCenter: SIMD3(0, 15, 0), sphereAxis: SIMD3(0, 0, 1), radius: 4
+        )
+        descriptions.append("L∩S: \(lsResult.points.count) pts")
+        // Draw line
+        bodies.append(ViewportBody(id: "ls-line", vertexData: [], indices: [],
+                                    edges: [[SIMD3(-10, 15, 0), SIMD3(10, 15, 0)]],
+                                    color: SIMD4(0.3, 0.6, 1, 1)))
+        // Draw sphere wireframe
+        if let sphere = Shape.sphere(radius: 4)?.translated(by: SIMD3(0, 15, 0)) {
+            if var b = CADFileLoader.shapeToBodyAndMetadata(
+                sphere, id: "ls-sphere", color: SIMD4(0.5, 0.8, 0.5, 0.3)).0 {
+                bodies.append(b)
+            }
+        }
+        // Mark intersection points
+        for (i, pt) in lsResult.points.enumerated() {
+            bodies.append(makeMarker(
+                at: SIMD3<Float>(Float(pt.x), Float(pt.y), Float(pt.z)),
+                radius: 0.4, id: "ls-hit-\(i)", color: SIMD4(1, 0.8, 0, 1)))
+        }
+
+        // --- Plane-Plane intersection (→ line) ---
+        let ppResult = IntAna.planePlane(
+            p1Origin: SIMD3(0, 0, 0), p1Normal: SIMD3(0, 0, 1),
+            p2Origin: SIMD3(0, 0, 0), p2Normal: SIMD3(0, 1, 0)
+        )
+        descriptions.append("P∩P: \(ppResult.count) lines")
+        if let line = ppResult.lines.first {
+            let o = SIMD3<Float>(Float(line.origin.x), Float(line.origin.y), Float(line.origin.z))
+            let d = SIMD3<Float>(Float(line.direction.x), Float(line.direction.y), Float(line.direction.z))
+            let start = o + d * (-10)
+            let end = o + d * 10
+            var startOffset = start; startOffset.x += 20
+            var endOffset = end; endOffset.x += 20
+            bodies.append(ViewportBody(id: "pp-line", vertexData: [], indices: [],
+                                        edges: [[startOffset, endOffset]],
+                                        color: SIMD4(1, 0.4, 0.7, 1)))
+        }
+
+        // --- Plane-Sphere intersection (→ circle) ---
+        let psResult = IntAna.planeSphere(
+            planeOrigin: SIMD3(20, 15, 0), planeNormal: SIMD3(0, 0, 1),
+            sphereCenter: SIMD3(20, 15, 0), sphereAxis: SIMD3(0, 0, 1), radius: 5
+        )
+        descriptions.append("P∩S: \(psResult.count) curves")
+
+        // --- Three-plane intersection (→ point) ---
+        if let pt = IntAna.threePlanes(
+            p1Origin: SIMD3(0, 0, 0), p1Normal: SIMD3(1, 0, 0),
+            p2Origin: SIMD3(0, 0, 0), p2Normal: SIMD3(0, 1, 0),
+            p3Origin: SIMD3(0, 0, 0), p3Normal: SIMD3(0, 0, 1)
+        ) {
+            descriptions.append("3P: (\(String(format: "%.0f", pt.x)),\(String(format: "%.0f", pt.y)),\(String(format: "%.0f", pt.z)))")
+        }
+
+        // --- Line-Torus intersection ---
+        let ltResult = IntAna.lineTorus(
+            lineOrigin: SIMD3(20, 0, 0), lineDir: SIMD3(0, 0, 1),
+            torusCenter: SIMD3(20, 0, 0), torusAxis: SIMD3(0, 0, 1),
+            majorRadius: 5, minorRadius: 1.5
+        )
+        descriptions.append("L∩T: \(ltResult.count) pts")
+
+        // --- CPUTime ---
+        let cpuTime = CPUTime.processCPU()
+        descriptions.append("CPU: user=\(String(format: "%.3f", cpuTime.user))s")
+
+        // --- ProcessInfo ---
+        let pid = ProcessInfo.processId
+        if let user = ProcessInfo.userName {
+            descriptions.append("PID=\(pid) user=\(user)")
+        }
+
+        // --- Draft modification ---
+        if let box = Shape.box(width: 8, height: 8, depth: 8) {
+            if let drafted = box.draftModification(
+                faceIndex: 0,
+                direction: SIMD3(0, 0, 1),
+                angle: .pi / 12, // 15 degrees
+                neutralPlaneOrigin: SIMD3(0, 0, 0),
+                neutralPlaneNormal: SIMD3(0, 0, 1)
+            ) {
+                if var b = CADFileLoader.shapeToBodyAndMetadata(
+                    drafted, id: "drafted", color: SIMD4(0.6, 0.7, 0.9, 1)).0 {
+                    offsetBody(&b, dx: 30, dy: 0, dz: 0)
+                    bodies.append(b)
+                }
+                descriptions.append("Draft: \(drafted.faceCount) faces")
+            }
+        }
+
+        return Curve2DGallery.GalleryResult(
+            bodies: bodies,
+            description: descriptions.joined(separator: " | ")
+        )
+    }
 }

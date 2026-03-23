@@ -751,6 +751,11 @@ struct SpikeView: View {
         case curveEvalAndQuaternion
         case obbAndClassification
         case patternsAndInterpolation
+        case linearAlgebraAndConversions
+        case conicConversionsAndSolvers
+        case assemblyRefAndPaths
+        case spatialQueryAndPrecision
+        case analyticIntersections
     }
 
     // MARK: - OCCT 8 Sub-groups
@@ -859,6 +864,11 @@ struct SpikeView: View {
         Button("Curve Eval & Quaternion") { loadOCCT8Demo(.curveEvalAndQuaternion) }
         Button("OBB & Classification") { loadOCCT8Demo(.obbAndClassification) }
         Button("Patterns & Interpolation") { loadOCCT8Demo(.patternsAndInterpolation) }
+        Button("Linear Algebra & Conversions") { loadOCCT8Demo(.linearAlgebraAndConversions) }
+        Button("Conic & Surface Conversions") { loadOCCT8Demo(.conicConversionsAndSolvers) }
+        Button("Assembly Ref & Paths") { loadOCCT8Demo(.assemblyRefAndPaths) }
+        Button("Spatial Query & Precision") { loadOCCT8Demo(.spatialQueryAndPrecision) }
+        Button("Analytic Intersections") { loadOCCT8Demo(.analyticIntersections) }
     }
 
     private func loadOCCT8Demo(_ demo: OCCT8Demo) {
@@ -1033,6 +1043,16 @@ struct SpikeView: View {
             result = OCCT8Gallery.obbAndClassification()
         case .patternsAndInterpolation:
             result = OCCT8Gallery.patternsAndInterpolation()
+        case .linearAlgebraAndConversions:
+            result = OCCT8Gallery.linearAlgebraAndConversions()
+        case .conicConversionsAndSolvers:
+            result = OCCT8Gallery.conicConversionsAndSolvers()
+        case .assemblyRefAndPaths:
+            result = OCCT8Gallery.assemblyRefAndPaths()
+        case .spatialQueryAndPrecision:
+            result = OCCT8Gallery.spatialQueryAndPrecision()
+        case .analyticIntersections:
+            result = OCCT8Gallery.analyticIntersections()
         }
 
         bodies = result.bodies
