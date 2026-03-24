@@ -9357,4 +9357,182 @@ enum OCCT8Gallery {
             description: descriptions.joined(separator: " | ")
         )
     }
+
+    // MARK: - v0.99: CompBezierConverter, OffsetSurface, OSDFile, ShapeFix_Wireframe
+
+    /// Demonstrates CompBezierCurves→BSpline conversion (3D and 2D) and
+    /// Geom_OffsetSurface extensions (offsetValue, setOffsetValue, offsetBasis).
+    static func compBezierToBSpline() -> Curve2DGallery.GalleryResult {
+        var bodies: [ViewportBody] = []
+        var descriptions: [String] = []
+
+        // --- 3D Composite Bezier → BSpline ---
+        // Three connected cubic Bezier segments forming an S-curve
+        let seg1: [SIMD3<Double>] = [
+            SIMD3(0, 0, 0), SIMD3(2, 4, 0), SIMD3(4, 4, 0), SIMD3(6, 0, 0)
+        ]
+        let seg2: [SIMD3<Double>] = [
+            SIMD3(6, 0, 0), SIMD3(8, -4, 0), SIMD3(10, -4, 0), SIMD3(12, 0, 0)
+        ]
+        let seg3: [SIMD3<Double>] = [
+            SIMD3(12, 0, 0), SIMD3(14, 4, 2), SIMD3(16, 2, 2), SIMD3(18, 0, 2)
+        ]
+
+        // Gray control polygons for each segment
+        let toF3 = { (p: SIMD3<Double>) -> SIMD3<Float> in SIMD3<Float>(Float(p.x), Float(p.y), Float(p.z)) }
+        bodies.append(ViewportBody(id: "bz3d-cp1", vertexData: [], indices: [],
+            edges: [seg1.map(toF3)], color: SIMD4(0.5, 0.5, 0.5, 0.6)))
+        bodies.append(ViewportBody(id: "bz3d-cp2", vertexData: [], indices: [],
+            edges: [seg2.map(toF3)], color: SIMD4(0.5, 0.5, 0.5, 0.6)))
+        bodies.append(ViewportBody(id: "bz3d-cp3", vertexData: [], indices: [],
+            edges: [seg3.map(toF3)], color: SIMD4(0.5, 0.5, 0.5, 0.6)))
+
+        if let result = CompBezierConverter.toBSpline(segments: [seg1, seg2, seg3]) {
+            // BSpline pole polygon in blue
+            bodies.append(ViewportBody(id: "bz3d-poles", vertexData: [], indices: [],
+                edges: [result.poles.map(toF3)], color: SIMD4(0.2, 0.6, 1, 1)))
+            // Markers at segment join points
+            for (i, pt) in [seg1[3], seg2[3]].enumerated() {
+                bodies.append(makeMarker(at: toF3(pt), radius: 0.25,
+                    id: "bz3d-join\(i)", color: SIMD4(1, 0.6, 0.1, 1)))
+            }
+            descriptions.append("BSpline3D: deg=\(result.degree) poles=\(result.poles.count) knots=\(result.knots.count)")
+        }
+
+        // --- 2D Composite Bezier → BSpline (wave in XZ plane) ---
+        let seg1_2d: [SIMD2<Double>] = [SIMD2(0, -10), SIMD2(3, -14), SIMD2(6, -14), SIMD2(9, -10)]
+        let seg2_2d: [SIMD2<Double>] = [SIMD2(9, -10), SIMD2(12, -6), SIMD2(15, -6), SIMD2(18, -10)]
+
+        let toXZ = { (p: SIMD2<Double>) -> SIMD3<Float> in SIMD3<Float>(Float(p.x), 0, Float(p.y) + 12) }
+        bodies.append(ViewportBody(id: "bz2d-cp1", vertexData: [], indices: [],
+            edges: [seg1_2d.map(toXZ)], color: SIMD4(0.5, 0.5, 0.5, 0.6)))
+        bodies.append(ViewportBody(id: "bz2d-cp2", vertexData: [], indices: [],
+            edges: [seg2_2d.map(toXZ)], color: SIMD4(0.5, 0.5, 0.5, 0.6)))
+
+        if let result2d = CompBezierConverter.toBSpline2d(segments: [seg1_2d, seg2_2d]) {
+            bodies.append(ViewportBody(id: "bz2d-poles", vertexData: [], indices: [],
+                edges: [result2d.poles.map(toXZ)], color: SIMD4(0.2, 1, 0.5, 1)))
+            descriptions.append("BSpline2D: deg=\(result2d.degree) poles=\(result2d.poles.count)")
+        }
+
+        // --- Geom_OffsetSurface Extensions ---
+        if let plane = Surface.plane(origin: SIMD3(0, 0, 5), normal: SIMD3(0, 0, 1)),
+           let offsetSurf = plane.offset(distance: 3.0) {
+            let val = offsetSurf.offsetValue
+            let hasBasis = offsetSurf.offsetBasis != nil
+            // Change offset
+            offsetSurf.setOffsetValue(5.0)
+            let newVal = offsetSurf.offsetValue
+            descriptions.append("OffsetSurf: val=\(String(format:"%.1f",val))→\(String(format:"%.1f",newVal)) hasBasis=\(hasBasis)")
+
+            // Visualize: grid edges at z=5 (basis plane) and z=8 (offset)
+            var basisEdges: [[SIMD3<Float>]] = []
+            var offsetEdges: [[SIMD3<Float>]] = []
+            for i in -3...3 {
+                let f = Float(i) * 2
+                basisEdges.append([SIMD3(-6, f, 5), SIMD3(6, f, 5)])
+                basisEdges.append([SIMD3(f, -6, 5), SIMD3(f, 6, 5)])
+                offsetEdges.append([SIMD3(-6, f, 8), SIMD3(6, f, 8)])
+                offsetEdges.append([SIMD3(f, -6, 8), SIMD3(f, 6, 8)])
+            }
+            bodies.append(ViewportBody(id: "plane-basis", vertexData: [], indices: [],
+                edges: basisEdges, color: SIMD4(0.6, 0.6, 0.6, 0.7)))
+            bodies.append(ViewportBody(id: "plane-offset", vertexData: [], indices: [],
+                edges: offsetEdges, color: SIMD4(0.9, 0.6, 0.2, 0.9)))
+            // Vertical connectors
+            bodies.append(ViewportBody(id: "plane-connect", vertexData: [], indices: [],
+                edges: [[SIMD3(0, 0, 5), SIMD3(0, 0, 8)], [SIMD3(4, 4, 5), SIMD3(4, 4, 8)]],
+                color: SIMD4(1, 1, 1, 0.4)))
+        }
+
+        return Curve2DGallery.GalleryResult(
+            bodies: bodies,
+            description: descriptions.joined(separator: " | ")
+        )
+    }
+
+    /// Demonstrates OSD_File platform-independent file I/O and ShapeFix_Wireframe
+    /// extensions (fixWireGaps, fixSmallEdges).
+    static func fileIOAndWireframeFix() -> Curve2DGallery.GalleryResult {
+        var bodies: [ViewportBody] = []
+        var descriptions: [String] = []
+
+        // --- OSDFile: write + read ---
+        let tmpPath = FileManager.default.temporaryDirectory
+            .appendingPathComponent("occtswift-v099-osdfile.txt").path
+        let writer = OSDFile(path: tmpPath)
+        if writer.open() {
+            _ = writer.write("OCCTSwift v0.99 OSDFile test\n")
+            _ = writer.write("CompBezierConverter 3D and 2D\n")
+            _ = writer.write("Geom_OffsetSurface extensions\n")
+            _ = writer.write("ShapeFix_Wireframe\n")
+            writer.close()
+        }
+
+        let reader = OSDFile(path: tmpPath)
+        if reader.openReadOnly() {
+            if let content = reader.readAll() {
+                let lineCount = content.components(separatedBy: "\n").filter { !$0.isEmpty }.count
+                reader.close()
+                let sizeFile = OSDFile(path: tmpPath)
+                let size = sizeFile.fileSize ?? 0
+                descriptions.append("OSDFile: \(lineCount) lines \(size)B")
+            } else {
+                reader.close()
+            }
+        }
+
+        // Visualize OSDFile as a floating text marker — show a box representing the file
+        if var fileBox = CADFileLoader.shapeToBodyAndMetadata(
+            Shape.box(width: 6, height: 1, depth: 4)!,
+            id: "file-icon", color: SIMD4(0.9, 0.85, 0.5, 1)).0 {
+            offsetBody(&fileBox, dx: -10, dy: 0, dz: 0)
+            bodies.append(fileBox)
+        }
+
+        // --- ShapeFix_Wireframe ---
+        // Use a merged box shape (no actual defects, but API runs)
+        if let box = Shape.box(width: 8, height: 6, depth: 4) {
+            // Original
+            if var orig = CADFileLoader.shapeToBodyAndMetadata(
+                box, id: "orig-box", color: SIMD4(0.5, 0.5, 0.5, 0.6)).0 {
+                bodies.append(orig)
+            }
+
+            // fixWireGaps → green, offset right
+            if let gapFixed = box.fixWireGaps(tolerance: 1e-7) {
+                if var b = CADFileLoader.shapeToBodyAndMetadata(
+                    gapFixed, id: "gap-fixed", color: SIMD4(0.3, 0.85, 0.4, 1)).0 {
+                    offsetBody(&b, dx: 12, dy: 0, dz: 0)
+                    bodies.append(b)
+                }
+                descriptions.append("fixWireGaps: \(gapFixed.edgeCount)e")
+            }
+
+            // fixSmallEdges (merge) → blue
+            if let mergeFix = box.fixSmallEdges(tolerance: 1e-7, dropSmall: false) {
+                if var b = CADFileLoader.shapeToBodyAndMetadata(
+                    mergeFix, id: "merge-fix", color: SIMD4(0.3, 0.5, 0.95, 1)).0 {
+                    offsetBody(&b, dx: 24, dy: 0, dz: 0)
+                    bodies.append(b)
+                }
+                descriptions.append("fixSmallEdges(merge): \(mergeFix.edgeCount)e")
+            }
+
+            // fixSmallEdges (drop) → orange
+            if let dropFix = box.fixSmallEdges(tolerance: 1e-7, dropSmall: true) {
+                if var b = CADFileLoader.shapeToBodyAndMetadata(
+                    dropFix, id: "drop-fix", color: SIMD4(0.95, 0.55, 0.2, 1)).0 {
+                    offsetBody(&b, dx: 36, dy: 0, dz: 0)
+                    bodies.append(b)
+                }
+                descriptions.append("fixSmallEdges(drop): \(dropFix.edgeCount)e")
+            }
+        }
+
+        return Curve2DGallery.GalleryResult(
+            bodies: bodies,
+            description: descriptions.joined(separator: " | ")
+        )
+    }
 }

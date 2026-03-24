@@ -756,6 +756,8 @@ struct SpikeView: View {
         case assemblyRefAndPaths
         case spatialQueryAndPrecision
         case analyticIntersections
+        case compBezierToBSpline
+        case fileIOAndWireframeFix
     }
 
     // MARK: - OCCT 8 Sub-groups
@@ -869,6 +871,8 @@ struct SpikeView: View {
         Button("Assembly Ref & Paths") { loadOCCT8Demo(.assemblyRefAndPaths) }
         Button("Spatial Query & Precision") { loadOCCT8Demo(.spatialQueryAndPrecision) }
         Button("Analytic Intersections") { loadOCCT8Demo(.analyticIntersections) }
+        Button("CompBezier → BSpline") { loadOCCT8Demo(.compBezierToBSpline) }
+        Button("File I/O & Wireframe Fix") { loadOCCT8Demo(.fileIOAndWireframeFix) }
     }
 
     private func loadOCCT8Demo(_ demo: OCCT8Demo) {
@@ -1053,6 +1057,10 @@ struct SpikeView: View {
             result = OCCT8Gallery.spatialQueryAndPrecision()
         case .analyticIntersections:
             result = OCCT8Gallery.analyticIntersections()
+        case .compBezierToBSpline:
+            result = OCCT8Gallery.compBezierToBSpline()
+        case .fileIOAndWireframeFix:
+            result = OCCT8Gallery.fileIOAndWireframeFix()
         }
 
         bodies = result.bodies
