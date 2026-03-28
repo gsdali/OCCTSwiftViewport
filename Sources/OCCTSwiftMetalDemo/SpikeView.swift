@@ -761,6 +761,8 @@ struct SpikeView: View {
         case stlIOAndCurveAnalysis
         case trimmedCurveAndSurfaceAnalysis
         case adjacencyAndEdgeAnalysis
+        case transformsAndGeometryProps
+        case analyticBoundsAndQuadrics
     }
 
     // MARK: - OCCT 8 Sub-groups
@@ -879,6 +881,8 @@ struct SpikeView: View {
         Button("STL I/O & Curve Analysis") { loadOCCT8Demo(.stlIOAndCurveAnalysis) }
         Button("Trimmed Curve & Surface") { loadOCCT8Demo(.trimmedCurveAndSurfaceAnalysis) }
         Button("Adjacency & Edge Analysis") { loadOCCT8Demo(.adjacencyAndEdgeAnalysis) }
+        Button("Transforms & Geometry Props") { loadOCCT8Demo(.transformsAndGeometryProps) }
+        Button("Analytic Bounds & Quadrics") { loadOCCT8Demo(.analyticBoundsAndQuadrics) }
     }
 
     private func loadOCCT8Demo(_ demo: OCCT8Demo) {
@@ -1073,6 +1077,10 @@ struct SpikeView: View {
             result = OCCT8Gallery.trimmedCurveAndSurfaceAnalysis()
         case .adjacencyAndEdgeAnalysis:
             result = OCCT8Gallery.adjacencyAndEdgeAnalysis()
+        case .transformsAndGeometryProps:
+            result = OCCT8Gallery.transformsAndGeometryProps()
+        case .analyticBoundsAndQuadrics:
+            result = OCCT8Gallery.analyticBoundsAndQuadrics()
         }
 
         bodies = result.bodies

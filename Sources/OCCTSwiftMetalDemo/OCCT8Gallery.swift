@@ -9814,4 +9814,240 @@ enum OCCT8Gallery {
             description: descriptions.joined(separator: " | ")
         )
     }
+
+    // MARK: - v0.103: gce Transforms, GProp Elements, Plate Constraints, Law_Interpolate, Bnd_Sphere
+
+    /// Demonstrates gce transform factories (3D/2D mirror/rotate/scale/translate),
+    /// GProp element geometry properties, Law_Interpolate, and BoundingSphere.
+    static func transformsAndGeometryProps() -> Curve2DGallery.GalleryResult {
+        var bodies: [ViewportBody] = []
+        var descriptions: [String] = []
+
+        // --- TransformFactory3D ---
+        let origin = SIMD3<Double>(0, 0, 0)
+        let testPt = SIMD3<Double>(3, 0, 0)
+
+        // Mirror through origin
+        let mirrorT = TransformFactory3D.mirrorPoint(origin)
+        let mirrored = mirrorT.apply(to: testPt)
+        bodies.append(makeMarker(at: SIMD3<Float>(Float(testPt.x), Float(testPt.y), Float(testPt.z)),
+            radius: 0.3, id: "tf-orig", color: SIMD4(0.3, 0.7, 1, 1)))
+        bodies.append(makeMarker(at: SIMD3<Float>(Float(mirrored.x), Float(mirrored.y), Float(mirrored.z)),
+            radius: 0.3, id: "tf-mirror", color: SIMD4(1, 0.3, 0.3, 1)))
+
+        // 90° rotation around Z
+        let rotT = TransformFactory3D.rotation(point: origin, direction: SIMD3(0, 0, 1), angle: .pi / 2)
+        let rotated = rotT.apply(to: testPt)
+        bodies.append(makeMarker(at: SIMD3<Float>(Float(rotated.x), Float(rotated.y), Float(rotated.z)),
+            radius: 0.3, id: "tf-rot90", color: SIMD4(0.3, 1, 0.3, 1)))
+
+        // Scale by 2
+        let scaleT = TransformFactory3D.scale(center: origin, factor: 2)
+        let scaled = scaleT.apply(to: testPt)
+        bodies.append(makeMarker(at: SIMD3<Float>(Float(scaled.x), Float(scaled.y), Float(scaled.z)),
+            radius: 0.3, id: "tf-scale", color: SIMD4(1, 0.8, 0, 1)))
+
+        // Translation
+        let transT = TransformFactory3D.translation(SIMD3(0, 5, 0))
+        let translated = transT.apply(to: testPt)
+        bodies.append(makeMarker(at: SIMD3<Float>(Float(translated.x), Float(translated.y), Float(translated.z)),
+            radius: 0.3, id: "tf-trans", color: SIMD4(0.8, 0.4, 1, 1)))
+
+        // Connect with lines showing transforms
+        bodies.append(ViewportBody(id: "tf-lines", vertexData: [], indices: [],
+            edges: [
+                [SIMD3<Float>(Float(testPt.x), 0, 0), SIMD3<Float>(Float(mirrored.x), 0, 0)],
+                [SIMD3<Float>(Float(testPt.x), 0, 0), SIMD3<Float>(Float(rotated.x), Float(rotated.y), 0)],
+                [SIMD3<Float>(Float(testPt.x), 0, 0), SIMD3<Float>(Float(scaled.x), 0, 0)],
+                [SIMD3<Float>(Float(testPt.x), 0, 0), SIMD3<Float>(Float(translated.x), Float(translated.y), 0)]
+            ],
+            color: SIMD4(0.5, 0.5, 0.5, 0.4)))
+
+        descriptions.append("Xform3D: mirror/rot/scale/trans")
+
+        // --- TransformFactory2D ---
+        let rot2D = TransformFactory2D.rotation(center: .zero, angle: .pi / 4)
+        let p2d = rot2D.apply(to: SIMD2<Double>(4, 0))
+        descriptions.append("Xform2D: rot45°→(\(String(format: "%.1f", p2d.x)),\(String(format: "%.1f", p2d.y)))")
+
+        // --- GeometryProperties ---
+        let seg = GeometryProperties.lineSegment(from: SIMD3(0, 0, 0), to: SIMD3(10, 0, 0))
+        descriptions.append("LineSeg: len=\(String(format: "%.1f", seg.length))")
+
+        let arc = GeometryProperties.circularArc(
+            center: .zero, normal: SIMD3(0, 0, 1), radius: 5, u1: 0, u2: .pi)
+        descriptions.append("Arc: len=\(String(format: "%.2f", arc.arcLength))")
+
+        let centroid = GeometryProperties.pointSetCentroid([
+            SIMD3(0, 0, 0), SIMD3(10, 0, 0), SIMD3(10, 10, 0), SIMD3(0, 10, 0)
+        ])
+        descriptions.append("Centroid: (\(String(format: "%.0f", centroid.centroid.x)),\(String(format: "%.0f", centroid.centroid.y)))")
+
+        let sArea = GeometryProperties.sphereSurfaceArea(radius: 5)
+        let sVol = GeometryProperties.sphereVolume(radius: 5)
+        descriptions.append("Sphere r=5: A=\(String(format: "%.0f", sArea)) V=\(String(format: "%.0f", sVol))")
+
+        // Centroid marker
+        bodies.append(makeMarker(
+            at: SIMD3<Float>(Float(centroid.centroid.x), Float(centroid.centroid.y), 0),
+            radius: 0.4, id: "centroid", color: SIMD4(1, 0.5, 0.8, 1)))
+        // Square outline
+        bodies.append(ViewportBody(id: "square", vertexData: [], indices: [],
+            edges: [[SIMD3<Float>(0, 0, 0), SIMD3(10, 0, 0), SIMD3(10, 10, 0), SIMD3(0, 10, 0), SIMD3(0, 0, 0)]],
+            color: SIMD4(0.6, 0.6, 0.6, 0.5)))
+
+        // --- LawFunction.interpolated ---
+        if let law = LawFunction.interpolated(values: [0, 1, 4, 1, 0]) {
+            let bounds = law.bounds
+            let v0 = law.value(at: bounds.lowerBound)
+            let vMid = law.value(at: (bounds.lowerBound + bounds.upperBound) / 2)
+            descriptions.append("Law: v0=\(String(format: "%.1f", v0)) mid=\(String(format: "%.1f", vMid))")
+        }
+
+        // --- BoundingSphere ---
+        let s1 = BoundingSphere(center: SIMD3(0, 0, 0), radius: 5)
+        let s2 = BoundingSphere(center: SIMD3(20, 0, 0), radius: 3)
+        let disjoint = s1.isOutside(s2)
+        let dist = s1.distance(to: SIMD3(10, 0, 0))
+        s1.add(s2)
+        descriptions.append("BndSphere: disjoint=\(disjoint) dist=\(String(format: "%.0f", dist)) merged r=\(String(format: "%.1f", s1.radius))")
+
+        // Show spheres as wireframe
+        if let sp1 = Shape.sphere(radius: 5) {
+            if var b = CADFileLoader.shapeToBodyAndMetadata(
+                sp1, id: "bsphere1", color: SIMD4(0.4, 0.6, 0.9, 0.3)).0 {
+                offsetBody(&b, dx: 0, dy: -15, dz: 0)
+                bodies.append(b)
+            }
+        }
+        if let sp2 = Shape.sphere(radius: 3)?.translated(by: SIMD3(20, 0, 0)) {
+            if var b = CADFileLoader.shapeToBodyAndMetadata(
+                sp2, id: "bsphere2", color: SIMD4(0.9, 0.4, 0.3, 0.3)).0 {
+                offsetBody(&b, dx: 0, dy: -15, dz: 0)
+                bodies.append(b)
+            }
+        }
+
+        return Curve2DGallery.GalleryResult(
+            bodies: bodies,
+            description: descriptions.joined(separator: " | ")
+        )
+    }
+
+    // MARK: - v0.104: BndLib Bounding, Host/PerfMeter, GProp Cyl/Cone, QuadricIntersection, DocExplorer
+
+    /// Demonstrates BndLib analytic bounding boxes, OSD_Host system info, PerfMeter timing,
+    /// GProp cylinder/cone properties, quadric-quadric intersection, and document explorer.
+    static func analyticBoundsAndQuadrics() -> Curve2DGallery.GalleryResult {
+        var bodies: [ViewportBody] = []
+        var descriptions: [String] = []
+
+        // --- BndLib: analytic bounding ---
+        // Sphere bounds
+        let sphereB = BndLib.sphere(center: .zero, radius: 5)
+        descriptions.append("SphBnd: (\(String(format: "%.0f", sphereB.min.x)),\(String(format: "%.0f", sphereB.min.y)))→(\(String(format: "%.0f", sphereB.max.x)),\(String(format: "%.0f", sphereB.max.y)))")
+        // Show sphere + bounding box wireframe
+        if let sp = Shape.sphere(radius: 5) {
+            if var b = CADFileLoader.shapeToBodyAndMetadata(
+                sp, id: "bndlib-sphere", color: SIMD4(0.4, 0.7, 0.9, 0.4)).0 {
+                bodies.append(b)
+            }
+        }
+        // Draw AABB wireframe
+        let mn = sphereB.min
+        let mx = sphereB.max
+        let bboxEdges: [[SIMD3<Float>]] = [
+            // Bottom face
+            [SIMD3(Float(mn.x), Float(mn.y), Float(mn.z)), SIMD3(Float(mx.x), Float(mn.y), Float(mn.z))],
+            [SIMD3(Float(mx.x), Float(mn.y), Float(mn.z)), SIMD3(Float(mx.x), Float(mx.y), Float(mn.z))],
+            [SIMD3(Float(mx.x), Float(mx.y), Float(mn.z)), SIMD3(Float(mn.x), Float(mx.y), Float(mn.z))],
+            [SIMD3(Float(mn.x), Float(mx.y), Float(mn.z)), SIMD3(Float(mn.x), Float(mn.y), Float(mn.z))],
+            // Top face
+            [SIMD3(Float(mn.x), Float(mn.y), Float(mx.z)), SIMD3(Float(mx.x), Float(mn.y), Float(mx.z))],
+            [SIMD3(Float(mx.x), Float(mn.y), Float(mx.z)), SIMD3(Float(mx.x), Float(mx.y), Float(mx.z))],
+            [SIMD3(Float(mx.x), Float(mx.y), Float(mx.z)), SIMD3(Float(mn.x), Float(mx.y), Float(mx.z))],
+            [SIMD3(Float(mn.x), Float(mx.y), Float(mx.z)), SIMD3(Float(mn.x), Float(mn.y), Float(mx.z))],
+            // Verticals
+            [SIMD3(Float(mn.x), Float(mn.y), Float(mn.z)), SIMD3(Float(mn.x), Float(mn.y), Float(mx.z))],
+            [SIMD3(Float(mx.x), Float(mn.y), Float(mn.z)), SIMD3(Float(mx.x), Float(mn.y), Float(mx.z))],
+            [SIMD3(Float(mx.x), Float(mx.y), Float(mn.z)), SIMD3(Float(mx.x), Float(mx.y), Float(mx.z))],
+            [SIMD3(Float(mn.x), Float(mx.y), Float(mn.z)), SIMD3(Float(mn.x), Float(mx.y), Float(mx.z))],
+        ]
+        bodies.append(ViewportBody(id: "bbox-sphere", vertexData: [], indices: [],
+            edges: bboxEdges, color: SIMD4(1, 0.6, 0.1, 0.8)))
+
+        // Circle bounds (in XY plane)
+        let circleB = BndLib.circle(center: SIMD3(15, 0, 0), normal: SIMD3(0, 0, 1), radius: 4)
+        descriptions.append("CircBnd: (\(String(format: "%.0f", circleB.min.x)))→(\(String(format: "%.0f", circleB.max.x)))")
+
+        // Edge bounds from a box
+        if let box = Shape.box(width: 10, height: 10, depth: 10) {
+            let edges = box.subShapes(ofType: .edge)
+            if let edge = edges.first {
+                let eb = BndLib.edge(edge)
+                descriptions.append("EdgeBnd: Δ=(\(String(format: "%.0f", eb.max.x - eb.min.x)),\(String(format: "%.0f", eb.max.y - eb.min.y)),\(String(format: "%.0f", eb.max.z - eb.min.z)))")
+            }
+        }
+
+        // --- HostInfo ---
+        let host = HostInfo.hostName ?? "?"
+        let sysVer = HostInfo.systemVersion ?? "?"
+        descriptions.append("Host: \(host.prefix(15))")
+
+        // --- PerfMeter ---
+        let meter = PerfMeter(name: "demo_timer")
+        var sum = 0.0
+        for i in 0..<100_000 { sum += Double(i) }
+        meter.stop()
+        descriptions.append("Perf: \(String(format: "%.4f", meter.elapsed))s")
+
+        // --- GProp: cylinder & cone ---
+        let cylArea = GeometryProperties.cylinderSurfaceArea(radius: 5, height: 10)
+        let cylVol = GeometryProperties.cylinderVolume(radius: 5, height: 10)
+        descriptions.append("Cyl r=5 h=10: A=\(String(format: "%.0f", cylArea)) V=\(String(format: "%.0f", cylVol))")
+
+        let coneArea = GeometryProperties.coneSurfaceArea(semiAngle: .pi / 6, refRadius: 5, height: 10)
+        let coneVol = GeometryProperties.coneVolume(semiAngle: .pi / 6, refRadius: 5, height: 10)
+        descriptions.append("Cone: A=\(String(format: "%.0f", coneArea)) V=\(String(format: "%.0f", coneVol))")
+
+        // Show cylinder + cone
+        if let cyl = Shape.cylinder(radius: 5, height: 10) {
+            if var b = CADFileLoader.shapeToBodyAndMetadata(
+                cyl, id: "gprop-cyl", color: SIMD4(0.3, 0.8, 0.5, 0.6)).0 {
+                offsetBody(&b, dx: 20, dy: 0, dz: 0)
+                bodies.append(b)
+            }
+        }
+        if let cone = Shape.cone(bottomRadius: 5, topRadius: 0, height: 10) {
+            if var b = CADFileLoader.shapeToBodyAndMetadata(
+                cone, id: "gprop-cone", color: SIMD4(0.9, 0.5, 0.3, 0.6)).0 {
+                offsetBody(&b, dx: 35, dy: 0, dz: 0)
+                bodies.append(b)
+            }
+        }
+
+        // --- QuadricIntersection: cylinder-sphere ---
+        if let count = QuadricIntersection.cylinderSphere(
+            cylinderRadius: 3, sphereCenter: .zero, sphereRadius: 5) {
+            let identical = QuadricIntersection.cylinderSphereIdentical(
+                cylinderRadius: 3, sphereCenter: .zero, sphereRadius: 5)
+            descriptions.append("CylSph: \(count) curves identical=\(identical)")
+        }
+
+        // --- XCAFPrs_DocumentExplorer ---
+        if let doc = Document.create() {
+            doc.defineAllFormats()
+            if let box = Shape.box(width: 10, height: 10, depth: 10) {
+                _ = doc.addShape(box)
+                let nodeCount = doc.explorerNodeCount
+                let pathId = doc.explorerPathId(at: 0)
+                descriptions.append("DocExplorer: \(nodeCount) nodes path=\(pathId?.prefix(10) ?? "nil")")
+            }
+        }
+
+        return Curve2DGallery.GalleryResult(
+            bodies: bodies,
+            description: descriptions.joined(separator: " | ")
+        )
+    }
 }
