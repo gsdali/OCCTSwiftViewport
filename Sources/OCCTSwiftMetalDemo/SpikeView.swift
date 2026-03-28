@@ -758,6 +758,9 @@ struct SpikeView: View {
         case analyticIntersections
         case compBezierToBSpline
         case fileIOAndWireframeFix
+        case stlIOAndCurveAnalysis
+        case trimmedCurveAndSurfaceAnalysis
+        case adjacencyAndEdgeAnalysis
     }
 
     // MARK: - OCCT 8 Sub-groups
@@ -873,6 +876,9 @@ struct SpikeView: View {
         Button("Analytic Intersections") { loadOCCT8Demo(.analyticIntersections) }
         Button("CompBezier → BSpline") { loadOCCT8Demo(.compBezierToBSpline) }
         Button("File I/O & Wireframe Fix") { loadOCCT8Demo(.fileIOAndWireframeFix) }
+        Button("STL I/O & Curve Analysis") { loadOCCT8Demo(.stlIOAndCurveAnalysis) }
+        Button("Trimmed Curve & Surface") { loadOCCT8Demo(.trimmedCurveAndSurfaceAnalysis) }
+        Button("Adjacency & Edge Analysis") { loadOCCT8Demo(.adjacencyAndEdgeAnalysis) }
     }
 
     private func loadOCCT8Demo(_ demo: OCCT8Demo) {
@@ -1061,6 +1067,12 @@ struct SpikeView: View {
             result = OCCT8Gallery.compBezierToBSpline()
         case .fileIOAndWireframeFix:
             result = OCCT8Gallery.fileIOAndWireframeFix()
+        case .stlIOAndCurveAnalysis:
+            result = OCCT8Gallery.stlIOAndCurveAnalysis()
+        case .trimmedCurveAndSurfaceAnalysis:
+            result = OCCT8Gallery.trimmedCurveAndSurfaceAnalysis()
+        case .adjacencyAndEdgeAnalysis:
+            result = OCCT8Gallery.adjacencyAndEdgeAnalysis()
         }
 
         bodies = result.bodies

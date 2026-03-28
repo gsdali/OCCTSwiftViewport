@@ -9535,4 +9535,283 @@ enum OCCT8Gallery {
             description: descriptions.joined(separator: " | ")
         )
     }
+
+    // MARK: - v0.100: RWStl I/O, ShapeAnalysis_Curve, SelfIntersection, OffsetCurve, StepHeader, FreeBounds
+
+    /// Demonstrates RWStl binary/ASCII STL I/O, curve closure/periodicity analysis,
+    /// self-intersection pair detection, offset curve basis, STEP header, and free bounds.
+    static func stlIOAndCurveAnalysis() -> Curve2DGallery.GalleryResult {
+        var bodies: [ViewportBody] = []
+        var descriptions: [String] = []
+
+        // --- RWStl round-trip: write binary STL, read it back ---
+        let tmpSTL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("occtswift-v100-test.stl").path
+        if let box = Shape.box(width: 8, height: 6, depth: 4) {
+            let wrote = box.writeSTLBinary(to: tmpSTL)
+            if wrote, let readBack = Shape.readSTL(from: tmpSTL) {
+                if var b = CADFileLoader.shapeToBodyAndMetadata(
+                    readBack, id: "stl-roundtrip", color: SIMD4(0.3, 0.8, 0.6, 1)).0 {
+                    bodies.append(b)
+                }
+                descriptions.append("STL binary: write+read OK")
+            }
+
+            // ASCII STL
+            let tmpASCII = FileManager.default.temporaryDirectory
+                .appendingPathComponent("occtswift-v100-ascii.stl").path
+            let wroteASCII = box.writeSTLAscii(to: tmpASCII)
+            descriptions.append("STL ASCII: \(wroteASCII ? "OK" : "fail")")
+        }
+
+        // --- ShapeAnalysis_Curve: closure + periodicity ---
+        if let circle = Curve3D.circle(center: SIMD3(0, 0, 0), normal: SIMD3(0, 0, 1), radius: 5) {
+            let closed = circle.isClosedWithPrecision(1e-6)
+            let periodic = circle.isPeriodicSA
+            descriptions.append("Circle: closed=\(closed) periodic=\(periodic)")
+        }
+        if let line = Curve3D.line(through: SIMD3(0, 0, 0), direction: SIMD3(1, 0, 0)) {
+            let closed = line.isClosedWithPrecision(1e-6)
+            let periodic = line.isPeriodicSA
+            descriptions.append("Line: closed=\(closed) periodic=\(periodic)")
+        }
+
+        // --- BRepExtrema_SelfIntersection ---
+        if let box = Shape.box(width: 10, height: 10, depth: 10) {
+            let pairs = box.selfIntersectionPairs(tolerance: 0.0)
+            if var b = CADFileLoader.shapeToBodyAndMetadata(
+                box, id: "selfint-box", color: SIMD4(0.5, 0.6, 0.9, 0.8)).0 {
+                offsetBody(&b, dx: 15, dy: 0, dz: 0)
+                bodies.append(b)
+            }
+            descriptions.append("SelfInt: \(pairs.count) pairs")
+        }
+
+        // --- Geom_OffsetCurve basis ---
+        if let line = Curve3D.line(through: SIMD3(0, 0, 0), direction: SIMD3(1, 0, 0)) {
+            let hasBasis = line.offsetBasisCurve != nil
+            descriptions.append("OffsetBasis(line): \(hasBasis)")
+        }
+
+        // --- StepHeader ---
+        if let header = StepHeader(filename: "demo.stp") {
+            header.name = "v0.100 demo"
+            header.author = "OCCTSwift"
+            header.organization = "Demo"
+            header.originatingSystem = "macOS"
+            descriptions.append("StepHdr: done=\(header.isDone) name=\(header.name ?? "?")")
+        }
+
+        // --- FreeBounds simplified ---
+        if let box = Shape.box(width: 10, height: 10, depth: 10) {
+            let closedCount = box.freeBoundsClosedCount(tolerance: 1e-6)
+            descriptions.append("FreeBounds: \(closedCount) closed")
+        }
+
+        return Curve2DGallery.GalleryResult(
+            bodies: bodies,
+            description: descriptions.joined(separator: " | ")
+        )
+    }
+
+    // MARK: - v0.101: TrimmedCurve, FindSurface, ShapeAnalysis_Surface, ResourceManager
+
+    /// Demonstrates Geom_TrimmedCurve (trim/basis/setTrim), BRepLib_FindSurface,
+    /// ShapeAnalysis_Surface point projection and singularity queries, and ResourceManager.
+    static func trimmedCurveAndSurfaceAnalysis() -> Curve2DGallery.GalleryResult {
+        var bodies: [ViewportBody] = []
+        var descriptions: [String] = []
+
+        // --- Geom_TrimmedCurve ---
+        if let line = Curve3D.line(through: SIMD3(0, 0, 0), direction: SIMD3(1, 0, 0)) {
+            if let trimmed = line.trimmed(u1: 2.0, u2: 8.0) {
+                let p1 = trimmed.point(at: 2.0)
+                let p2 = trimmed.point(at: 8.0)
+                // Draw the full line (gray) and trimmed segment (green)
+                bodies.append(ViewportBody(id: "trim-full", vertexData: [], indices: [],
+                    edges: [[SIMD3<Float>(-2, 0, 0), SIMD3<Float>(12, 0, 0)]],
+                    color: SIMD4(0.5, 0.5, 0.5, 0.4)))
+                bodies.append(ViewportBody(id: "trim-seg", vertexData: [], indices: [],
+                    edges: [[SIMD3<Float>(Float(p1.x), Float(p1.y), Float(p1.z)),
+                             SIMD3<Float>(Float(p2.x), Float(p2.y), Float(p2.z))]],
+                    color: SIMD4(0.2, 0.9, 0.3, 1)))
+                // Markers at trim endpoints
+                bodies.append(makeMarker(at: SIMD3<Float>(Float(p1.x), Float(p1.y), Float(p1.z)),
+                    radius: 0.3, id: "trim-p1", color: SIMD4(1, 0.4, 0.1, 1)))
+                bodies.append(makeMarker(at: SIMD3<Float>(Float(p2.x), Float(p2.y), Float(p2.z)),
+                    radius: 0.3, id: "trim-p2", color: SIMD4(1, 0.4, 0.1, 1)))
+                let hasBasis = trimmed.trimmedBasis != nil
+                descriptions.append("Trimmed: u=[2,8] hasBasis=\(hasBasis)")
+
+                // setTrim
+                trimmed.setTrim(u1: 3.0, u2: 7.0)
+                let p3 = trimmed.point(at: 3.0)
+                let p4 = trimmed.point(at: 7.0)
+                bodies.append(ViewportBody(id: "trim-updated", vertexData: [], indices: [],
+                    edges: [[SIMD3<Float>(Float(p3.x), 0, 1),
+                             SIMD3<Float>(Float(p4.x), 0, 1)]],
+                    color: SIMD4(0.9, 0.6, 0.1, 1)))
+                descriptions.append("setTrim: u=[3,7]")
+            }
+        }
+
+        // --- BRepLib_FindSurface ---
+        if let box = Shape.box(width: 10, height: 10, depth: 10) {
+            let faces = box.subShapes(ofType: .face)
+            if let face = faces.first {
+                let wires = face.subShapes(ofType: .wire)
+                if let wire = wires.first {
+                    if let surf = wire.findSurface(tolerance: -1, onlyPlane: true) {
+                        descriptions.append("FindSurface: found plane")
+                        // Show the face
+                        if var b = CADFileLoader.shapeToBodyAndMetadata(
+                            face, id: "found-face", color: SIMD4(0.4, 0.6, 0.9, 0.8)).0 {
+                            offsetBody(&b, dx: 15, dy: 0, dz: 0)
+                            bodies.append(b)
+                        }
+                    }
+                    let existed = wire.findSurfaceExisted(tolerance: -1, onlyPlane: true)
+                    descriptions.append("SurfExisted: \(existed)")
+                }
+            }
+        }
+
+        // --- ShapeAnalysis_Surface: projectPointUV ---
+        if let plane = Surface.plane(origin: SIMD3(0, 0, 0), normal: SIMD3(0, 0, 1)) {
+            let result = plane.projectPointUV(SIMD3(5, 3, 10), precision: 1e-6)
+            descriptions.append("ProjUV: u=\(String(format: "%.1f", result.u)) v=\(String(format: "%.1f", result.v)) gap=\(String(format: "%.1f", result.gap))")
+
+            let hasSing = plane.hasSingularitiesSA(precision: 1e-6)
+            let uClosed = plane.isUClosedSA()
+            descriptions.append("Plane: sing=\(hasSing) uClosed=\(uClosed)")
+        }
+
+        // --- ResourceManager ---
+        let rm = ResourceManager()
+        rm.setString("project", value: "OCCTSwift")
+        rm.setInt("version", value: 101)
+        rm.setReal("tolerance", value: 1e-7)
+        let found = rm.find("project")
+        let name = rm.string("project") ?? "?"
+        let ver = rm.integer("version")
+        descriptions.append("ResMgr: \(name) v\(ver) found=\(found)")
+
+        return Curve2DGallery.GalleryResult(
+            bodies: bodies,
+            description: descriptions.joined(separator: " | ")
+        )
+    }
+
+    // MARK: - v0.102: TopExp Adjacency, Mesh Adjacency, Edge Classification, WireExplorer
+
+    /// Demonstrates TopExp edge/vertex adjacency, Poly_Connect mesh triangle adjacency,
+    /// BRepOffset_Analyse edge concavity classification, and WireExplorer extensions.
+    static func adjacencyAndEdgeAnalysis() -> Curve2DGallery.GalleryResult {
+        var bodies: [ViewportBody] = []
+        var descriptions: [String] = []
+
+        guard let box = Shape.box(width: 10, height: 10, depth: 10) else {
+            return Curve2DGallery.GalleryResult(bodies: [], description: "Failed to create box")
+        }
+
+        // --- TopExp: edge/vertex adjacency ---
+        let edgeFaceAdj = box.edgeFaceAdjacency()
+        let vertEdgeAdj = box.vertexEdgeAdjacency()
+        descriptions.append("EdgeFace: \(edgeFaceAdj.count) edges, all shared by \(edgeFaceAdj.first ?? 0) faces")
+        descriptions.append("VertEdge: \(vertEdgeAdj.count) verts, \(vertEdgeAdj.first ?? 0) edges each")
+
+        // Show box with markers at vertices
+        if var b = CADFileLoader.shapeToBodyAndMetadata(
+            box, id: "adj-box", color: SIMD4(0.5, 0.6, 0.8, 0.6)).0 {
+            bodies.append(b)
+        }
+
+        // Edge first/last vertex
+        let edges = box.subShapes(ofType: .edge)
+        if let edge = edges.first, let verts = edge.edgeVertices() {
+            let f = verts.first
+            let l = verts.last
+            bodies.append(makeMarker(
+                at: SIMD3<Float>(Float(f.x), Float(f.y), Float(f.z)),
+                radius: 0.4, id: "ev-first", color: SIMD4(0.2, 1, 0.3, 1)))
+            bodies.append(makeMarker(
+                at: SIMD3<Float>(Float(l.x), Float(l.y), Float(l.z)),
+                radius: 0.4, id: "ev-last", color: SIMD4(1, 0.3, 0.2, 1)))
+
+            // Adjacent faces for this edge
+            let adjFaces = box.adjacentFaces(forEdge: edge)
+            descriptions.append("Edge0 adjFaces: \(adjFaces.count)")
+        }
+
+        // Common vertex between two edges
+        if edges.count >= 2 {
+            if let common = edges[0].commonVertex(with: edges[1]) {
+                bodies.append(makeMarker(
+                    at: SIMD3<Float>(Float(common.x), Float(common.y), Float(common.z)),
+                    radius: 0.5, id: "common-v", color: SIMD4(1, 1, 0, 1)))
+                descriptions.append("CommonV: found")
+            } else {
+                descriptions.append("CommonV: none")
+            }
+        }
+
+        // --- Poly_Connect mesh adjacency ---
+        let _ = box.mesh(linearDeflection: 0.1)
+        if let adj = box.meshTriangleAdjacency(faceIndex: 1, triangleIndex: 1) {
+            descriptions.append("MeshAdj: (\(adj.0),\(adj.1),\(adj.2))")
+        }
+        let fanCount = box.meshNodeTriangleCount(faceIndex: 1, nodeIndex: 1)
+        descriptions.append("Fan: \(fanCount) tris")
+
+        // --- BRepOffset_Analyse: edge concavity ---
+        let concavity = box.analyseEdgeConcavity()
+        let convexCount = concavity.filter { $0 == Shape.ConcavityType.convex }.count
+        descriptions.append("Concavity: \(convexCount)/\(concavity.count) convex")
+
+        // Edge classification on a face
+        let faces = box.subShapes(ofType: .face)
+        if let face = faces.first {
+            let convexOnFace = box.analyseEdgesOnFace(face, type: .convex)
+            descriptions.append("Face0 convex: \(convexOnFace) edges")
+        }
+
+        // Show a fillet box for concave edges
+        if let fBox = Shape.box(width: 8, height: 8, depth: 8),
+           let filleted = fBox.filleted(radius: 1.5) {
+            let fConcavity = filleted.analyseEdgeConcavity()
+            let fConvex = fConcavity.filter { $0 == Shape.ConcavityType.convex }.count
+            let fConcave = fConcavity.filter { $0 == Shape.ConcavityType.concave }.count
+            let fTangent = fConcavity.filter { $0 == Shape.ConcavityType.tangent }.count
+            if var b = CADFileLoader.shapeToBodyAndMetadata(
+                filleted, id: "fillet-concav", color: SIMD4(0.9, 0.6, 0.3, 0.8)).0 {
+                offsetBody(&b, dx: 18, dy: 0, dz: 0)
+                bodies.append(b)
+            }
+            descriptions.append("Fillet: \(fConvex)cvx \(fConcave)ccv \(fTangent)tan")
+        }
+
+        // --- WireExplorer: edge orientations + vertices ---
+        if let face = faces.first {
+            let wires = face.subShapes(ofType: .wire)
+            if let wire = wires.first {
+                let orientations = wire.wireEdgeOrientations(face: face)
+                let explorerVerts = wire.wireExplorerVertices(face: face)
+                descriptions.append("WireExp: \(orientations.count) edges \(explorerVerts.count) verts")
+
+                // Mark wire explorer vertices in cyan
+                for (i, v) in explorerVerts.enumerated() {
+                    var marker = makeMarker(
+                        at: SIMD3<Float>(Float(v.x), Float(v.y), Float(v.z)),
+                        radius: 0.3, id: "we-v\(i)", color: SIMD4(0, 0.9, 0.9, 1))
+                    offsetBody(&marker, dx: 0, dy: 18, dz: 0)
+                    bodies.append(marker)
+                }
+            }
+        }
+
+        return Curve2DGallery.GalleryResult(
+            bodies: bodies,
+            description: descriptions.joined(separator: " | ")
+        )
+    }
 }
