@@ -5,8 +5,9 @@ A reusable Metal-based 3D viewport library for CAD applications on iOS and macOS
 ```
 Your App
   ├── OCCTSwift          (geometry kernel — B-Rep, STEP, booleans, etc.)
-  ├── OCCTSwiftViewport  (this library — Metal rendering, camera, picking)
-  └── bridges Shape → ViewportBody → viewport display
+  ├── OCCTSwiftViewport  (Metal rendering, camera, picking — no OCCT dependency)
+  ├── OCCTSwiftTools     (Shape→ViewportBody bridge, file I/O, export)
+  └── displays geometry in the viewport
 ```
 
 ## Features
@@ -33,10 +34,28 @@ Your App
 
 ## Installation
 
+This package provides two library products:
+
+| Product | Dependencies | Purpose |
+|---------|-------------|---------|
+| `OCCTSwiftViewport` | None | Pure Metal viewport — geometry-agnostic rendering |
+| `OCCTSwiftTools` | OCCTSwift + OCCTSwiftViewport | Shape→ViewportBody bridge, CAD file I/O, export |
+
 ```swift
 // Package.swift
 dependencies: [
-    .package(url: "https://github.com/gsdali/OCCTSwiftViewport.git", from: "0.40.0")
+    .package(path: "../OCCTSwiftViewport"),
+    // or: .package(url: "https://github.com/gsdali/OCCTSwiftViewport.git", from: "0.50.0")
+],
+targets: [
+    .target(
+        name: "YourApp",
+        dependencies: [
+            // Pick what you need:
+            .product(name: "OCCTSwiftViewport", package: "OCCTSwiftViewport"),  // viewport only
+            .product(name: "OCCTSwiftTools", package: "OCCTSwiftViewport"),     // + OCCTSwift bridge
+        ]
+    )
 ]
 ```
 
@@ -60,55 +79,66 @@ struct ContentView: View {
 
 ## Using with OCCTSwift
 
-OCCTSwiftViewport has no dependency on OCCTSwift. Your app bridges the two by converting OCCTSwift `Shape` objects into `ViewportBody` values that the viewport can render.
+### OCCTSwiftTools (recommended)
 
-### Converting Shapes to ViewportBody
+`OCCTSwiftTools` provides ready-made converters for all OCCTSwift geometry types:
 
 ```swift
-import OCCTSwift
-import OCCTSwiftViewport
+import OCCTSwiftTools
 
-// Triangulate the shape
+// Load a CAD file (STEP, STL, OBJ, BREP)
+let result = try await CADFileLoader.load(from: stepFileURL, format: .step)
+// result.bodies: [ViewportBody], result.shapes: [Shape], result.metadata: [String: CADBodyMetadata]
+
+// Convert a Shape directly
 let shape = Shape.box(width: 10, height: 5, depth: 3)!
-let mesh = shape.triangulate(deflection: 0.1)
+let (body, metadata) = CADFileLoader.shapeToBodyAndMetadata(shape, id: "box", color: SIMD4(0.7, 0.7, 0.75, 1))
 
-// Build interleaved vertex data: [px, py, pz, nx, ny, nz, ...]
-var vertexData: [Float] = []
-var indices: [UInt32] = []
-for face in mesh.faces {
-    for vertex in face.vertices {
-        vertexData.append(contentsOf: [
-            Float(vertex.position.x), Float(vertex.position.y), Float(vertex.position.z),
-            Float(vertex.normal.x), Float(vertex.normal.y), Float(vertex.normal.z)
-        ])
-    }
-    indices.append(contentsOf: face.indices)
-}
+// Convert wires, curves, surfaces
+let wireBody = WireConverter.wireToBody(wire, id: "sketch", color: SIMD4(1, 1, 0, 1))
+let curveBody = CurveConverter.curve3DToBody(helix, id: "helix", color: SIMD4(0, 0.8, 1, 1))
+let curve2DBody = CurveConverter.curve2DToBody(circle, id: "circle", color: SIMD4(1, 0, 0, 1))
+let gridBodies = SurfaceConverter.surfaceToGridBodies(surface, idPrefix: "surf",
+    uColor: SIMD4(0.8, 0.3, 0.3, 1), vColor: SIMD4(0.3, 0.3, 0.8, 1))
 
-// Extract wireframe edges
-var edges: [[SIMD3<Float>]] = []
-for i in 0..<shape.edgeCount {
-    if let pts = shape.edgePolyline(at: i, deflection: 0.1) {
-        edges.append(pts.map { SIMD3<Float>(Float($0.x), Float($0.y), Float($0.z)) })
-    }
-}
+// Utility: position markers, offset bodies
+let marker = BodyUtilities.makeMarkerSphere(at: SIMD3(5, 0, 0), radius: 0.3, id: "pt", color: .one)
+let shifted = BodyUtilities.offsetBody(body!, dx: 10)
+
+// Export shapes
+try await ExportManager.export(shapes: [shape], format: .step, to: outputURL)
+```
+
+### OCCTSwiftTools API Reference
+
+| Type | Purpose |
+|------|---------|
+| `CADFileLoader` | Shape→ViewportBody conversion, STEP/STL/OBJ/BREP loading, manifest loading |
+| `CADBodyMetadata` | Face/edge/vertex indices for sub-body selection |
+| `CADLoadResult` | Aggregated load result (bodies + metadata + shapes + GD&T) |
+| `CADFileFormat` | `.step`, `.stl`, `.obj`, `.brep` |
+| `ExportManager` | Shape export to OBJ/PLY/STEP/BREP |
+| `ExportFormat` | `.obj`, `.ply`, `.step`, `.brep` |
+| `WireConverter` | Wire→edge-only ViewportBody |
+| `CurveConverter` | Curve2D/Curve3D→sampled edge ViewportBody |
+| `SurfaceConverter` | Surface→UV isoparametric grid bodies |
+| `BodyUtilities` | `makeMarkerSphere()`, `offsetBody()` |
+| `ScriptManifest` | JSON manifest types for script harness integration |
+
+### Manual Bridging (viewport only, no OCCTSwift dependency)
+
+If you only need `OCCTSwiftViewport` without the OCCTSwift dependency, construct `ViewportBody` directly:
+
+```swift
+import OCCTSwiftViewport
 
 let body = ViewportBody(
     id: "my-part",
-    vertexData: vertexData,
-    indices: indices,
-    edges: edges,
+    vertexData: vertexData,   // Interleaved [px, py, pz, nx, ny, nz, ...]
+    indices: indices,          // Triangle indices
+    edges: edges,              // Wireframe polylines [[SIMD3<Float>]]
     color: SIMD4<Float>(0.7, 0.7, 0.75, 1.0)
 )
-```
-
-### The Demo App's CADFileLoader
-
-The included demo app (`Sources/OCCTSwiftMetalDemo/`) has a `CADFileLoader` that handles the OCCTSwift → ViewportBody conversion for STEP, STL, OBJ, and BREP files. You can use it as a reference or copy it into your project.
-
-```swift
-// Load a STEP file into viewport bodies
-let (bodies, shapes) = try CADFileLoader.load(from: stepFileURL)
 ```
 
 ## Camera Control
