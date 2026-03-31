@@ -12,6 +12,10 @@ let package = Package(
             name: "OCCTSwiftViewport",
             targets: ["OCCTSwiftViewport"]
         ),
+        .library(
+            name: "OCCTSwiftTools",
+            targets: ["OCCTSwiftTools"]
+        ),
     ],
     dependencies: [
         .package(path: "../OCCTSwift"),
@@ -27,10 +31,22 @@ let package = Package(
                 .swiftLanguageMode(.v6)
             ]
         ),
+        .target(
+            name: "OCCTSwiftTools",
+            dependencies: [
+                "OCCTSwiftViewport",
+                .product(name: "OCCTSwift", package: "OCCTSwift"),
+            ],
+            path: "Sources/OCCTSwiftTools",
+            swiftSettings: [
+                .swiftLanguageMode(.v6)
+            ]
+        ),
         .executableTarget(
             name: "OCCTSwiftMetalDemo",
             dependencies: [
                 "OCCTSwiftViewport",
+                "OCCTSwiftTools",
                 .product(name: "OCCTSwift", package: "OCCTSwift"),
             ],
             path: "Sources/OCCTSwiftMetalDemo",

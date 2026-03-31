@@ -8,6 +8,7 @@ import Foundation
 import simd
 import OCCTSwift
 import OCCTSwiftViewport
+import OCCTSwiftTools
 
 /// Built-in gallery demonstrating topological naming history on XDE documents.
 /// Each demo creates shapes, records naming evolutions, and visualizes the

@@ -7,6 +7,7 @@ import Foundation
 import simd
 import OCCTSwift
 import OCCTSwiftViewport
+import OCCTSwiftTools
 
 /// Built-in variable-section sweep gallery that renders pipe shells
 /// where cross-section radius varies according to a law function.

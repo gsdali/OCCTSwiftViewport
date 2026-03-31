@@ -8,6 +8,7 @@ import Foundation
 import simd
 import OCCTSwift
 import OCCTSwiftViewport
+import OCCTSwiftTools
 
 /// Built-in gallery demonstrating AIS annotation features.
 /// Each demo creates dimension measurements, text labels, or point clouds

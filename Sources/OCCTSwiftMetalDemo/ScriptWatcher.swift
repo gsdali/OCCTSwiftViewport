@@ -12,6 +12,7 @@ import Foundation
 import Combine
 import OCCTSwift
 import OCCTSwiftViewport
+import OCCTSwiftTools
 
 @MainActor
 final class ScriptWatcher: ObservableObject {

@@ -1,19 +1,19 @@
 // ExportManager.swift
-// OCCTSwiftMetalDemo
+// OCCTSwiftTools
 //
-// Wraps OCCTSwift export functionality for OBJ and PLY formats.
+// Wraps OCCTSwift export functionality for OBJ, PLY, STEP, and BREP formats.
 
 import Foundation
 import OCCTSwift
 
 /// Supported export formats.
-enum ExportFormat: String, CaseIterable, Sendable {
+public enum ExportFormat: String, CaseIterable, Sendable {
     case obj = "OBJ"
     case ply = "PLY"
     case step = "STEP"
     case brep = "BREP"
 
-    var fileExtension: String {
+    public var fileExtension: String {
         switch self {
         case .obj: return "obj"
         case .ply: return "ply"
@@ -24,12 +24,10 @@ enum ExportFormat: String, CaseIterable, Sendable {
 }
 
 /// Manages exporting shapes to mesh file formats.
-enum ExportManager {
+public enum ExportManager {
 
     /// Exports shapes to the specified format.
-    ///
-    /// For multiple shapes, each is exported to a numbered file in the same directory.
-    static func export(
+    public static func export(
         shapes: [Shape],
         format: ExportFormat,
         to url: URL,
@@ -51,7 +49,6 @@ enum ExportManager {
         if shapes.count == 1 {
             try exportShape(shapes[0], format: format, to: url, deflection: deflection)
         } else {
-            // Multiple shapes: number each output file
             let base = url.deletingPathExtension()
             let ext = url.pathExtension.isEmpty ? format.fileExtension : url.pathExtension
             for (i, shape) in shapes.enumerated() {

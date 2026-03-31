@@ -7,6 +7,7 @@ import Foundation
 import simd
 import OCCTSwift
 import OCCTSwiftViewport
+import OCCTSwiftTools
 
 /// Gallery showcasing OCCT 8.0.0-rc4 features: helix curves, KD-tree queries,
 /// wedge primitives, hatch patterns, polynomial solvers, and shape operations.

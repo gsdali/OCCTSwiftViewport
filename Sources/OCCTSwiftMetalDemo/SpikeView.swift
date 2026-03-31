@@ -6,6 +6,7 @@ import UniformTypeIdentifiers
 import simd
 import OCCTSwift
 import OCCTSwiftViewport
+import OCCTSwiftTools
 
 struct SpikeView: View {
     @StateObject private var controller = ViewportController(

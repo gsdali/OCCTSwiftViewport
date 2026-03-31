@@ -7,6 +7,7 @@ import Foundation
 import simd
 import OCCTSwift
 import OCCTSwiftViewport
+import OCCTSwiftTools
 
 /// Manages selection state and produces highlight overlay bodies.
 @MainActor
