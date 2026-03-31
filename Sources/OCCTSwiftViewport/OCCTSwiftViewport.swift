@@ -84,6 +84,9 @@ public typealias _ViewportController = ViewportController
 // Metal Renderer
 public typealias _ViewportBody = ViewportBody
 public typealias _ViewportRenderer = ViewportRenderer
+public typealias _OffscreenRenderer = OffscreenRenderer
+public typealias _OffscreenRenderOptions = OffscreenRenderOptions
+public typealias _OffscreenRenderError = OffscreenRenderError
 
 // Configuration
 public typealias _ViewportConfiguration = ViewportConfiguration
