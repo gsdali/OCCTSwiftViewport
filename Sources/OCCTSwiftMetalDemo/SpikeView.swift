@@ -766,6 +766,7 @@ struct SpikeView: View {
         case analyticBoundsAndQuadrics
         case geometryFactoriesAndPipeShell
         case surfaceFactoriesAndWireAnalysis
+        case bsplineAndSewingDemo
     }
 
     // MARK: - OCCT 8 Sub-groups
@@ -888,6 +889,7 @@ struct SpikeView: View {
         Button("Analytic Bounds & Quadrics") { loadOCCT8Demo(.analyticBoundsAndQuadrics) }
         Button("Geometry Factories & Pipe") { loadOCCT8Demo(.geometryFactoriesAndPipeShell) }
         Button("Surface & Wire Analysis") { loadOCCT8Demo(.surfaceFactoriesAndWireAnalysis) }
+        Button("BSpline & Sewing") { loadOCCT8Demo(.bsplineAndSewingDemo) }
     }
 
     private func loadOCCT8Demo(_ demo: OCCT8Demo) {
@@ -1090,6 +1092,8 @@ struct SpikeView: View {
             result = OCCT8Gallery.geometryFactoriesAndPipeShell()
         case .surfaceFactoriesAndWireAnalysis:
             result = OCCT8Gallery.surfaceFactoriesAndWireAnalysis()
+        case .bsplineAndSewingDemo:
+            result = OCCT8Gallery.bsplineAndSewingDemo()
         }
 
         bodies = result.bodies

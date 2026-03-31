@@ -10295,4 +10295,195 @@ enum OCCT8Gallery {
             description: descriptions.joined(separator: " | ")
         )
     }
+
+    // MARK: - v0.107: BSpline/Bezier Manipulation, BRepTools, Sewing, Edge/Face Extraction
+
+    /// Demonstrates BSpline pole manipulation (3D, 2D, surface), Bezier editing,
+    /// BRepTools utilities, SewingBuilder, and edge/face extraction.
+    static func bsplineAndSewingDemo() -> Curve2DGallery.GalleryResult {
+        var bodies: [ViewportBody] = []
+        var descriptions: [String] = []
+
+        // --- Curve3D BSpline manipulation ---
+        if let bsp = Curve3D.interpolate(points: [
+            SIMD3(0, 0, 0), SIMD3(3, 4, 0), SIMD3(6, 5, 0),
+            SIMD3(9, 3, 0), SIMD3(12, 0, 0)
+        ]) {
+            let deg = bsp.bspline.degree
+            let nPoles = bsp.bspline.poleCount
+            let nKnots = bsp.bspline.knotCount
+            descriptions.append("BSpline3D: deg=\(deg) poles=\(nPoles) knots=\(nKnots)")
+
+            // Draw original curve
+            let domain = bsp.domain
+            var origPts: [SIMD3<Float>] = []
+            for i in 0...40 {
+                let t = domain.lowerBound + (domain.upperBound - domain.lowerBound) * Double(i) / 40.0
+                let p = bsp.point(at: t)
+                origPts.append(SIMD3<Float>(Float(p.x), Float(p.y), Float(p.z)))
+            }
+            bodies.append(ViewportBody(id: "bsp3d-orig", vertexData: [], indices: [],
+                edges: [origPts], color: SIMD4(0.5, 0.5, 0.5, 0.5)))
+
+            // Draw control polygon
+            var polePts: [SIMD3<Float>] = []
+            for i in 1...nPoles {
+                let p = bsp.bspline.pole(at: i)
+                polePts.append(SIMD3<Float>(Float(p.x), Float(p.y), Float(p.z)))
+            }
+            bodies.append(ViewportBody(id: "bsp3d-poles", vertexData: [], indices: [],
+                edges: [polePts], color: SIMD4(0.3, 0.6, 1, 0.6)))
+
+            // Modify a pole and draw modified curve
+            bsp.bspline.setPole(at: 3, to: SIMD3(6, 9, 0))
+
+            var modPts: [SIMD3<Float>] = []
+            for i in 0...40 {
+                let t = domain.lowerBound + (domain.upperBound - domain.lowerBound) * Double(i) / 40.0
+                let p = bsp.point(at: t)
+                modPts.append(SIMD3<Float>(Float(p.x), Float(p.y), Float(p.z)))
+            }
+            bodies.append(ViewportBody(id: "bsp3d-mod", vertexData: [], indices: [],
+                edges: [modPts], color: SIMD4(0.2, 0.9, 0.4, 1)))
+
+            // Show the moved pole
+            let movedPole = bsp.bspline.pole(at: 3)
+            bodies.append(makeMarker(at: SIMD3<Float>(Float(movedPole.x), Float(movedPole.y), Float(movedPole.z)),
+                radius: 0.3, id: "bsp3d-moved", color: SIMD4(1, 0.3, 0.1, 1)))
+
+            // Insert knot + increase degree
+            bsp.bspline.insertKnot(u: 0.5)
+            let resolution = bsp.bspline.resolution(tolerance3d: 0.01)
+            descriptions.append("insertKnot+res=\(String(format: "%.4f", resolution))")
+        }
+
+        // --- Curve3D Bezier manipulation ---
+        if let bez = Curve3D.bezier(poles: [
+            SIMD3(0, -8, 0), SIMD3(3, -3, 0), SIMD3(7, -3, 0), SIMD3(10, -8, 0)
+        ]) {
+            let deg = bez.bezier.degree
+            descriptions.append("Bezier3D: deg=\(deg) poles=\(bez.bezier.poleCount)")
+
+            // Draw original
+            let domain = bez.domain
+            var bezPts: [SIMD3<Float>] = []
+            for i in 0...30 {
+                let t = domain.lowerBound + (domain.upperBound - domain.lowerBound) * Double(i) / 30.0
+                let p = bez.point(at: t)
+                bezPts.append(SIMD3<Float>(Float(p.x), Float(p.y), Float(p.z)))
+            }
+            bodies.append(ViewportBody(id: "bez3d-orig", vertexData: [], indices: [],
+                edges: [bezPts], color: SIMD4(0.8, 0.5, 0.9, 1)))
+
+            // Modify pole
+            bez.bezier.setPole(at: 2, to: SIMD3(3, 0, 0))
+
+            var bezMod: [SIMD3<Float>] = []
+            for i in 0...30 {
+                let t = domain.lowerBound + (domain.upperBound - domain.lowerBound) * Double(i) / 30.0
+                let p = bez.point(at: t)
+                bezMod.append(SIMD3<Float>(Float(p.x), Float(p.y), Float(p.z)))
+            }
+            bodies.append(ViewportBody(id: "bez3d-mod", vertexData: [], indices: [],
+                edges: [bezMod], color: SIMD4(1, 0.7, 0.2, 1)))
+        }
+
+        // --- Curve2D BSpline ---
+        if let bsp2d = Curve2D.interpolate(through: [
+            SIMD2(0, -15), SIMD2(3, -12), SIMD2(6, -13), SIMD2(9, -11), SIMD2(12, -15)
+        ]) {
+            let deg2d = bsp2d.bspline.degree
+            let poles2d = bsp2d.bspline.poleCount
+            descriptions.append("BSpline2D: deg=\(deg2d) poles=\(poles2d)")
+
+            // Draw in XZ plane
+            let domain = bsp2d.domain
+            var pts2d: [SIMD3<Float>] = []
+            for i in 0...30 {
+                let t = domain.lowerBound + (domain.upperBound - domain.lowerBound) * Double(i) / 30.0
+                let p = bsp2d.point(at: t)
+                pts2d.append(SIMD3<Float>(Float(p.x), 0, Float(p.y) + 18))
+            }
+            bodies.append(ViewportBody(id: "bsp2d-curve", vertexData: [], indices: [],
+                edges: [pts2d], color: SIMD4(0.3, 0.8, 0.7, 1)))
+        }
+
+        // --- SewingBuilder ---
+        if let box = Shape.box(width: 10, height: 10, depth: 10),
+           let sewing = SewingBuilder(tolerance: 1e-6) {
+            let faces = box.subShapes(ofType: .face)
+            for face in faces { sewing.add(face) }
+            sewing.perform()
+            if let result = sewing.result {
+                if var b = CADFileLoader.shapeToBodyAndMetadata(
+                    result, id: "sewn", color: SIMD4(0.4, 0.7, 0.9, 0.7)).0 {
+                    offsetBody(&b, dx: 18, dy: 0, dz: 0)
+                    bodies.append(b)
+                }
+                descriptions.append("Sewing: free=\(sewing.nbFreeEdges) contig=\(sewing.nbContigousEdges)")
+            }
+        }
+
+        // --- BRepTools utilities ---
+        if let box = Shape.box(width: 6, height: 6, depth: 6) {
+            box.clean()
+            box.updateTolerances()
+            let edges = box.subShapes(ofType: .edge)
+            if let edge = edges.first {
+                let sameRange = Shape.checkSameRange(edge: edge)
+                descriptions.append("BRepTools: sameRange=\(sameRange)")
+            }
+        }
+
+        // --- Edge/Face extraction ---
+        if let box = Shape.box(width: 8, height: 8, depth: 8) {
+            let edges = box.subShapes(ofType: .edge)
+            let faces = box.subShapes(ofType: .face)
+            let verts = box.subShapes(ofType: .vertex)
+
+            if let edge = edges.first {
+                let tol = edge.edgeTolerance
+                let degen = edge.isEdgeDegenerated
+                descriptions.append("Edge: tol=\(String(format: "%.0e", tol)) degen=\(degen)")
+
+                if let (curve, first, last) = edge.extractEdgeCurve3D() {
+                    descriptions.append("EdgeCurve: [\(String(format: "%.1f", first)),\(String(format: "%.1f", last))]")
+                }
+            }
+
+            if let face = faces.first {
+                let wc = face.faceWireCount
+                if let surf = face.extractFaceSurface() {
+                    descriptions.append("FaceSurf: wires=\(wc) cont=\(surf.continuity)")
+                }
+            }
+
+            if let v = verts.first {
+                let pt = v.vertexPoint
+                descriptions.append("Vertex: (\(String(format: "%.0f", pt.x)),\(String(format: "%.0f", pt.y)),\(String(format: "%.0f", pt.z)))")
+            }
+
+            // Show the box
+            if var b = CADFileLoader.shapeToBodyAndMetadata(
+                box, id: "extract-box", color: SIMD4(0.6, 0.6, 0.7, 0.5)).0 {
+                offsetBody(&b, dx: 30, dy: 0, dz: 0)
+                bodies.append(b)
+            }
+        }
+
+        // --- MakeFace extras: sphere face patch ---
+        if let sphereFace = Shape.faceFromSphere(radius: 4, uMin: 0, uMax: .pi, vMin: -.pi / 4, vMax: .pi / 4) {
+            if var b = CADFileLoader.shapeToBodyAndMetadata(
+                sphereFace, id: "sphere-face", color: SIMD4(0.9, 0.5, 0.3, 0.8)).0 {
+                offsetBody(&b, dx: 18, dy: 12, dz: 0)
+                bodies.append(b)
+            }
+            descriptions.append("SphereFace: valid=\(sphereFace.isValid)")
+        }
+
+        return Curve2DGallery.GalleryResult(
+            bodies: bodies,
+            description: descriptions.joined(separator: " | ")
+        )
+    }
 }
