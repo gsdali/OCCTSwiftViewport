@@ -10050,4 +10050,248 @@ enum OCCT8Gallery {
             description: descriptions.joined(separator: " | ")
         )
     }
+
+    // MARK: - v0.105: GC/GCE2d Factories, Uniform Sampling, Concatenation, PipeShell, ReShape
+
+    /// Demonstrates GC/GCE2d geometry factories, GCPnts uniform sampling,
+    /// curve concatenation, PipeShellBuilder, ReShapeContext, and GProp torus.
+    static func geometryFactoriesAndPipeShell() -> Curve2DGallery.GalleryResult {
+        var bodies: [ViewportBody] = []
+        var descriptions: [String] = []
+
+        // --- GC_MakeCircle: circle from 3 points ---
+        if let c3pt = Curve3D.gcCircle(p1: SIMD3(5, 0, 0), p2: SIMD3(0, 5, 0), p3: SIMD3(-5, 0, 0)) {
+            let domain = c3pt.domain
+            var pts: [SIMD3<Float>] = []
+            let n = 60
+            for i in 0...n {
+                let t = domain.lowerBound + (domain.upperBound - domain.lowerBound) * Double(i) / Double(n)
+                let p = c3pt.point(at: t)
+                pts.append(SIMD3<Float>(Float(p.x), Float(p.y), Float(p.z)))
+            }
+            bodies.append(ViewportBody(id: "gc-circle3pt", vertexData: [], indices: [],
+                edges: [pts], color: SIMD4(0.3, 0.8, 1, 1)))
+            // Mark the 3 input points
+            for (i, pt) in [SIMD3<Double>(5, 0, 0), SIMD3(0, 5, 0), SIMD3(-5, 0, 0)].enumerated() {
+                bodies.append(makeMarker(at: SIMD3<Float>(Float(pt.x), Float(pt.y), Float(pt.z)),
+                    radius: 0.3, id: "gc-c3pt-\(i)", color: SIMD4(1, 0.4, 0.1, 1)))
+            }
+            descriptions.append("GC circle 3pts: closed=\(c3pt.isClosed)")
+        }
+
+        // --- GC_MakeEllipse ---
+        if let ellipse = Curve3D.gcEllipse(center: SIMD3(0, 0, 0), normal: SIMD3(0, 0, 1),
+                                            majorRadius: 8, minorRadius: 4) {
+            let domain = ellipse.domain
+            var pts: [SIMD3<Float>] = []
+            for i in 0...60 {
+                let t = domain.lowerBound + (domain.upperBound - domain.lowerBound) * Double(i) / 60.0
+                let p = ellipse.point(at: t)
+                pts.append(SIMD3<Float>(Float(p.x), Float(p.y), Float(p.z) + 8))
+            }
+            bodies.append(ViewportBody(id: "gc-ellipse", vertexData: [], indices: [],
+                edges: [pts], color: SIMD4(0.9, 0.5, 0.8, 1)))
+            descriptions.append("GC ellipse: 8×4")
+        }
+
+        // --- GCE2d circles: center+radius, center+point ---
+        if let c2d = Curve2D.gceCircle(center: SIMD2(0, 0), radius: 3) {
+            descriptions.append("GCE2d circle: closed=\(c2d.isClosed)")
+        }
+        if let c2dPt = Curve2D.gceCircle(center: SIMD2(0, 0), pointOn: SIMD2(4, 0)) {
+            descriptions.append("GCE2d center+pt: closed=\(c2dPt.isClosed)")
+        }
+
+        // --- GCPnts uniform sampling on edge ---
+        if let box = Shape.box(width: 10, height: 10, depth: 10) {
+            let edges = box.subShapes(ofType: .edge)
+            if let edge = edges.first {
+                if let params = edge.uniformAbscissa(pointCount: 5) {
+                    descriptions.append("UniformSamp: \(params.count) pts")
+                }
+                if let paramsDist = edge.uniformAbscissa(distance: 3.0) {
+                    descriptions.append("UniformDist: \(paramsDist.count) pts")
+                }
+            }
+        }
+
+        // --- Curve3D.concatenate ---
+        if let seg1 = Curve3D.segment(from: SIMD3(0, -10, 0), to: SIMD3(5, -10, 0)),
+           let seg2 = Curve3D.segment(from: SIMD3(5, -10, 0), to: SIMD3(10, -7, 0)) {
+            if let combined = Curve3D.concatenate([seg1, seg2]) {
+                let domain = combined.domain
+                let p0 = combined.point(at: domain.lowerBound)
+                let p1 = combined.point(at: domain.upperBound)
+                bodies.append(ViewportBody(id: "concat-curve", vertexData: [], indices: [],
+                    edges: [[SIMD3<Float>(Float(p0.x), Float(p0.y), Float(p0.z)),
+                             SIMD3<Float>(Float(p1.x), Float(p1.y), Float(p1.z))]],
+                    color: SIMD4(0.3, 1, 0.4, 1)))
+                descriptions.append("Concat: 2 segs → 1 BSpline")
+            }
+        }
+
+        // --- ReShapeContext ---
+        if let box = Shape.box(width: 6, height: 6, depth: 6) {
+            let edges = box.subShapes(ofType: .edge)
+            if let edge = edges.first {
+                let ctx = ReShapeContext()
+                ctx.remove(edge)
+                let recorded = ctx.isRecorded(edge)
+                if let reshaped = ctx.apply(to: box) {
+                    if var b = CADFileLoader.shapeToBodyAndMetadata(
+                        reshaped, id: "reshaped", color: SIMD4(0.7, 0.5, 0.9, 0.8)).0 {
+                        offsetBody(&b, dx: 20, dy: 0, dz: 0)
+                        bodies.append(b)
+                    }
+                    descriptions.append("ReShape: recorded=\(recorded) edges=\(reshaped.edgeCount)")
+                }
+            }
+        }
+
+        // --- GProp torus ---
+        let torusArea = GeometryProperties.torusSurfaceArea(majorRadius: 10, minorRadius: 3)
+        let torusVol = GeometryProperties.torusVolume(majorRadius: 10, minorRadius: 3)
+        descriptions.append("Torus R=10 r=3: A=\(String(format: "%.0f", torusArea)) V=\(String(format: "%.0f", torusVol))")
+
+        // --- PipeShellBuilder ---
+        if let spineWire = Wire.circle(origin: SIMD3(0, 0, 0), normal: SIMD3(0, 0, 1), radius: 8),
+           let spine = Shape.fromWire(spineWire),
+           let profileWire = Wire.circle(origin: SIMD3(8, 0, 0), normal: SIMD3(0, 1, 0), radius: 1.5),
+           let profile = Shape.fromWire(profileWire) {
+            if let builder = PipeShellBuilder(spine: spine) {
+                builder.setFrenet()
+                builder.add(profile: profile)
+                if builder.build() {
+                    if let shape = builder.shape {
+                        if var b = CADFileLoader.shapeToBodyAndMetadata(
+                            shape, id: "pipe-shell", color: SIMD4(0.4, 0.7, 0.95, 0.7)).0 {
+                            offsetBody(&b, dx: 0, dy: 20, dz: 0)
+                            bodies.append(b)
+                        }
+                        descriptions.append("PipeShell: \(shape.faceCount) faces")
+                    }
+                }
+            }
+        }
+
+        return Curve2DGallery.GalleryResult(
+            bodies: bodies,
+            description: descriptions.joined(separator: " | ")
+        )
+    }
+
+    // MARK: - v0.106: GC Surface Factories, Wire/Edge Analysis, Topology, OSD Iterators
+
+    /// Demonstrates GC conical/cylindrical surface factories, ShapeAnalysis_Wire/Edge,
+    /// 2D edge factories, shape topology, OSD iterators, and continuity queries.
+    static func surfaceFactoriesAndWireAnalysis() -> Curve2DGallery.GalleryResult {
+        var bodies: [ViewportBody] = []
+        var descriptions: [String] = []
+
+        // --- GC conical surface ---
+        if let coneSurf = Surface.gcConicalSurface(center: .zero, normal: SIMD3(0, 0, 1),
+                                                     semiAngle: .pi / 6, radius: 5) {
+            descriptions.append("GC cone surf: OK")
+        }
+
+        // --- GC cylindrical surface from 3 points ---
+        if let cylSurf = Surface.gcCylindricalSurface3Pts(
+            p1: SIMD3(5, 0, 0), p2: SIMD3(0, 5, 0), p3: SIMD3(-5, 0, 0)) {
+            descriptions.append("GC cyl 3pts: OK")
+        }
+
+        // --- GC trimmed cylinder ---
+        if let trimCyl = Surface.gcTrimmedCylinderCircle(
+            center: .zero, normal: SIMD3(0, 0, 1), radius: 5, height: 10) {
+            descriptions.append("GC trimCyl: OK")
+        }
+
+        // --- GC trimmed cone from 2 points + radii ---
+        if let trimCone = Surface.gcTrimmedCone2Pts(
+            p1: SIMD3(0, 0, 0), p2: SIMD3(0, 0, 10), r1: 5, r2: 2) {
+            descriptions.append("GC trimCone: OK")
+        }
+
+        // Show a cylinder + cone side by side
+        if let cyl = Shape.cylinder(radius: 5, height: 10) {
+            if var b = CADFileLoader.shapeToBodyAndMetadata(
+                cyl, id: "gc-cyl", color: SIMD4(0.4, 0.7, 0.9, 0.7)).0 {
+                bodies.append(b)
+            }
+        }
+        if let cone = Shape.cone(bottomRadius: 5, topRadius: 2, height: 10) {
+            if var b = CADFileLoader.shapeToBodyAndMetadata(
+                cone, id: "gc-cone", color: SIMD4(0.9, 0.6, 0.3, 0.7)).0 {
+                offsetBody(&b, dx: 15, dy: 0, dz: 0)
+                bodies.append(b)
+            }
+        }
+
+        // --- ShapeAnalysis_Wire ---
+        if let box = Shape.box(width: 10, height: 10, depth: 10) {
+            let faces = box.subShapes(ofType: .face)
+            if let face = faces.first {
+                let wires = face.subShapes(ofType: .wire)
+                if let wire = wires.first {
+                    let ordered = SAWireAnalysis.checkOrder(wire: wire, face: face)
+                    let connected = SAWireAnalysis.checkConnected(wire: wire, face: face)
+                    let closed = SAWireAnalysis.checkClosed(wire: wire, face: face)
+                    let eCount = SAWireAnalysis.edgeCount(wire: wire, face: face)
+                    descriptions.append("SAWire: ord=\(ordered) conn=\(connected) closed=\(closed) e=\(eCount)")
+                }
+            }
+        }
+
+        // --- ShapeAnalysis_Edge ---
+        if let box = Shape.box(width: 10, height: 10, depth: 10) {
+            let edges = box.subShapes(ofType: .edge)
+            let faces = box.subShapes(ofType: .face)
+            if let edge = edges.first, let face = faces.first {
+                let has3d = EdgeAnalysis.hasCurve3d(edge)
+                let hasPCurve = EdgeAnalysis.hasPCurve(edge, face: face)
+                let sameParam = EdgeAnalysis.checkSameParameter(edge)
+                let firstV = EdgeAnalysis.firstVertex(edge)
+                descriptions.append("SAEdge: 3d=\(has3d) pcurve=\(hasPCurve) sameP=\(sameParam.ok)")
+                descriptions.append("EdgeV: (\(String(format: "%.0f", firstV.x)),\(String(format: "%.0f", firstV.y)),\(String(format: "%.0f", firstV.z)))")
+            }
+        }
+
+        // --- BRepLib_MakeEdge2d ---
+        if let e2d = Shape.edge2dFullCircle(center: SIMD2(0, 0), direction: SIMD2(1, 0), radius: 5) {
+            descriptions.append("Edge2d circle: valid=\(e2d.isValid)")
+        }
+        if let e2dEllipse = Shape.edge2dEllipse(center: SIMD2(0, 0), direction: SIMD2(1, 0),
+                                                  majorRadius: 8, minorRadius: 4) {
+            descriptions.append("Edge2d ellipse: valid=\(e2dEllipse.isValid)")
+        }
+
+        // --- Shape topology ---
+        if let box = Shape.box(width: 10, height: 10, depth: 10) {
+            let orient = box.orientation
+            let children = box.nbChildren
+            let hash = box.hashCode
+            descriptions.append("Topo: orient=\(orient) children=\(children) hash=\(hash)")
+
+            if let rev = box.reversed {
+                descriptions.append("Reversed: orient=\(rev.orientation)")
+            }
+        }
+
+        // --- OSD iterators ---
+        let tmpFiles = FileIterator.list(path: FileManager.default.temporaryDirectory.path, maxCount: 5)
+        descriptions.append("TmpFiles: \(tmpFiles.count) listed")
+
+        // --- Continuity ---
+        if let line = Curve3D.line(through: SIMD3(0, 0, 0), direction: SIMD3(1, 0, 0)) {
+            descriptions.append("Line cont: \(line.continuity)")
+        }
+        if let plane = Surface.plane(origin: .zero, normal: SIMD3(0, 0, 1)) {
+            descriptions.append("Plane cont: \(plane.continuity)")
+        }
+
+        return Curve2DGallery.GalleryResult(
+            bodies: bodies,
+            description: descriptions.joined(separator: " | ")
+        )
+    }
 }

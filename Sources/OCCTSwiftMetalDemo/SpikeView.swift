@@ -763,6 +763,8 @@ struct SpikeView: View {
         case adjacencyAndEdgeAnalysis
         case transformsAndGeometryProps
         case analyticBoundsAndQuadrics
+        case geometryFactoriesAndPipeShell
+        case surfaceFactoriesAndWireAnalysis
     }
 
     // MARK: - OCCT 8 Sub-groups
@@ -883,6 +885,8 @@ struct SpikeView: View {
         Button("Adjacency & Edge Analysis") { loadOCCT8Demo(.adjacencyAndEdgeAnalysis) }
         Button("Transforms & Geometry Props") { loadOCCT8Demo(.transformsAndGeometryProps) }
         Button("Analytic Bounds & Quadrics") { loadOCCT8Demo(.analyticBoundsAndQuadrics) }
+        Button("Geometry Factories & Pipe") { loadOCCT8Demo(.geometryFactoriesAndPipeShell) }
+        Button("Surface & Wire Analysis") { loadOCCT8Demo(.surfaceFactoriesAndWireAnalysis) }
     }
 
     private func loadOCCT8Demo(_ demo: OCCT8Demo) {
@@ -1081,6 +1085,10 @@ struct SpikeView: View {
             result = OCCT8Gallery.transformsAndGeometryProps()
         case .analyticBoundsAndQuadrics:
             result = OCCT8Gallery.analyticBoundsAndQuadrics()
+        case .geometryFactoriesAndPipeShell:
+            result = OCCT8Gallery.geometryFactoriesAndPipeShell()
+        case .surfaceFactoriesAndWireAnalysis:
+            result = OCCT8Gallery.surfaceFactoriesAndWireAnalysis()
         }
 
         bodies = result.bodies
