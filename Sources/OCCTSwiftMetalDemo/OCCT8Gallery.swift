@@ -10486,4 +10486,254 @@ enum OCCT8Gallery {
             description: descriptions.joined(separator: " | ")
         )
     }
+
+    // MARK: - v0.108: Geom/Geom2d Property Coverage
+
+    /// Demonstrates complete geometric property access for circles, ellipses,
+    /// hyperbolas, parabolas, lines, planes, spheres, tori, cylinders, cones.
+    static func geomPropertyCoverage() -> Curve2DGallery.GalleryResult {
+        var bodies: [ViewportBody] = []
+        var descriptions: [String] = []
+
+        // --- Curve3D circle properties ---
+        if let circle = Curve3D.circle(center: SIMD3(0, 0, 0), normal: SIMD3(0, 0, 1), radius: 5) {
+            let r = circle.circleProperties.radius
+            let ecc = circle.circleProperties.eccentricity
+            let center = circle.circleProperties.center
+            descriptions.append("Circle: r=\(String(format: "%.0f", r)) ecc=\(String(format: "%.1f", ecc))")
+
+            // Draw circle
+            let domain = circle.domain
+            var pts: [SIMD3<Float>] = []
+            for i in 0...60 {
+                let t = domain.lowerBound + (domain.upperBound - domain.lowerBound) * Double(i) / 60.0
+                let p = circle.point(at: t)
+                pts.append(SIMD3<Float>(Float(p.x), Float(p.y), Float(p.z)))
+            }
+            bodies.append(ViewportBody(id: "geom-circle", vertexData: [], indices: [],
+                edges: [pts], color: SIMD4(0.3, 0.7, 1, 1)))
+            bodies.append(makeMarker(at: SIMD3<Float>(Float(center.x), Float(center.y), Float(center.z)),
+                radius: 0.3, id: "geom-circle-ctr", color: SIMD4(1, 0.3, 0.1, 1)))
+
+            // Modify radius
+            circle.circleProperties.setRadius(7)
+            descriptions.append("setRadius→\(String(format: "%.0f", circle.circleProperties.radius))")
+        }
+
+        // --- Curve3D ellipse properties ---
+        if let ellipse = Curve3D.gcEllipse(center: SIMD3(15, 0, 0), normal: SIMD3(0, 0, 1),
+                                            majorRadius: 6, minorRadius: 3) {
+            let ecc = ellipse.ellipseProperties.eccentricity
+            let focal = ellipse.ellipseProperties.focal
+            let f1 = ellipse.ellipseProperties.focus1
+            descriptions.append("Ellipse: ecc=\(String(format: "%.2f", ecc)) focal=\(String(format: "%.1f", focal))")
+
+            let domain = ellipse.domain
+            var pts: [SIMD3<Float>] = []
+            for i in 0...60 {
+                let t = domain.lowerBound + (domain.upperBound - domain.lowerBound) * Double(i) / 60.0
+                let p = ellipse.point(at: t)
+                pts.append(SIMD3<Float>(Float(p.x), Float(p.y), Float(p.z)))
+            }
+            bodies.append(ViewportBody(id: "geom-ellipse", vertexData: [], indices: [],
+                edges: [pts], color: SIMD4(0.9, 0.5, 0.8, 1)))
+            // Mark focus
+            bodies.append(makeMarker(at: SIMD3<Float>(Float(f1.x), Float(f1.y), Float(f1.z)),
+                radius: 0.25, id: "geom-f1", color: SIMD4(1, 1, 0, 1)))
+        }
+
+        // --- Curve3D line properties ---
+        if let line = Curve3D.line(through: SIMD3(0, -8, 0), direction: SIMD3(1, 0.3, 0)) {
+            let dir = line.lineProperties.direction
+            let loc = line.lineProperties.location
+            descriptions.append("Line: dir=(\(String(format: "%.1f", dir.x)),\(String(format: "%.1f", dir.y)))")
+            bodies.append(ViewportBody(id: "geom-line", vertexData: [], indices: [],
+                edges: [[SIMD3<Float>(Float(loc.x), Float(loc.y), 0),
+                         SIMD3<Float>(Float(loc.x + dir.x * 20), Float(loc.y + dir.y * 20), 0)]],
+                color: SIMD4(0.5, 0.8, 0.3, 1)))
+        }
+
+        // --- Surface plane properties ---
+        if let plane = Surface.plane(origin: SIMD3(0, 0, 0), normal: SIMD3(0, 0, 1)) {
+            let coeff = plane.planeProperties.coefficients
+            descriptions.append("Plane: \(String(format: "%.0f", coeff.a))x+\(String(format: "%.0f", coeff.b))y+\(String(format: "%.0f", coeff.c))z+\(String(format: "%.0f", coeff.d))=0")
+        }
+
+        // --- Surface sphere properties ---
+        if let sphere = Surface.sphere(center: SIMD3(0, 0, 10), radius: 4) {
+            let r = sphere.sphereProperties.radius
+            let area = sphere.sphereProperties.area
+            let vol = sphere.sphereProperties.volume
+            descriptions.append("Sphere: r=\(String(format: "%.0f", r)) A=\(String(format: "%.0f", area)) V=\(String(format: "%.0f", vol))")
+
+            // Modify radius
+            sphere.sphereProperties.setRadius(5)
+            descriptions.append("setRadius→\(String(format: "%.0f", sphere.sphereProperties.radius))")
+        }
+
+        // --- Surface torus properties ---
+        if let torus = Surface.torus(origin: .zero, axis: SIMD3(0, 0, 1), majorRadius: 8, minorRadius: 2) {
+            let area = torus.torusProperties.area
+            let vol = torus.torusProperties.volume
+            descriptions.append("Torus: A=\(String(format: "%.0f", area)) V=\(String(format: "%.0f", vol))")
+        }
+
+        // --- Surface cylinder properties ---
+        if let cyl = Surface.cylinder(origin: .zero, axis: SIMD3(0, 0, 1), radius: 3) {
+            let r = cyl.cylinderProperties.radius
+            let axis = cyl.cylinderProperties.axis
+            descriptions.append("Cyl: r=\(String(format: "%.0f", r)) axis=(\(String(format: "%.0f", axis.direction.x)),\(String(format: "%.0f", axis.direction.y)),\(String(format: "%.0f", axis.direction.z)))")
+        }
+
+        // --- Surface cone properties ---
+        if let cone = Surface.gcConicalSurface(center: .zero, normal: SIMD3(0, 0, 1), semiAngle: .pi / 6, radius: 5) {
+            let semiAngle = cone.coneProperties.semiAngle
+            let apex = cone.coneProperties.apex
+            descriptions.append("Cone: semiAng=\(String(format: "%.2f", semiAngle)) apex=(\(String(format: "%.1f", apex.x)),\(String(format: "%.1f", apex.y)),\(String(format: "%.1f", apex.z)))")
+        }
+
+        // --- Curve2D circle properties ---
+        if let c2d = Curve2D.gceCircle(center: SIMD2(0, 0), radius: 4) {
+            let r = c2d.circleProperties.radius
+            let ctr = c2d.circleProperties.center
+            descriptions.append("Circle2D: r=\(String(format: "%.0f", r)) ctr=(\(String(format: "%.0f", ctr.x)),\(String(format: "%.0f", ctr.y)))")
+        }
+
+        // --- Curve2D line properties ---
+        if let l2d = Curve2D.line(through: SIMD2(0, 0), direction: SIMD2(1, 1)) {
+            let dist = l2d.lineProperties.distance(to: SIMD2(5, 0))
+            descriptions.append("Line2D dist(5,0)=\(String(format: "%.2f", dist))")
+        }
+
+        return Curve2DGallery.GalleryResult(
+            bodies: bodies,
+            description: descriptions.joined(separator: " | ")
+        )
+    }
+
+    // MARK: - v0.109: Extrema Distances, TrigRoots, Conic2D, NormalProjection, DiskInfo
+
+    /// Demonstrates Extrema elementary distances (point-curve, curve-curve, curve-surface),
+    /// TrigRoots solver, 2D conic intersections, NormalProjection, and DiskInfo.
+    static func extremaAndConicDemo() -> Curve2DGallery.GalleryResult {
+        var bodies: [ViewportBody] = []
+        var descriptions: [String] = []
+
+        // --- Extrema: point to line ---
+        let ptLineResults = ExtremaPointCurve.pointToLine(
+            point: SIMD3(5, 5, 0), lineOrigin: SIMD3(0, 0, 0), lineDir: SIMD3(1, 0, 0))
+        if let r = ptLineResults.first {
+            let dist = sqrt(r.squareDistance)
+            descriptions.append("Pt→Line: d=\(String(format: "%.1f", dist))")
+            // Draw point, line, and closest-point connector
+            bodies.append(makeMarker(at: SIMD3<Float>(5, 5, 0), radius: 0.3,
+                id: "ext-pt", color: SIMD4(1, 0.3, 0.1, 1)))
+            bodies.append(ViewportBody(id: "ext-line", vertexData: [], indices: [],
+                edges: [[SIMD3<Float>(-5, 0, 0), SIMD3<Float>(15, 0, 0)]],
+                color: SIMD4(0.5, 0.5, 0.5, 0.6)))
+            let cp = r.point2
+            bodies.append(ViewportBody(id: "ext-connector", vertexData: [], indices: [],
+                edges: [[SIMD3<Float>(5, 5, 0),
+                         SIMD3<Float>(Float(cp.x), Float(cp.y), Float(cp.z))]],
+                color: SIMD4(1, 0.8, 0, 1)))
+        }
+
+        // --- Extrema: point to circle ---
+        let ptCircleResults = ExtremaPointCurve.pointToCircle(
+            point: SIMD3(10, 0, 0), center: SIMD3(0, 0, 0),
+            normal: SIMD3(0, 0, 1), radius: 5)
+        descriptions.append("Pt→Circle: \(ptCircleResults.count) extrema")
+        for (i, r) in ptCircleResults.prefix(2).enumerated() {
+            let p = r.point2
+            bodies.append(makeMarker(at: SIMD3<Float>(Float(p.x), Float(p.y), Float(p.z)),
+                radius: 0.25, id: "ext-pc\(i)", color: SIMD4(0, 1, 0.5, 1)))
+        }
+
+        // --- Extrema: line to line ---
+        let ll = ExtremaElC.lineToLine(
+            line1Point: SIMD3(0, 0, 0), line1Dir: SIMD3(1, 0, 0),
+            line2Point: SIMD3(0, 5, 3), line2Dir: SIMD3(0, 1, 0))
+        if let r = ll.results.first {
+            descriptions.append("L→L: d=\(String(format: "%.1f", sqrt(r.squareDistance))) par=\(ll.isParallel)")
+        }
+
+        // --- Extrema: point to sphere surface ---
+        let ptSphere = ExtremaPointSurface.pointToSphere(
+            point: SIMD3(10, 0, 0), center: SIMD3(0, 0, 0), radius: 3)
+        if let r = ptSphere.first {
+            descriptions.append("Pt→Sph: d=\(String(format: "%.1f", sqrt(r.squareDistance)))")
+        }
+
+        // --- Extrema: plane to plane ---
+        let pp = ExtremaElSS.planeToPlane(
+            plane1Point: SIMD3(0, 0, 0), plane1Normal: SIMD3(0, 0, 1),
+            plane2Point: SIMD3(0, 0, 5), plane2Normal: SIMD3(0, 0, 1))
+        if let r = pp.results.first {
+            descriptions.append("P→P: d=\(String(format: "%.1f", sqrt(r.squareDistance))) par=\(pp.isParallel)")
+        }
+
+        // --- TrigRoots: solve cos(x) = 0 in [0, 2π] ---
+        let roots = TrigRoots.solve(A: 1, B: 0, C: 0, D: 0, E: 0, from: 0, to: 2 * .pi)
+        descriptions.append("TrigRoots cos=0: \(roots.count) roots")
+
+        // --- Conic2D: line-circle intersection ---
+        let lcHits = Conic2D.lineCircleIntersection(
+            linePoint: SIMD2(-10, 0), lineDir: SIMD2(1, 0),
+            circleCenter: SIMD2(0, 0), circleDir: SIMD2(1, 0), radius: 5)
+        descriptions.append("L∩C 2D: \(lcHits.count) hits")
+        for (i, hit) in lcHits.enumerated() {
+            bodies.append(makeMarker(
+                at: SIMD3<Float>(Float(hit.x), Float(hit.y) - 12, 0),
+                radius: 0.3, id: "lc-hit\(i)", color: SIMD4(1, 0.5, 0, 1)))
+        }
+        // Draw the circle and line in the lower area
+        var circPts: [SIMD3<Float>] = []
+        for i in 0...40 {
+            let angle = 2 * Float.pi * Float(i) / 40.0
+            circPts.append(SIMD3<Float>(cos(angle) * 5, sin(angle) * 5 - 12, 0))
+        }
+        bodies.append(ViewportBody(id: "conic-circ", vertexData: [], indices: [],
+            edges: [circPts], color: SIMD4(0.4, 0.7, 0.9, 0.7)))
+        bodies.append(ViewportBody(id: "conic-line", vertexData: [], indices: [],
+            edges: [[SIMD3<Float>(-8, -12, 0), SIMD3<Float>(8, -12, 0)]],
+            color: SIMD4(0.6, 0.6, 0.6, 0.5)))
+
+        // --- NormalProjection ---
+        if let box = Shape.box(width: 10, height: 10, depth: 10) {
+            if let proj = NormalProjection(target: box) {
+                if let circle = Wire.circle(origin: SIMD3(0, 0, 10), normal: SIMD3(0, 0, 1), radius: 3),
+                   let circShape = Shape.fromWire(circle) {
+                    proj.add(circShape)
+                    let built = proj.build()
+                    if built, let result = proj.result {
+                        descriptions.append("NormalProj: \(result.edgeCount) edges")
+                    }
+                }
+            }
+        }
+
+        // --- DiskInfo ---
+        let diskSize = DiskInfo.size()
+        let freeSpace = DiskInfo.freeSpace()
+        descriptions.append("Disk: \(diskSize / 1_000_000)GB free=\(freeSpace / 1_000_000)GB")
+
+        // --- Curve copy + reverse ---
+        if let line = Curve3D.line(through: SIMD3(0, 0, 0), direction: SIMD3(1, 0, 0)) {
+            if let copy = line.copy() {
+                copy.reverse()
+                let dir = copy.lineProperties.direction
+                descriptions.append("Reverse: dir=(\(String(format: "%.0f", dir.x)))")
+            }
+        }
+
+        // --- Shape type string ---
+        if let box = Shape.box(width: 5, height: 5, depth: 5) {
+            descriptions.append("Type: \(box.shapeTypeString)")
+        }
+
+        return Curve2DGallery.GalleryResult(
+            bodies: bodies,
+            description: descriptions.joined(separator: " | ")
+        )
+    }
 }
