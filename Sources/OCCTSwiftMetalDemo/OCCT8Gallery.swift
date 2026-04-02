@@ -10736,4 +10736,282 @@ enum OCCT8Gallery {
             description: descriptions.joined(separator: " | ")
         )
     }
+
+    // MARK: - v0.110-v0.111: Math Solvers, Curve Evaluation, Local Properties
+
+    /// Demonstrates MathSolver (root finding, minimization, PSO, integration),
+    /// curve/surface D0/D1/D2 evaluation, BRepLProp edge/face local properties,
+    /// and Laguerre polynomial solver.
+    static func mathSolversAndEvaluation() -> Curve2DGallery.GalleryResult {
+        var bodies: [ViewportBody] = []
+        var descriptions: [String] = []
+
+        // --- MathSolver: find root of x² - 4 = 0 near x=3 ---
+        if let root = MathSolver.findRoot(near: 3.0) { (x: Double) -> (value: Double, derivative: Double) in
+            return (x * x - 4.0, 2.0 * x)
+        } {
+            descriptions.append("Root(x²-4): \(String(format: "%.2f", root))")
+        }
+
+        // --- MathSolver: BFGS minimize (x-3)² + (y-2)² ---
+        if let result = MathSolver.minimize(variables: 2, startPoint: [0, 0]) { (x: [Double]) -> (value: Double, gradient: [Double]) in
+            let val = (x[0] - 3) * (x[0] - 3) + (x[1] - 2) * (x[1] - 2)
+            let grad = [2 * (x[0] - 3), 2 * (x[1] - 2)]
+            return (val, grad)
+        } {
+            descriptions.append("Min: (\(String(format: "%.1f", result.point[0])),\(String(format: "%.1f", result.point[1]))) val=\(String(format: "%.2f", result.minimum))")
+        }
+
+        // --- MathSolver: Gauss integration of sin(x) from 0 to π → 2.0 ---
+        let integral = MathSolver.integrate(from: 0, to: .pi, order: 10) { x in sin(x) }
+        descriptions.append("∫sin: \(String(format: "%.4f", integral))")
+
+        // --- PSO: minimize Rosenbrock near (1,1) ---
+        if let pso = MathSolver.particleSwarm(
+            variables: 2, lower: [-5, -5], upper: [5, 5], steps: [0.1, 0.1],
+            particles: 32, iterations: 50
+        ) { (x: [Double]) -> Double in
+            let a = 1.0 - x[0]
+            let b = x[1] - x[0] * x[0]
+            return a * a + 100 * b * b
+        } {
+            descriptions.append("PSO: (\(String(format: "%.1f", pso.point[0])),\(String(format: "%.1f", pso.point[1])))")
+        }
+
+        // --- findAllRoots: sin(x) in [0, 4π] ---
+        let sinRoots = MathSolver.findAllRoots(in: 0...4 * .pi, samples: 20) { x in
+            (sin(x), cos(x))
+        }
+        descriptions.append("sinRoots[0,4π]: \(sinRoots.count)")
+
+        // --- Laguerre polynomial solver: x³ - 6x² + 11x - 6 = 0 → roots 1,2,3 ---
+        let polyRoots = PolynomialSolver.laguerreRoots(coefficients: [-6, 11, -6, 1])
+        descriptions.append("Laguerre: \(polyRoots.map { String(format: "%.1f", $0) }.joined(separator: ","))")
+
+        // --- Curve3D evalD0/D1/D2 ---
+        if let circle = Curve3D.circle(center: SIMD3(0, 0, 0), normal: SIMD3(0, 0, 1), radius: 5) {
+            let d0 = circle.evalD0(at: 0)
+            let d1 = circle.evalD1(at: 0)
+            descriptions.append("EvalD0: (\(String(format: "%.1f", d0.x)),\(String(format: "%.1f", d0.y)))")
+            descriptions.append("EvalD1: tang=(\(String(format: "%.1f", d1.d1.x)),\(String(format: "%.1f", d1.d1.y)))")
+
+            // Batch eval
+            let params = stride(from: 0.0, through: 2 * .pi, by: .pi / 20).map { $0 }
+            let batch = circle.evalBatchD0(params: params)
+            var pts: [SIMD3<Float>] = batch.map { SIMD3<Float>(Float($0.x), Float($0.y), Float($0.z)) }
+            bodies.append(ViewportBody(id: "eval-circle", vertexData: [], indices: [],
+                edges: [pts], color: SIMD4(0.3, 0.8, 1, 1)))
+
+            // Draw tangent arrow at t=0
+            let t0 = d1.d1
+            bodies.append(ViewportBody(id: "eval-tangent", vertexData: [], indices: [],
+                edges: [[SIMD3<Float>(Float(d0.x), Float(d0.y), 0),
+                         SIMD3<Float>(Float(d0.x + t0.x * 0.5), Float(d0.y + t0.y * 0.5), 0)]],
+                color: SIMD4(1, 0.4, 0.1, 1)))
+        }
+
+        // --- Surface evalD1 ---
+        if let plane = Surface.plane(origin: SIMD3(0, 0, 0), normal: SIMD3(0, 0, 1)) {
+            let d1 = plane.evalD1(u: 0.5, v: 0.5)
+            descriptions.append("SurfD1: dU=(\(String(format: "%.1f", d1.d1u.x)),\(String(format: "%.1f", d1.d1u.y)),\(String(format: "%.1f", d1.d1u.z)))")
+        }
+
+        // --- BRepLProp: edge local properties ---
+        if let box = Shape.box(width: 10, height: 10, depth: 10) {
+            let edges = box.subShapes(ofType: .edge)
+            if let edge = edges.first {
+                let curv = edge.edgeCurvatureLP(at: 0.5)
+                if let tang = edge.edgeTangent(at: 0.5) {
+                    descriptions.append("EdgeLP: curv=\(String(format: "%.2f", curv)) tang=(\(String(format: "%.1f", tang.x)),\(String(format: "%.1f", tang.y)))")
+                }
+            }
+
+            // Face local properties
+            let faces = box.subShapes(ofType: .face)
+            if let face = faces.first {
+                let gauss = face.faceLPropGaussianCurvature(u: 0.5, v: 0.5)
+                let mean = face.faceLPropMeanCurvature(u: 0.5, v: 0.5)
+                let umbilic = face.faceLPropIsUmbilic(u: 0.5, v: 0.5)
+                descriptions.append("FaceLP: gauss=\(String(format: "%.2f", gauss)) mean=\(String(format: "%.2f", mean)) umb=\(umbilic)")
+            }
+        }
+
+        return Curve2DGallery.GalleryResult(
+            bodies: bodies,
+            description: descriptions.joined(separator: " | ")
+        )
+    }
+
+    // MARK: - v0.112-v0.113: Mesh Iterators, Projection, Distance, Fixers
+
+    /// Demonstrates RWMesh iterators, tolerance analysis, ProjectionOnCurve/Surface,
+    /// ShapeDistance, WireFixer/FaceFixer, MakeEdge completions, and IntCS.
+    static func meshAndProjectionDemo() -> Curve2DGallery.GalleryResult {
+        var bodies: [ViewportBody] = []
+        var descriptions: [String] = []
+
+        // --- MeshFaceIterator ---
+        if let sphere = Shape.sphere(radius: 5) {
+            let _ = sphere.mesh(linearDeflection: 0.5)
+            if let iter = MeshFaceIterator(shape: sphere) {
+                var totalTris = 0
+                while iter.hasMore {
+                    totalTris += iter.triangleCount
+                    iter.next()
+                }
+                descriptions.append("MeshFace: \(totalTris) tris")
+            }
+
+            if var b = CADFileLoader.shapeToBodyAndMetadata(
+                sphere, id: "mesh-sphere", color: SIMD4(0.4, 0.7, 0.9, 0.6)).0 {
+                bodies.append(b)
+            }
+        }
+
+        // --- Tolerance analysis ---
+        if let box = Shape.box(width: 10, height: 10, depth: 10) {
+            // type 6 = TopAbs_EDGE
+            let maxTol = box.maxTolerance(type: 6)
+            let minTol = box.minTolerance(type: 6)
+            descriptions.append("Tol edge: min=\(String(format: "%.0e", minTol)) max=\(String(format: "%.0e", maxTol))")
+
+            // Shape type queries
+            descriptions.append("isSolid=\(box.isSolid) isFace=\(box.isFace)")
+
+            // wireFromEdges
+            let edges = box.subShapes(ofType: .edge)
+            if edges.count >= 4 {
+                if let wire = Shape.wireFromEdges(Array(edges.prefix(4))) {
+                    descriptions.append("wireFromEdges: \(wire.edgeCount) edges")
+                }
+            }
+        }
+
+        // --- Curve3D type & parameterAtPoint ---
+        if let line = Curve3D.line(through: SIMD3(0, 0, 0), direction: SIMD3(1, 0, 0)) {
+            let ctype = line.curveType
+            let param = line.parameterAtPoint(SIMD3(5, 0, 0))
+            descriptions.append("CurveType: \(ctype) param@(5,0,0)=\(String(format: "%.1f", param))")
+        }
+
+        // --- ProjectionOnCurve ---
+        if let circle = Curve3D.circle(center: SIMD3(0, 0, 0), normal: SIMD3(0, 0, 1), radius: 5) {
+            if let proj = ProjectionOnCurve(curve: circle, point: SIMD3(8, 0, 0)) {
+                descriptions.append("ProjCurve: \(proj.count) pts dist=\(String(format: "%.2f", proj.lowerDistance))")
+                let closest = proj.point(at: 1)
+                bodies.append(makeMarker(at: SIMD3<Float>(Float(closest.x), Float(closest.y), Float(closest.z)),
+                    radius: 0.3, id: "proj-closest", color: SIMD4(0, 1, 0.5, 1)))
+                bodies.append(makeMarker(at: SIMD3<Float>(8, 0, 0), radius: 0.3,
+                    id: "proj-source", color: SIMD4(1, 0.3, 0.1, 1)))
+                bodies.append(ViewportBody(id: "proj-line", vertexData: [], indices: [],
+                    edges: [[SIMD3<Float>(8, 0, 0), SIMD3<Float>(Float(closest.x), Float(closest.y), 0)]],
+                    color: SIMD4(1, 0.8, 0, 0.8)))
+            }
+
+            // Draw circle
+            let domain = circle.domain
+            var pts: [SIMD3<Float>] = []
+            for i in 0...60 {
+                let t = domain.lowerBound + (domain.upperBound - domain.lowerBound) * Double(i) / 60.0
+                let p = circle.point(at: t)
+                pts.append(SIMD3<Float>(Float(p.x), Float(p.y), Float(p.z)))
+            }
+            bodies.append(ViewportBody(id: "proj-circle", vertexData: [], indices: [],
+                edges: [pts], color: SIMD4(0.3, 0.6, 1, 0.7)))
+        }
+
+        // --- ProjectionOnSurface ---
+        if let plane = Surface.plane(origin: SIMD3(0, 0, 0), normal: SIMD3(0, 0, 1)) {
+            if let proj = ProjectionOnSurface(surface: plane, point: SIMD3(3, 4, 10)) {
+                let uv = proj.lowerParameters
+                descriptions.append("ProjSurf: dist=\(String(format: "%.1f", proj.lowerDistance)) u=\(String(format: "%.1f", uv.u)) v=\(String(format: "%.1f", uv.v))")
+            }
+        }
+
+        // --- ShapeDistance: box to sphere ---
+        if let box = Shape.box(width: 6, height: 6, depth: 6),
+           let sphere = Shape.sphere(radius: 3)?.translated(by: SIMD3(10, 0, 0)) {
+            if let dist = ShapeDistance(shape1: box, shape2: sphere) {
+                descriptions.append("ShapeDist: \(String(format: "%.2f", dist.value)) sols=\(dist.solutionCount)")
+                if dist.solutionCount > 0 {
+                    let p1 = dist.pointOnShape1(at: 1)
+                    let p2 = dist.pointOnShape2(at: 1)
+                    bodies.append(ViewportBody(id: "dist-line", vertexData: [], indices: [],
+                        edges: [[SIMD3<Float>(Float(p1.x), Float(p1.y), Float(p1.z)),
+                                 SIMD3<Float>(Float(p2.x), Float(p2.y), Float(p2.z))]],
+                        color: SIMD4(1, 0.5, 0, 1)))
+                    bodies.append(makeMarker(at: SIMD3<Float>(Float(p1.x), Float(p1.y), Float(p1.z)),
+                        radius: 0.25, id: "dist-p1", color: SIMD4(1, 0, 0, 1)))
+                    bodies.append(makeMarker(at: SIMD3<Float>(Float(p2.x), Float(p2.y), Float(p2.z)),
+                        radius: 0.25, id: "dist-p2", color: SIMD4(0, 0, 1, 1)))
+                }
+                if var b1 = CADFileLoader.shapeToBodyAndMetadata(
+                    box, id: "dist-box", color: SIMD4(0.5, 0.7, 0.9, 0.5)).0 {
+                    offsetBody(&b1, dx: 0, dy: 15, dz: 0)
+                    bodies.append(b1)
+                }
+                if var b2 = CADFileLoader.shapeToBodyAndMetadata(
+                    sphere, id: "dist-sph", color: SIMD4(0.9, 0.5, 0.4, 0.5)).0 {
+                    offsetBody(&b2, dx: 0, dy: 15, dz: 0)
+                    bodies.append(b2)
+                }
+            }
+        }
+
+        // --- MakeEdge: ellipse edge ---
+        if let ellipseEdge = Shape.edgeFromEllipse(center: SIMD3(0, -10, 0), normal: SIMD3(0, 0, 1),
+                                                     majorRadius: 6, minorRadius: 3) {
+            if var b = CADFileLoader.shapeToBodyAndMetadata(
+                ellipseEdge, id: "edge-ellipse", color: SIMD4(0.8, 0.4, 0.9, 1)).0 {
+                bodies.append(b)
+            }
+            descriptions.append("EllipseEdge: valid=\(ellipseEdge.isValid)")
+        }
+
+        // --- WireFixer ---
+        if let box = Shape.box(width: 10, height: 10, depth: 10) {
+            let faces = box.subShapes(ofType: .face)
+            if let face = faces.first {
+                let wires = face.subShapes(ofType: .wire)
+                if let wire = wires.first {
+                    if let fixer = WireFixer(wire: wire, face: face) {
+                        fixer.fixReorder()
+                        fixer.fixConnected()
+                        let fixedWire = fixer.wire
+                        descriptions.append("WireFixer: \(fixedWire != nil ? "OK" : "nil")")
+                    }
+                }
+            }
+        }
+
+        // --- FaceFixer ---
+        if let box = Shape.box(width: 10, height: 10, depth: 10) {
+            let faces = box.subShapes(ofType: .face)
+            if let face = faces.first {
+                if let fixer = FaceFixer(face: face) {
+                    fixer.perform()
+                    descriptions.append("FaceFixer: \(fixer.face != nil ? "OK" : "nil")")
+                }
+            }
+        }
+
+        // --- IntCS: curve-surface intersection ---
+        if let line = Curve3D.line(through: SIMD3(0, 0, -5), direction: SIMD3(0, 0, 1)),
+           let plane = Surface.plane(origin: SIMD3(0, 0, 0), normal: SIMD3(0, 0, 1)) {
+            if let intcs = IntCSResult(curve: line, surface: plane) {
+                descriptions.append("IntCS: \(intcs.pointCount) pts \(intcs.segmentCount) segs")
+                if intcs.pointCount > 0 {
+                    let hit = intcs.point(at: 1)
+                    bodies.append(makeMarker(
+                        at: SIMD3<Float>(Float(hit.point.x), Float(hit.point.y), Float(hit.point.z)),
+                        radius: 0.3, id: "intcs-hit", color: SIMD4(1, 1, 0, 1)))
+                }
+            }
+        }
+
+        return Curve2DGallery.GalleryResult(
+            bodies: bodies,
+            description: descriptions.joined(separator: " | ")
+        )
+    }
 }
