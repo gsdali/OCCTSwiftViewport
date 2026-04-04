@@ -228,7 +228,7 @@ public final class ViewportRenderer: NSObject, MTKViewDelegate, Sendable {
         shadedDesc.colorAttachments[1].pixelFormat = .invalid
         shadedDesc.depthAttachmentPixelFormat = depthFormat
         shadedDesc.stencilAttachmentPixelFormat = depthFormat
-        shadedDesc.sampleCount = sampleCount
+        shadedDesc.rasterSampleCount = sampleCount
         shadedDesc.vertexDescriptor = vertexDesc
 
         guard let shadedPipeline = try? device.makeRenderPipelineState(descriptor: shadedDesc) else {
@@ -249,7 +249,7 @@ public final class ViewportRenderer: NSObject, MTKViewDelegate, Sendable {
         wireDesc.colorAttachments[0].destinationAlphaBlendFactor = .oneMinusSourceAlpha
         wireDesc.depthAttachmentPixelFormat = depthFormat
         wireDesc.stencilAttachmentPixelFormat = depthFormat
-        wireDesc.sampleCount = sampleCount
+        wireDesc.rasterSampleCount = sampleCount
         wireDesc.vertexDescriptor = vertexDesc
 
         guard let wireframePipeline = try? device.makeRenderPipelineState(descriptor: wireDesc) else {
@@ -265,7 +265,7 @@ public final class ViewportRenderer: NSObject, MTKViewDelegate, Sendable {
         gridDesc.colorAttachments[1].pixelFormat = .invalid
         gridDesc.depthAttachmentPixelFormat = depthFormat
         gridDesc.stencilAttachmentPixelFormat = depthFormat
-        gridDesc.sampleCount = sampleCount
+        gridDesc.rasterSampleCount = sampleCount
 
         guard let gridPipeline = try? device.makeRenderPipelineState(descriptor: gridDesc) else {
             return nil
@@ -280,7 +280,7 @@ public final class ViewportRenderer: NSObject, MTKViewDelegate, Sendable {
         axisDesc.colorAttachments[1].pixelFormat = .invalid
         axisDesc.depthAttachmentPixelFormat = depthFormat
         axisDesc.stencilAttachmentPixelFormat = depthFormat
-        axisDesc.sampleCount = sampleCount
+        axisDesc.rasterSampleCount = sampleCount
 
         let axisVertexDesc = MTLVertexDescriptor()
         axisVertexDesc.attributes[0].format = .float3
@@ -306,7 +306,7 @@ public final class ViewportRenderer: NSObject, MTKViewDelegate, Sendable {
         pickShadedDesc.fragmentFunction = library.makeFunction(name: "pick_fragment")
         pickShadedDesc.colorAttachments[0].pixelFormat = .r32Uint
         pickShadedDesc.depthAttachmentPixelFormat = .depth32Float
-        pickShadedDesc.sampleCount = 1
+        pickShadedDesc.rasterSampleCount = 1
         pickShadedDesc.vertexDescriptor = vertexDesc
 
         guard let pickShadedPipeline = try? device.makeRenderPipelineState(descriptor: pickShadedDesc) else {
@@ -320,7 +320,7 @@ public final class ViewportRenderer: NSObject, MTKViewDelegate, Sendable {
         depthOnlyDesc.vertexFunction = library.makeFunction(name: "depth_only_vertex")
         depthOnlyDesc.fragmentFunction = library.makeFunction(name: "depth_only_fragment")
         depthOnlyDesc.depthAttachmentPixelFormat = .depth32Float
-        depthOnlyDesc.sampleCount = 1
+        depthOnlyDesc.rasterSampleCount = 1
         depthOnlyDesc.vertexDescriptor = vertexDesc
 
         guard let depthOnlyPipeline = try? device.makeRenderPipelineState(descriptor: depthOnlyDesc) else {
@@ -334,7 +334,7 @@ public final class ViewportRenderer: NSObject, MTKViewDelegate, Sendable {
         shadowDesc.vertexFunction = library.makeFunction(name: "shadow_vertex")
         shadowDesc.fragmentFunction = library.makeFunction(name: "depth_only_fragment")
         shadowDesc.depthAttachmentPixelFormat = .depth32Float
-        shadowDesc.sampleCount = 1
+        shadowDesc.rasterSampleCount = 1
         shadowDesc.vertexDescriptor = vertexDesc
 
         guard let shadowPipeline = try? device.makeRenderPipelineState(descriptor: shadowDesc) else {
@@ -354,7 +354,7 @@ public final class ViewportRenderer: NSObject, MTKViewDelegate, Sendable {
         outlineDesc.colorAttachments[0].destinationRGBBlendFactor = .oneMinusSourceAlpha
         outlineDesc.depthAttachmentPixelFormat = depthFormat
         outlineDesc.stencilAttachmentPixelFormat = depthFormat
-        outlineDesc.sampleCount = sampleCount
+        outlineDesc.rasterSampleCount = sampleCount
         outlineDesc.vertexDescriptor = vertexDesc
 
         guard let outlinePipeline = try? device.makeRenderPipelineState(descriptor: outlineDesc) else {

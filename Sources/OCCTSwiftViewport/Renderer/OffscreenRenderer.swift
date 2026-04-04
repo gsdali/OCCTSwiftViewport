@@ -126,7 +126,7 @@ public final class OffscreenRenderer: Sendable {
         shadedDesc.colorAttachments[1].pixelFormat = .invalid
         shadedDesc.depthAttachmentPixelFormat = depthFormat
         shadedDesc.stencilAttachmentPixelFormat = depthFormat
-        shadedDesc.sampleCount = sampleCount
+        shadedDesc.rasterSampleCount = sampleCount
         shadedDesc.vertexDescriptor = vertexDesc
 
         guard let shadedPipeline = try? device.makeRenderPipelineState(descriptor: shadedDesc) else { return nil }
@@ -145,7 +145,7 @@ public final class OffscreenRenderer: Sendable {
         wireDesc.colorAttachments[0].destinationAlphaBlendFactor = .oneMinusSourceAlpha
         wireDesc.depthAttachmentPixelFormat = depthFormat
         wireDesc.stencilAttachmentPixelFormat = depthFormat
-        wireDesc.sampleCount = sampleCount
+        wireDesc.rasterSampleCount = sampleCount
         wireDesc.vertexDescriptor = vertexDesc
 
         guard let wireframePipeline = try? device.makeRenderPipelineState(descriptor: wireDesc) else { return nil }
@@ -159,7 +159,7 @@ public final class OffscreenRenderer: Sendable {
         gridDesc.colorAttachments[1].pixelFormat = .invalid
         gridDesc.depthAttachmentPixelFormat = depthFormat
         gridDesc.stencilAttachmentPixelFormat = depthFormat
-        gridDesc.sampleCount = sampleCount
+        gridDesc.rasterSampleCount = sampleCount
 
         guard let gridPipeline = try? device.makeRenderPipelineState(descriptor: gridDesc) else { return nil }
         self.gridPipeline = gridPipeline
@@ -172,7 +172,7 @@ public final class OffscreenRenderer: Sendable {
         axisDesc.colorAttachments[1].pixelFormat = .invalid
         axisDesc.depthAttachmentPixelFormat = depthFormat
         axisDesc.stencilAttachmentPixelFormat = depthFormat
-        axisDesc.sampleCount = sampleCount
+        axisDesc.rasterSampleCount = sampleCount
 
         let axisVertexDesc = MTLVertexDescriptor()
         axisVertexDesc.attributes[0].format = .float3
@@ -193,7 +193,7 @@ public final class OffscreenRenderer: Sendable {
         shadowDesc.vertexFunction = library.makeFunction(name: "shadow_vertex")
         shadowDesc.fragmentFunction = library.makeFunction(name: "depth_only_fragment")
         shadowDesc.depthAttachmentPixelFormat = .depth32Float
-        shadowDesc.sampleCount = 1
+        shadowDesc.rasterSampleCount = 1
         shadowDesc.vertexDescriptor = vertexDesc
 
         guard let shadowPipeline = try? device.makeRenderPipelineState(descriptor: shadowDesc) else { return nil }

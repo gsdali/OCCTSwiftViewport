@@ -973,9 +973,6 @@ kernel void prefilter_environment(
         case 5: N = normalize(float3(-uv.x, -uv.y, -1.0)); break;
         default: N = float3(0); break;
     }
-    float3 R = N;
-    float3 V = R;
-
     constexpr sampler s(filter::linear, mip_filter::linear, address::repeat);
     float totalWeight = 0.0;
     float3 prefilteredColor = float3(0.0);
@@ -1078,7 +1075,6 @@ kernel void brdf_integration(
 
     float A = 0.0;
     float B = 0.0;
-    float3 N = float3(0.0, 0.0, 1.0);
     const uint SAMPLE_COUNT = 256u;
 
     for (uint i = 0u; i < SAMPLE_COUNT; i++) {
