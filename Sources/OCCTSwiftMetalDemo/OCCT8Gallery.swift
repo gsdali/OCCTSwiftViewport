@@ -11014,4 +11014,258 @@ enum OCCT8Gallery {
             description: descriptions.joined(separator: " | ")
         )
     }
+
+    // MARK: - v0.114: Builder, FreeBounds, WireBuilder, Boolean Tolerance, Offset, Mass Props
+
+    /// Demonstrates TopoDS_Builder, ShapeContentsExtended, FreeBoundsProperties,
+    /// WireBuilder, boolean tolerance/glue, offset wire/face, mass properties, DN derivatives.
+    static func builderAndMassProperties() -> Curve2DGallery.GalleryResult {
+        var bodies: [ViewportBody] = []
+        var descriptions: [String] = []
+
+        // --- TopoDS_Builder: build compound ---
+        if let compound = Shape.builderMakeCompound() {
+            if let box = Shape.box(width: 5, height: 5, depth: 5),
+               let sph = Shape.sphere(radius: 3)?.translated(by: SIMD3(8, 0, 0)) {
+                let _ = compound.builderAdd(box)
+                let _ = compound.builderAdd(sph)
+                if var b = CADFileLoader.shapeToBodyAndMetadata(
+                    compound, id: "builder-compound", color: SIMD4(0.5, 0.7, 0.9, 0.7)).0 {
+                    bodies.append(b)
+                }
+                descriptions.append("Compound: isCompound=\(compound.isCompound)")
+            }
+        }
+
+        // --- ShapeContentsExtended ---
+        if let box = Shape.box(width: 10, height: 10, depth: 10) {
+            let ext = box.contentsExtended()
+            descriptions.append("Contents: \(ext.nbFaces)f \(ext.nbEdges)e \(ext.nbVertices)v free=\(ext.nbFreeEdges)")
+        }
+
+        // --- FreeBoundsProperties ---
+        if let box = Shape.box(width: 10, height: 10, depth: 10) {
+            if let fbp = FreeBoundsProperties(shape: box, tolerance: 1e-6) {
+                fbp.perform()
+                descriptions.append("FreeBounds: closed=\(fbp.closedCount) open=\(fbp.openCount)")
+            }
+        }
+
+        // --- WireBuilder ---
+        if let box = Shape.box(width: 10, height: 10, depth: 10) {
+            let edges = box.subShapes(ofType: .edge)
+            let wb = WireBuilder()
+            for edge in edges.prefix(4) { wb.addEdge(edge) }
+            if let wire = wb.wire {
+                descriptions.append("WireBuilder: \(wire.edgeCount) edges done=\(wb.isDone)")
+            }
+        }
+
+        // --- Boolean with tolerance ---
+        if let box = Shape.box(width: 10, height: 10, depth: 10),
+           let cyl = Shape.cylinder(radius: 3, height: 12)?.translated(by: SIMD3(5, 5, -1)) {
+            if let result = box.subtracted(cyl, tolerance: 1e-4) {
+                if var b = CADFileLoader.shapeToBodyAndMetadata(
+                    result, id: "bool-tol", color: SIMD4(0.4, 0.8, 0.5, 0.8)).0 {
+                    offsetBody(&b, dx: 18, dy: 0, dz: 0)
+                    bodies.append(b)
+                }
+                descriptions.append("BoolTol: \(result.faceCount) faces")
+            }
+        }
+
+        // --- Offset face ---
+        if let box = Shape.box(width: 10, height: 10, depth: 10) {
+            let faces = box.subShapes(ofType: .face)
+            if let face = faces.first {
+                if let offset = face.offsetFace(distance: 2.0) {
+                    if var b = CADFileLoader.shapeToBodyAndMetadata(
+                        offset, id: "offset-face", color: SIMD4(0.9, 0.6, 0.3, 0.7)).0 {
+                        offsetBody(&b, dx: 32, dy: 0, dz: 0)
+                        bodies.append(b)
+                    }
+                    descriptions.append("OffsetFace: valid=\(offset.isValid)")
+                }
+            }
+        }
+
+        // --- Mass properties ---
+        if let box = Shape.box(width: 10, height: 10, depth: 10) {
+            let lp = box.linearProperties()
+            let inertia = box.momentOfInertia()
+            let axes = box.principalAxes()
+            descriptions.append("LinProp: len=\(String(format: "%.1f", lp.length)) com=(\(String(format: "%.0f", lp.centerOfMass.x)),\(String(format: "%.0f", lp.centerOfMass.y)))")
+            descriptions.append("Inertia: Ixx=\(String(format: "%.0f", inertia.ixx))")
+        }
+
+        // --- Unique subshape counts ---
+        if let box = Shape.box(width: 10, height: 10, depth: 10) {
+            descriptions.append("Unique: e=\(box.uniqueEdgeCount) f=\(box.uniqueFaceCount) v=\(box.uniqueVertexCount)")
+        }
+
+        // --- Curve DN derivative ---
+        if let circle = Curve3D.circle(center: .zero, normal: SIMD3(0, 0, 1), radius: 5) {
+            let d1 = circle.dn(at: 0, order: 1)
+            let d2 = circle.dn(at: 0, order: 2)
+            descriptions.append("DN: d1=(\(String(format: "%.1f", d1.x)),\(String(format: "%.1f", d1.y))) d2=(\(String(format: "%.1f", d2.x)),\(String(format: "%.1f", d2.y)))")
+        }
+
+        // --- Type names ---
+        if let line = Curve3D.line(through: .zero, direction: SIMD3(1, 0, 0)) {
+            descriptions.append("TypeName: \(line.typeName ?? "?")")
+        }
+
+        return Curve2DGallery.GalleryResult(
+            bodies: bodies,
+            description: descriptions.joined(separator: " | ")
+        )
+    }
+
+    // MARK: - v0.115: Interpolation, ThruSections, Triangulation, BRepAdaptor, Shape Queries
+
+    /// Demonstrates expanded interpolation (tangent-constrained, periodic, approximate),
+    /// ThruSectionsBuilder lofting, triangulation queries, BRepAdaptor, and shape queries.
+    static func interpolationAndLofting() -> Curve2DGallery.GalleryResult {
+        var bodies: [ViewportBody] = []
+        var descriptions: [String] = []
+
+        // --- Interpolate with tangents ---
+        if let curve = Curve3D.interpolate(
+            points: [SIMD3(0, 0, 0), SIMD3(5, 4, 0), SIMD3(10, 0, 0)],
+            startTangent: SIMD3(0, 5, 0), endTangent: SIMD3(0, -5, 0)
+        ) {
+            let domain = curve.domain
+            var pts: [SIMD3<Float>] = []
+            for i in 0...40 {
+                let t = domain.lowerBound + (domain.upperBound - domain.lowerBound) * Double(i) / 40.0
+                let p = curve.point(at: t)
+                pts.append(SIMD3<Float>(Float(p.x), Float(p.y), Float(p.z)))
+            }
+            bodies.append(ViewportBody(id: "interp-tang", vertexData: [], indices: [],
+                edges: [pts], color: SIMD4(0.3, 0.9, 0.4, 1)))
+            descriptions.append("InterpTang: OK")
+        }
+
+        // --- Periodic interpolation ---
+        if let periodic = Curve3D.interpolatePeriodic(points: [
+            SIMD3(0, -8, 0), SIMD3(3, -5, 0), SIMD3(6, -8, 0),
+            SIMD3(9, -11, 0), SIMD3(12, -8, 0)
+        ]) {
+            let domain = periodic.domain
+            var pts: [SIMD3<Float>] = []
+            for i in 0...60 {
+                let t = domain.lowerBound + (domain.upperBound - domain.lowerBound) * Double(i) / 60.0
+                let p = periodic.point(at: t)
+                pts.append(SIMD3<Float>(Float(p.x), Float(p.y), Float(p.z)))
+            }
+            bodies.append(ViewportBody(id: "interp-periodic", vertexData: [], indices: [],
+                edges: [pts], color: SIMD4(0.9, 0.5, 0.8, 1)))
+            descriptions.append("Periodic: closed")
+        }
+
+        // --- Approximate ---
+        if let approx = Curve3D.approximate(points: [
+            SIMD3(0, -15, 0), SIMD3(2, -13, 0), SIMD3(4, -14, 0),
+            SIMD3(6, -12, 0), SIMD3(8, -14, 0), SIMD3(10, -15, 0)
+        ], tolerance: 0.5) {
+            let domain = approx.domain
+            var pts: [SIMD3<Float>] = []
+            for i in 0...40 {
+                let t = domain.lowerBound + (domain.upperBound - domain.lowerBound) * Double(i) / 40.0
+                let p = approx.point(at: t)
+                pts.append(SIMD3<Float>(Float(p.x), Float(p.y), Float(p.z)))
+            }
+            bodies.append(ViewportBody(id: "approx-curve", vertexData: [], indices: [],
+                edges: [pts], color: SIMD4(1, 0.7, 0.2, 1)))
+            descriptions.append("Approx: tol=0.5")
+        }
+
+        // --- Arc length ---
+        if let circle = Curve3D.circle(center: .zero, normal: SIMD3(0, 0, 1), radius: 5) {
+            let halfArc = circle.arcLength(from: 0, to: .pi)
+            descriptions.append("ArcLen(π): \(String(format: "%.2f", halfArc))")
+        }
+
+        // --- ThruSectionsBuilder (loft) ---
+        if let w1 = Wire.circle(origin: SIMD3(0, 0, 0), normal: SIMD3(0, 0, 1), radius: 5),
+           let w2 = Wire.circle(origin: SIMD3(0, 0, 5), normal: SIMD3(0, 0, 1), radius: 3),
+           let w3 = Wire.circle(origin: SIMD3(0, 0, 10), normal: SIMD3(0, 0, 1), radius: 4),
+           let s1 = Shape.fromWire(w1), let s2 = Shape.fromWire(w2), let s3 = Shape.fromWire(w3) {
+            let loft = ThruSectionsBuilder(isSolid: true, isRuled: false)
+            loft.addWire(s1)
+            loft.addWire(s2)
+            loft.addWire(s3)
+            if loft.build(), let shape = loft.shape {
+                if var b = CADFileLoader.shapeToBodyAndMetadata(
+                    shape, id: "loft", color: SIMD4(0.4, 0.7, 0.95, 0.8)).0 {
+                    offsetBody(&b, dx: 18, dy: 0, dz: 0)
+                    bodies.append(b)
+                }
+                descriptions.append("Loft: \(shape.faceCount) faces")
+            }
+        }
+
+        // --- Triangulation queries ---
+        if let sphere = Shape.sphere(radius: 5) {
+            let _ = sphere.mesh(linearDeflection: 0.5)
+            let nNodes = sphere.triangulationNodeCount
+            let nTris = sphere.triangulationTriangleCount
+            let defl = sphere.triangulationDeflection
+            let hasNormals = sphere.triangulationHasNormals
+            descriptions.append("Tri: \(nNodes) nodes \(nTris) tris defl=\(String(format: "%.1f", defl)) normals=\(hasNormals)")
+        }
+
+        // --- BRepAdaptor ---
+        if let box = Shape.box(width: 10, height: 10, depth: 10) {
+            let edges = box.subShapes(ofType: .edge)
+            if let edge = edges.first {
+                let domain = edge.edgeAdaptorDomain
+                let mid = (domain.lowerBound + domain.upperBound) / 2
+                let pt = edge.edgeAdaptorValue(at: mid)
+                descriptions.append("Adaptor: (\(String(format: "%.1f", pt.x)),\(String(format: "%.1f", pt.y)),\(String(format: "%.1f", pt.z)))")
+            }
+
+            let faces = box.subShapes(ofType: .face)
+            if let face = faces.first {
+                let bounds = face.faceAdaptorBounds
+                descriptions.append("FaceAdapt: u=[\(String(format: "%.1f", bounds.uMin)),\(String(format: "%.1f", bounds.uMax))]")
+            }
+        }
+
+        // --- Shape queries ---
+        if let box = Shape.box(width: 10, height: 10, depth: 10) {
+            let diag = box.boundingDiagonal
+            let centroid = box.centroid
+            let totalLen = box.totalEdgeLength
+            let obbVol = box.obbVolume
+            descriptions.append("Diag=\(String(format: "%.1f", diag)) totalEdge=\(String(format: "%.0f", totalLen))")
+            descriptions.append("Centroid=(\(String(format: "%.0f", centroid.x)),\(String(format: "%.0f", centroid.y)),\(String(format: "%.0f", centroid.z)))")
+            descriptions.append("OBB vol=\(String(format: "%.0f", obbVol))")
+        }
+
+        // --- Edge arc length ---
+        if let box = Shape.box(width: 10, height: 10, depth: 10) {
+            let edges = box.subShapes(ofType: .edge)
+            if let edge = edges.first {
+                let arcLen = edge.edgeArcLength
+                let midParam = edge.edgeParameterAtFraction(0.5)
+                descriptions.append("EdgeArc: len=\(String(format: "%.1f", arcLen)) mid=\(String(format: "%.1f", midParam))")
+            }
+        }
+
+        // --- ShapeFixer ---
+        if let box = Shape.box(width: 10, height: 10, depth: 10) {
+            let fixer = ShapeFixer(shape: box)
+            fixer.setPrecision(1e-6)
+            fixer.perform()
+            if let fixed = fixer.shape {
+                descriptions.append("ShapeFixer: \(fixed.faceCount) faces")
+            }
+        }
+
+        return Curve2DGallery.GalleryResult(
+            bodies: bodies,
+            description: descriptions.joined(separator: " | ")
+        )
+    }
 }

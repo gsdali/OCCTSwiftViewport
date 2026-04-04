@@ -771,6 +771,8 @@ struct SpikeView: View {
         case extremaAndConicDemo
         case mathSolversAndEvaluation
         case meshAndProjectionDemo
+        case builderAndMassProperties
+        case interpolationAndLofting
     }
 
     // MARK: - OCCT 8 Sub-groups
@@ -898,6 +900,8 @@ struct SpikeView: View {
         Button("Extrema & Conic 2D") { loadOCCT8Demo(.extremaAndConicDemo) }
         Button("Math Solvers & Eval") { loadOCCT8Demo(.mathSolversAndEvaluation) }
         Button("Mesh & Projection") { loadOCCT8Demo(.meshAndProjectionDemo) }
+        Button("Builder & Mass Props") { loadOCCT8Demo(.builderAndMassProperties) }
+        Button("Interpolation & Lofting") { loadOCCT8Demo(.interpolationAndLofting) }
     }
 
     private func loadOCCT8Demo(_ demo: OCCT8Demo) {
@@ -1110,6 +1114,10 @@ struct SpikeView: View {
             result = OCCT8Gallery.mathSolversAndEvaluation()
         case .meshAndProjectionDemo:
             result = OCCT8Gallery.meshAndProjectionDemo()
+        case .builderAndMassProperties:
+            result = OCCT8Gallery.builderAndMassProperties()
+        case .interpolationAndLofting:
+            result = OCCT8Gallery.interpolationAndLofting()
         }
 
         bodies = result.bodies
