@@ -11268,4 +11268,100 @@ enum OCCT8Gallery {
             description: descriptions.joined(separator: " | ")
         )
     }
+
+    // MARK: - v0.116: Helix, CoordinateSystem3D, GTrsf2d, Quaternion Interpolation, Math Expansion
+
+    /// Demonstrates Helix construction (regular + tapered + BSpline approximation),
+    /// CoordinateSystem3D transforms, GeneralTransform2D, Matrix2D, Vector math,
+    /// quaternion SLERP, and expanded math solvers.
+    static func helixAndQuaternionDemo() -> Curve2DGallery.GalleryResult {
+        var bodies: [ViewportBody] = []
+        var descriptions: [String] = []
+
+        // --- Helix: regular coil ---
+        if let result = Helix.buildCoil(parameterRange: 0...6 * .pi, pitch: 3, radius: 5) {
+            let curve = result.curve
+            let domain = curve.domain
+            var pts: [SIMD3<Float>] = []
+            for i in 0...120 {
+                let t = domain.lowerBound + (domain.upperBound - domain.lowerBound) * Double(i) / 120.0
+                let p = curve.point(at: t)
+                pts.append(SIMD3<Float>(Float(p.x), Float(p.y), Float(p.z)))
+            }
+            bodies.append(ViewportBody(id: "helix-coil", vertexData: [], indices: [],
+                edges: [pts], color: SIMD4(0.3, 0.8, 1, 1)))
+            descriptions.append("Helix: tol=\(String(format: "%.4f", result.toleranceReached))")
+        }
+
+        // --- Helix: tapered coil ---
+        if let result = Helix.buildCoil(parameterRange: 0...4 * .pi, pitch: 4, radius: 6,
+                                         taperAngle: 0.1) {
+            let curve = result.curve
+            let domain = curve.domain
+            var pts: [SIMD3<Float>] = []
+            for i in 0...80 {
+                let t = domain.lowerBound + (domain.upperBound - domain.lowerBound) * Double(i) / 80.0
+                let p = curve.point(at: t)
+                pts.append(SIMD3<Float>(Float(p.x) + 15, Float(p.y), Float(p.z)))
+            }
+            bodies.append(ViewportBody(id: "helix-taper", vertexData: [], indices: [],
+                edges: [pts], color: SIMD4(0.9, 0.5, 0.3, 1)))
+            descriptions.append("Tapered: angle=0.1")
+        }
+
+        // --- Helix: evaluate point + tangent ---
+        let pt = Helix.evaluate(parameterRange: 0...2 * .pi, pitch: 3, radius: 5, at: .pi)
+        let d1 = Helix.evaluateD1(parameterRange: 0...2 * .pi, pitch: 3, radius: 5, at: .pi)
+        bodies.append(makeMarker(at: SIMD3<Float>(Float(pt.x), Float(pt.y), Float(pt.z)),
+            radius: 0.3, id: "helix-pt", color: SIMD4(1, 0.3, 0.1, 1)))
+        descriptions.append("HelixEval: pt=(\(String(format: "%.1f", pt.x)),\(String(format: "%.1f", pt.y)),\(String(format: "%.1f", pt.z)))")
+
+        // --- Helix: BSpline approximation ---
+        if let approx = Helix.approximateToBSpline(parameterRange: 0...4 * .pi, pitch: 3, radius: 5) {
+            descriptions.append("HelixBSp: maxErr=\(String(format: "%.4f", approx.maxError))")
+        }
+
+        // --- CoordinateSystem3D ---
+        let cs = CoordinateSystem3D(origin: SIMD3(0, 0, 0), direction: SIMD3(0, 0, 1), xDirection: SIMD3(1, 0, 0))
+        descriptions.append("CS3D: direct=\(cs.isDirect) yDir=(\(String(format: "%.0f", cs.yDirection.x)),\(String(format: "%.0f", cs.yDirection.y)),\(String(format: "%.0f", cs.yDirection.z)))")
+
+        let rotated = cs.rotated(about: .zero, axisDirection: SIMD3(0, 0, 1), angle: .pi / 4)
+        descriptions.append("CSRot45: xDir=(\(String(format: "%.2f", rotated.xDirection.x)),\(String(format: "%.2f", rotated.xDirection.y)))")
+
+        // --- GeneralTransform2D: affinity ---
+        let affine = GeneralTransform2D.affinity(axisOrigin: SIMD2(0, 0), axisDirection: SIMD2(1, 0), ratio: 2.0)
+        let transformed = affine.transformPoint(SIMD2(3, 4))
+        descriptions.append("GTrsf2d: (3,4)→(\(String(format: "%.1f", transformed.x)),\(String(format: "%.1f", transformed.y)))")
+
+        // --- Matrix2D ---
+        let rotMat = Matrix2D.rotation(angle: .pi / 2)
+        let det = Matrix2D.determinant(rotMat)
+        descriptions.append("Mat2D rot90: det=\(String(format: "%.1f", det))")
+
+        // --- Vector math ---
+        let cross2d = Vector2DMath.cross(SIMD2(1, 0), SIMD2(0, 1))
+        let cross3d = Vector3DMath.cross(SIMD3(1, 0, 0), SIMD3(0, 1, 0))
+        descriptions.append("Cross2D: \(String(format: "%.0f", cross2d)) Cross3D: (\(String(format: "%.0f", cross3d.x)),\(String(format: "%.0f", cross3d.y)),\(String(format: "%.0f", cross3d.z)))")
+
+        // --- Quaternion SLERP ---
+        let q1 = SIMD4<Double>(0, 0, 0, 1) // identity
+        let q2 = SIMD4<Double>(0, 0, 0.7071, 0.7071) // 90° around Z
+        let qMid = MathSolver.quaternionSlerp(from: q1, to: q2, t: 0.5)
+        descriptions.append("SLERP t=0.5: (\(String(format: "%.2f", qMid.x)),\(String(format: "%.2f", qMid.y)),\(String(format: "%.2f", qMid.z)),\(String(format: "%.2f", qMid.w)))")
+
+        // --- Eigenvalues ---
+        if let eigs = MathSolver.eigenvalues(diagonal: [2, 3, 5], subdiagonal: [0, 0]) {
+            descriptions.append("Eig: \(eigs.map { String(format: "%.1f", $0) }.joined(separator: ","))")
+        }
+
+        // --- Kronrod integration ---
+        if let result = MathSolver.kronrodIntegrate(over: 0...(.pi)) { x in sin(x) } {
+            descriptions.append("Kronrod ∫sin: \(String(format: "%.4f", result.value)) err=\(String(format: "%.1e", result.error))")
+        }
+
+        return Curve2DGallery.GalleryResult(
+            bodies: bodies,
+            description: descriptions.joined(separator: " | ")
+        )
+    }
 }

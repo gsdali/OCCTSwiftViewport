@@ -773,6 +773,7 @@ struct SpikeView: View {
         case meshAndProjectionDemo
         case builderAndMassProperties
         case interpolationAndLofting
+        case helixAndQuaternionDemo
     }
 
     // MARK: - OCCT 8 Sub-groups
@@ -902,6 +903,7 @@ struct SpikeView: View {
         Button("Mesh & Projection") { loadOCCT8Demo(.meshAndProjectionDemo) }
         Button("Builder & Mass Props") { loadOCCT8Demo(.builderAndMassProperties) }
         Button("Interpolation & Lofting") { loadOCCT8Demo(.interpolationAndLofting) }
+        Button("Helix & Quaternion") { loadOCCT8Demo(.helixAndQuaternionDemo) }
     }
 
     private func loadOCCT8Demo(_ demo: OCCT8Demo) {
@@ -1118,6 +1120,8 @@ struct SpikeView: View {
             result = OCCT8Gallery.builderAndMassProperties()
         case .interpolationAndLofting:
             result = OCCT8Gallery.interpolationAndLofting()
+        case .helixAndQuaternionDemo:
+            result = OCCT8Gallery.helixAndQuaternionDemo()
         }
 
         bodies = result.bodies
