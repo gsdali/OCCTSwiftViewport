@@ -105,6 +105,23 @@ struct SpikeView: View {
             }
             // Build procedural metadata for primitive face selection
             buildProceduralMetadata()
+
+            // Auto-test mode: cycle through all demos
+            if DemoTestRunner.isTestMode {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                    DemoTestRunner.runAll { demoBodies, status in
+                        bodies = demoBodies
+                        for b in bodies { originalColors[b.id] = b.color }
+                        operationStatus = status
+                        focusOnBounds()
+                    } completion: { passed, failed in
+                        operationStatus = "Test complete: \(passed) passed, \(failed) failed"
+                        if failed > 0 {
+                            exit(1)
+                        }
+                    }
+                }
+            }
         }
         .onChange(of: controller.pickResult) {
             handleSelectionChange()
