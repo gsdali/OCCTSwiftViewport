@@ -6684,45 +6684,54 @@ enum OCCT8Gallery {
         var bodies: [ViewportBody] = []
         var descriptions: [String] = []
 
-        // --- 2D Fillet on a box face ---
+        // --- 2D Fillet on a planar face (not solid) ---
         if let box = Shape.box(width: 5, height: 5, depth: 3) {
-            // Add fillet to first vertex
-            if let filleted = box.addFillet2d(vertexIndex: 0, radius: 1.0) {
-                if let fb = CADFileLoader.shapeToBodyAndMetadata(
-                    filleted, id: "fillet2d", color: SIMD4(0.3, 0.8, 0.5, 1)).0 {
-                    bodies.append(fb)
+            let faces = box.subShapes(ofType: .face)
+            if let face = faces.first {
+                // Fillet on a planar face vertex
+                if let filleted = face.addFillet2d(vertexIndex: 0, radius: 1.0) {
+                    if let fb = CADFileLoader.shapeToBodyAndMetadata(
+                        filleted, id: "fillet2d", color: SIMD4(0.3, 0.8, 0.5, 1)).0 {
+                        bodies.append(fb)
+                    }
+                    descriptions.append("Fillet2D: \(filleted.faceCount)f")
+                } else {
+                    descriptions.append("Fillet2D: nil")
                 }
-                descriptions.append("Fillet2D: \(filleted.faceCount) faces")
-            }
 
-            // Add chamfer between two edges
-            if let chamfered = box.addChamfer2d(edge1Index: 0, edge2Index: 1, d1: 1.0, d2: 0.5) {
-                if var cb = CADFileLoader.shapeToBodyAndMetadata(
-                    chamfered, id: "chamfer2d", color: SIMD4(0.8, 0.5, 0.3, 1)).0 {
-                    offsetBody(&cb, dx: 8, dy: 0, dz: 0)
-                    bodies.append(cb)
+                // Chamfer between two edges on the face
+                if let chamfered = face.addChamfer2d(edge1Index: 0, edge2Index: 1, d1: 1.0, d2: 0.5) {
+                    if var cb = CADFileLoader.shapeToBodyAndMetadata(
+                        chamfered, id: "chamfer2d", color: SIMD4(0.8, 0.5, 0.3, 1)).0 {
+                        offsetBody(&cb, dx: 8, dy: 0, dz: 0)
+                        bodies.append(cb)
+                    }
+                    descriptions.append("Chamfer2D: \(chamfered.faceCount)f")
+                } else {
+                    descriptions.append("Chamfer2D: nil")
                 }
-                descriptions.append("Chamfer2D: \(chamfered.faceCount) faces")
             }
         }
 
-        // --- LocOpe Glue ---
-        if let base = Shape.box(width: 4, height: 4, depth: 2),
-           let addition = Shape.box(width: 2, height: 2, depth: 2) {
-            if let glued = base.locOpeGlue(addition, facePairs: []) {
-                if var gb = CADFileLoader.shapeToBodyAndMetadata(
-                    glued, id: "glued", color: SIMD4(0.5, 0.5, 0.9, 1)).0 {
-                    offsetBody(&gb, dx: 0, dy: 8, dz: 0)
-                    bodies.append(gb)
+        // --- 3D Fillet on solid (standard filleted) ---
+        if let box = Shape.box(width: 5, height: 5, depth: 5) {
+            if let filleted = box.filleted(radius: 0.8) {
+                if var fb = CADFileLoader.shapeToBodyAndMetadata(
+                    filleted, id: "fillet3d", color: SIMD4(0.5, 0.5, 0.9, 1)).0 {
+                    offsetBody(&fb, dx: 0, dy: 8, dz: 0)
+                    bodies.append(fb)
                 }
-                descriptions.append("LocOpeGlue: \(glued.faceCount) faces")
+                descriptions.append("Fillet3D: \(filleted.faceCount)f")
             }
         }
 
         // --- Surface fillet ---
         if let box2 = Shape.box(width: 5, height: 5, depth: 5) {
-            if let result = box2.filletSurfaces(edges: [], radius: 0.5) {
-                descriptions.append("FilletSurf: \(result)")
+            let edges = box2.subShapes(ofType: .edge)
+            if !edges.isEmpty {
+                if let result = box2.filletSurfaces(edges: [edges[0]], radius: 0.5) {
+                    descriptions.append("FilletSurf: done")
+                }
             }
         }
 
