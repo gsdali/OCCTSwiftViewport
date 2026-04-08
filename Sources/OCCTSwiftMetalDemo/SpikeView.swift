@@ -791,6 +791,18 @@ struct SpikeView: View {
         case builderAndMassProperties
         case interpolationAndLofting
         case helixAndQuaternionDemo
+        // Integration workflow demos
+        case mountingBracket, involuteGear, bottleProfile
+        case fluentChain, assemblyInterference
+        case camPocketAndSlicing, camHoleAndContouring
+        case draftAndThickness, booleanStressAndOBB
+        case scallopCurvature, uvAndGeodesic
+        // v0.117-v0.120 demos
+        case v117LocalCurvature, v118BoundingBox
+        case v119BrepAndBezier, v120ContinuityAndVectors
+        case v121FilletChamfer, v122WireFixRepair, v123BuilderAndSection
+        case v124WireAnalyzer, v125v126BSplineAndXDE
+        case v130GeomEval, v131ApproxAndSurfaces
     }
 
     // MARK: - OCCT 8 Sub-groups
@@ -921,6 +933,29 @@ struct SpikeView: View {
         Button("Builder & Mass Props") { loadOCCT8Demo(.builderAndMassProperties) }
         Button("Interpolation & Lofting") { loadOCCT8Demo(.interpolationAndLofting) }
         Button("Helix & Quaternion") { loadOCCT8Demo(.helixAndQuaternionDemo) }
+        // Integration workflow demos
+        Button("Mounting Bracket") { loadOCCT8Demo(.mountingBracket) }
+        Button("Involute Gear") { loadOCCT8Demo(.involuteGear) }
+        Button("Bottle Profile") { loadOCCT8Demo(.bottleProfile) }
+        Button("Fluent Chain") { loadOCCT8Demo(.fluentChain) }
+        Button("Assembly Interference") { loadOCCT8Demo(.assemblyInterference) }
+        Button("CAM Pocket & Slicing") { loadOCCT8Demo(.camPocketAndSlicing) }
+        Button("CAM Holes & Contouring") { loadOCCT8Demo(.camHoleAndContouring) }
+        Button("Draft & Thickness") { loadOCCT8Demo(.draftAndThickness) }
+        Button("Boolean Stress & OBB") { loadOCCT8Demo(.booleanStressAndOBB) }
+        Button("Scallop Curvature") { loadOCCT8Demo(.scallopCurvature) }
+        Button("UV Surface & Geodesic") { loadOCCT8Demo(.uvAndGeodesic) }
+        Button("v0.117 Curvature & Solvers") { loadOCCT8Demo(.v117LocalCurvature) }
+        Button("v0.118 BBox & Validation") { loadOCCT8Demo(.v118BoundingBox) }
+        Button("v0.119 BREP & Bezier") { loadOCCT8Demo(.v119BrepAndBezier) }
+        Button("v0.120 Continuity & Vectors") { loadOCCT8Demo(.v120ContinuityAndVectors) }
+        Button("v0.121 Fillet & Chamfer Builders") { loadOCCT8Demo(.v121FilletChamfer) }
+        Button("v0.122 Wire Fix & Repair") { loadOCCT8Demo(.v122WireFixRepair) }
+        Button("v0.123 Builders & Section Ops") { loadOCCT8Demo(.v123BuilderAndSection) }
+        Button("v0.124 WireAnalyzer & Queries") { loadOCCT8Demo(.v124WireAnalyzer) }
+        Button("v0.125-126 BSpline & XDE") { loadOCCT8Demo(.v125v126BSplineAndXDE) }
+        Button("v0.130 GeomEval & PointSet") { loadOCCT8Demo(.v130GeomEval) }
+        Button("v0.131 Approx & Surfaces") { loadOCCT8Demo(.v131ApproxAndSurfaces) }
     }
 
     private func loadOCCT8Demo(_ demo: OCCT8Demo) {
@@ -1139,6 +1174,50 @@ struct SpikeView: View {
             result = OCCT8Gallery.interpolationAndLofting()
         case .helixAndQuaternionDemo:
             result = OCCT8Gallery.helixAndQuaternionDemo()
+        case .mountingBracket:
+            result = OCCT8Gallery.mountingBracketDemo()
+        case .involuteGear:
+            result = OCCT8Gallery.involuteGearDemo()
+        case .bottleProfile:
+            result = OCCT8Gallery.bottleProfileDemo()
+        case .fluentChain:
+            result = OCCT8Gallery.fluentChainDemo()
+        case .assemblyInterference:
+            result = OCCT8Gallery.assemblyInterferenceDemo()
+        case .camPocketAndSlicing:
+            result = OCCT8Gallery.camPocketAndSlicing()
+        case .camHoleAndContouring:
+            result = OCCT8Gallery.camHoleAndContouring()
+        case .draftAndThickness:
+            result = OCCT8Gallery.draftAndThicknessAnalysis()
+        case .booleanStressAndOBB:
+            result = OCCT8Gallery.booleanStressAndOBB()
+        case .scallopCurvature:
+            result = OCCT8Gallery.scallopCurvatureDemo()
+        case .uvAndGeodesic:
+            result = OCCT8Gallery.uvAndGeodesicDemo()
+        case .v117LocalCurvature:
+            result = OCCT8Gallery.v117LocalCurvatureAndSolvers()
+        case .v118BoundingBox:
+            result = OCCT8Gallery.v118BoundingBoxAndValidation()
+        case .v119BrepAndBezier:
+            result = OCCT8Gallery.v119BrepAndBezierControl()
+        case .v120ContinuityAndVectors:
+            result = OCCT8Gallery.v120ContinuityAndVectors()
+        case .v121FilletChamfer:
+            result = OCCT8Gallery.v121FilletChamferAndBSpline()
+        case .v122WireFixRepair:
+            result = OCCT8Gallery.v122WireFixAndRepair()
+        case .v123BuilderAndSection:
+            result = OCCT8Gallery.v123BuilderAndSectionOps()
+        case .v124WireAnalyzer:
+            result = OCCT8Gallery.v124WireAnalyzerAndBuilderQueries()
+        case .v125v126BSplineAndXDE:
+            result = OCCT8Gallery.v125v126BSplineAndXDE()
+        case .v130GeomEval:
+            result = OCCT8Gallery.v130GeomEvalAndPointSet()
+        case .v131ApproxAndSurfaces:
+            result = OCCT8Gallery.v131ApproxAndSurfaces()
         }
 
         bodies = result.bodies

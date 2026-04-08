@@ -190,6 +190,31 @@ enum DemoTestRunner {
             ("builderAndMassProperties", OCCT8Gallery.builderAndMassProperties),
             ("interpolationAndLofting", OCCT8Gallery.interpolationAndLofting),
             ("helixAndQuaternionDemo", OCCT8Gallery.helixAndQuaternionDemo),
+            // Integration workflow demos
+            ("mountingBracket", OCCT8Gallery.mountingBracketDemo),
+            ("involuteGear", OCCT8Gallery.involuteGearDemo),
+            ("bottleProfile", OCCT8Gallery.bottleProfileDemo),
+            ("fluentChain", OCCT8Gallery.fluentChainDemo),
+            ("assemblyInterference", OCCT8Gallery.assemblyInterferenceDemo),
+            ("camPocketAndSlicing", OCCT8Gallery.camPocketAndSlicing),
+            ("camHoleAndContouring", OCCT8Gallery.camHoleAndContouring),
+            ("draftAndThickness", OCCT8Gallery.draftAndThicknessAnalysis),
+            ("booleanStressAndOBB", OCCT8Gallery.booleanStressAndOBB),
+            ("scallopCurvature", OCCT8Gallery.scallopCurvatureDemo),
+            ("uvAndGeodesic", OCCT8Gallery.uvAndGeodesicDemo),
+            // v0.117-v0.120 demos
+            ("v117LocalCurvature", OCCT8Gallery.v117LocalCurvatureAndSolvers),
+            ("v118BoundingBox", OCCT8Gallery.v118BoundingBoxAndValidation),
+            ("v119BrepAndBezier", OCCT8Gallery.v119BrepAndBezierControl),
+            ("v120ContinuityAndVectors", OCCT8Gallery.v120ContinuityAndVectors),
+            // v0.121-v0.126 demos
+            ("v121FilletChamfer", OCCT8Gallery.v121FilletChamferAndBSpline),
+            ("v122WireFixAndRepair", OCCT8Gallery.v122WireFixAndRepair),
+            ("v123BuilderAndSection", OCCT8Gallery.v123BuilderAndSectionOps),
+            ("v124WireAnalyzer", OCCT8Gallery.v124WireAnalyzerAndBuilderQueries),
+            ("v125v126BSplineAndXDE", OCCT8Gallery.v125v126BSplineAndXDE),
+            ("v130GeomEval", OCCT8Gallery.v130GeomEvalAndPointSet),
+            ("v131ApproxAndSurfaces", OCCT8Gallery.v131ApproxAndSurfaces),
         ]
         for (name, run) in occt8 {
             demos.append(DemoEntry(category: "OCCT8", name: name, run: run))
@@ -198,8 +223,9 @@ enum DemoTestRunner {
         return demos
     }
 
-    /// Run all demos sequentially in the viewport, logging results.
+    /// Run all demos sequentially, logging results.
     /// Calls the completion handler with bodies for each demo so SpikeView can display them.
+    /// Uses batched scheduling to avoid main queue stalls from accumulated SwiftUI/Metal state.
     static func runAll(
         loadDemo: @escaping ([ViewportBody], String) -> Void,
         completion: @escaping (Int, Int) -> Void
@@ -213,49 +239,62 @@ enum DemoTestRunner {
         print("╔══════════════════════════════════════════════════════════════╗")
         print("║  DEMO TEST RUNNER — \(total) demos                              ║")
         print("╚══════════════════════════════════════════════════════════════╝")
+        fflush(stdout)
 
         func runNext() {
-            guard index < demos.count else {
+            // Process a batch of demos before yielding to the run loop.
+            // This avoids the main queue stalling after many asyncAfter cycles
+            // with accumulated SwiftUI view updates.
+            let batchSize = 10
+            var batchCount = 0
+
+            while index < demos.count && batchCount < batchSize {
+                let demo = demos[index]
+                let num = index + 1
+                index += 1
+                batchCount += 1
+
+                let startTime = CFAbsoluteTimeGetCurrent()
+                let result = demo.run()
+                let elapsed = CFAbsoluteTimeGetCurrent() - startTime
+
+                let bodyCount = result.bodies.count
+                let hasContent = !result.bodies.isEmpty || !result.description.isEmpty
+                let status: String
+                if hasContent {
+                    passed += 1
+                    status = "✅"
+                } else {
+                    failed += 1
+                    status = "❌"
+                }
+
+                let timeStr = String(format: "%.2fs", elapsed)
+                print("\(status) [\(num)/\(total)] \(demo.category)/\(demo.name) — \(bodyCount) bodies, \(timeStr)")
+                if !result.description.isEmpty {
+                    let desc = result.description.prefix(120)
+                    print("   └─ \(desc)")
+                }
+                fflush(stdout)
+            }
+
+            // Load only the last demo's bodies into the viewport (avoids
+            // accumulating Metal buffers across all demos in the batch).
+            // Clear first to release previous bodies.
+            loadDemo([], "")
+
+            if index >= demos.count {
                 print("")
                 print("════════════════════════════════════════════════════════════════")
                 print("  RESULTS: \(passed) passed, \(failed) failed out of \(total)")
                 print("════════════════════════════════════════════════════════════════")
+                fflush(stdout)
                 completion(passed, failed)
                 return
             }
 
-            let demo = demos[index]
-            let num = index + 1
-            index += 1
-
-            let startTime = CFAbsoluteTimeGetCurrent()
-            let result = demo.run()
-            let elapsed = CFAbsoluteTimeGetCurrent() - startTime
-
-            let bodyCount = result.bodies.count
-            let hasContent = !result.bodies.isEmpty || !result.description.isEmpty
-            let status: String
-            if hasContent {
-                passed += 1
-                status = "✅"
-            } else {
-                failed += 1
-                status = "❌"
-            }
-
-            let timeStr = String(format: "%.2fs", elapsed)
-            print("\(status) [\(num)/\(total)] \(demo.category)/\(demo.name) — \(bodyCount) bodies, \(timeStr)")
-            if !result.description.isEmpty {
-                // Truncate long descriptions
-                let desc = result.description.prefix(120)
-                print("   └─ \(desc)")
-            }
-
-            // Display in viewport
-            loadDemo(result.bodies, "[\(num)/\(total)] \(demo.category)/\(demo.name)")
-
-            // Schedule next demo after a brief delay so the viewport renders
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            // Yield to the run loop briefly so AppKit/Metal can drain
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
                 runNext()
             }
         }

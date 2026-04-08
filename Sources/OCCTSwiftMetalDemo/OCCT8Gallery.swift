@@ -11373,4 +11373,1736 @@ enum OCCT8Gallery {
             description: descriptions.joined(separator: " | ")
         )
     }
+
+    // MARK: - Integration: Mounting Bracket
+
+    /// Parametric mounting bracket: base plate + wall, union, fillet, 4 mounting holes, chamfer.
+    static func mountingBracketDemo() -> Curve2DGallery.GalleryResult {
+        var bodies: [ViewportBody] = []
+        var descriptions: [String] = []
+
+        guard let basePlate = Shape.box(width: 80, height: 40, depth: 5) else {
+            return Curve2DGallery.GalleryResult(bodies: [], description: "Failed to create base plate")
+        }
+
+        guard let wall = Shape.box(origin: SIMD3(-40.0, -2.5, 2.5), width: 80, height: 5, depth: 30) else {
+            return Curve2DGallery.GalleryResult(bodies: [], description: "Failed to create wall")
+        }
+
+        // Show base plate (ghost)
+        if var b = CADFileLoader.shapeToBodyAndMetadata(basePlate, id: "bracket-base", color: SIMD4(0.5, 0.5, 0.8, 0.3)).0 {
+            offsetBody(&b, dx: -60, dy: 0, dz: 0)
+            bodies.append(b)
+        }
+
+        // Union base + wall
+        guard let bracket = basePlate.union(with: wall) else {
+            return Curve2DGallery.GalleryResult(bodies: bodies, description: "Union failed")
+        }
+
+        // Fillet edges
+        var current = bracket
+        if let filleted = bracket.filleted(radius: 1.0) {
+            current = filleted
+        }
+
+        // Drill 4 mounting holes
+        let holePositions: [SIMD3<Double>] = [
+            SIMD3(-30.0, -12.0, 5.0), SIMD3(30.0, -12.0, 5.0),
+            SIMD3(-30.0, 12.0, 5.0), SIMD3(30.0, 12.0, 5.0)
+        ]
+        for pos in holePositions {
+            if let drilled = current.drilled(at: pos, direction: SIMD3(0, 0, -1), radius: 3, depth: 0) {
+                current = drilled
+            }
+        }
+
+        // Chamfer
+        if let chamfered = current.chamfered(distance: 0.5) {
+            current = chamfered
+        }
+
+        // Show final bracket
+        if var b = CADFileLoader.shapeToBodyAndMetadata(current, id: "bracket-final", color: SIMD4(0.7, 0.75, 0.85, 1)).0 {
+            offsetBody(&b, dx: 0, dy: 0, dz: 0)
+            bodies.append(b)
+        }
+
+        let faces = current.subShapeCount(ofType: .face)
+        let edges = current.subShapeCount(ofType: .edge)
+        let vol = current.volume ?? 0
+        descriptions.append("Mounting Bracket: \(faces) faces, \(edges) edges, vol=\(String(format: "%.0f", vol))")
+
+        return Curve2DGallery.GalleryResult(
+            bodies: bodies,
+            description: descriptions.joined(separator: " | ")
+        )
+    }
+
+    // MARK: - Integration: Involute Gear
+
+    /// Cylindrical hub with 6 radial slots and center bore.
+    static func involuteGearDemo() -> Curve2DGallery.GalleryResult {
+        var bodies: [ViewportBody] = []
+        var descriptions: [String] = []
+
+        guard let hub = Shape.cylinder(radius: 20, height: 10) else {
+            return Curve2DGallery.GalleryResult(bodies: [], description: "Failed to create hub")
+        }
+        let origVol = hub.volume ?? 0
+
+        var current = hub
+        for i in 0..<6 {
+            let angle = Double(i) * (.pi / 3.0)
+            let cx = 15.0 * cos(angle)
+            let cy = 15.0 * sin(angle)
+            if let slot = Shape.box(origin: SIMD3(cx - 3.0, cy - 1.0, 0.0), width: 6, height: 2, depth: 10) {
+                if let cut = current.subtracting(slot) {
+                    current = cut
+                }
+            }
+        }
+
+        // Center bore
+        if let bored = current.drilled(at: SIMD3(0.0, 0.0, 10.0), direction: SIMD3(0, 0, -1), radius: 5, depth: 0) {
+            current = bored
+        }
+
+        if let b = CADFileLoader.shapeToBodyAndMetadata(current, id: "gear", color: SIMD4(0.8, 0.7, 0.3, 1)).0 {
+            bodies.append(b)
+        }
+
+        let finalVol = current.volume ?? 0
+        descriptions.append("Gear: 6 slots + bore, vol \(String(format: "%.0f", origVol))→\(String(format: "%.0f", finalVol))")
+
+        return Curve2DGallery.GalleryResult(
+            bodies: bodies,
+            description: descriptions.joined(separator: " | ")
+        )
+    }
+
+    // MARK: - Integration: Bottle Profile
+
+    /// Cylinder + sphere cap, filleted, then shelled hollow.
+    static func bottleProfileDemo() -> Curve2DGallery.GalleryResult {
+        var bodies: [ViewportBody] = []
+        var descriptions: [String] = []
+
+        guard let body = Shape.cylinder(radius: 15, height: 40),
+              let cap = Shape.sphere(radius: 15),
+              let positionedCap = cap.translated(by: SIMD3(0.0, 0.0, 40.0)),
+              let bottle = body.union(with: positionedCap) else {
+            return Curve2DGallery.GalleryResult(bodies: [], description: "Failed to create bottle")
+        }
+        let solidVol = bottle.volume ?? 0
+
+        // Show solid bottle (ghost)
+        if var b = CADFileLoader.shapeToBodyAndMetadata(bottle, id: "bottle-solid", color: SIMD4(0.3, 0.6, 0.9, 0.3)).0 {
+            offsetBody(&b, dx: -40, dy: 0, dz: 0)
+            bodies.append(b)
+        }
+
+        // Fillet
+        var current = bottle
+        if let filleted = bottle.filleted(radius: 2.0) {
+            current = filleted
+        }
+
+        // Shell to hollow
+        if let shelled = current.shelled(thickness: -2.0) {
+            if var b = CADFileLoader.shapeToBodyAndMetadata(shelled, id: "bottle-shelled", color: SIMD4(0.3, 0.7, 0.95, 0.8)).0 {
+                bodies.append(b)
+            }
+            let shelledVol = shelled.volume ?? 0
+            descriptions.append("Bottle: solid vol=\(String(format: "%.0f", solidVol)) → shelled=\(String(format: "%.0f", shelledVol))")
+        } else {
+            // Fallback: show filleted solid
+            if let b = CADFileLoader.shapeToBodyAndMetadata(current, id: "bottle-filleted", color: SIMD4(0.3, 0.7, 0.95, 0.9)).0 {
+                bodies.append(b)
+            }
+            descriptions.append("Bottle: solid vol=\(String(format: "%.0f", solidVol)), shell failed (shown filleted)")
+        }
+
+        return Curve2DGallery.GalleryResult(
+            bodies: bodies,
+            description: descriptions.joined(separator: " | ")
+        )
+    }
+
+    // MARK: - Integration: Fluent Composition Chain
+
+    /// Box → fillet → drill → chamfer → shell, each stage shown side by side.
+    static func fluentChainDemo() -> Curve2DGallery.GalleryResult {
+        var bodies: [ViewportBody] = []
+        var descriptions: [String] = []
+        let colors: [SIMD4<Float>] = [
+            SIMD4(0.6, 0.6, 0.6, 0.8),  // box
+            SIMD4(0.5, 0.7, 0.9, 0.8),  // filleted
+            SIMD4(0.4, 0.8, 0.5, 0.8),  // drilled
+            SIMD4(0.8, 0.7, 0.3, 0.8),  // chamfered
+            SIMD4(0.9, 0.4, 0.4, 0.8),  // shelled
+        ]
+        let labels = ["Box", "Fillet", "Drill", "Chamfer", "Shell"]
+        var stages: [Shape] = []
+
+        guard let box = Shape.box(width: 20, height: 20, depth: 10) else {
+            return Curve2DGallery.GalleryResult(bodies: [], description: "Failed")
+        }
+        stages.append(box)
+
+        if let filleted = box.filleted(radius: 1.0) { stages.append(filleted) }
+        if stages.count > 1, let drilled = stages.last!.drilled(at: SIMD3(0.0, 0.0, 5.0), direction: SIMD3(0, 0, -1), radius: 3, depth: 0) {
+            stages.append(drilled)
+        }
+        if stages.count > 2, let chamfered = stages.last!.chamfered(distance: 0.3) { stages.append(chamfered) }
+        if stages.count > 3, let shelled = stages.last!.shelled(thickness: -1.0) { stages.append(shelled) }
+
+        for (i, shape) in stages.enumerated() {
+            let dx = Float(i) * 25.0 - Float(stages.count - 1) * 12.5
+            if var b = CADFileLoader.shapeToBodyAndMetadata(shape, id: "chain-\(i)", color: colors[i]).0 {
+                offsetBody(&b, dx: dx, dy: 0, dz: 0)
+                bodies.append(b)
+            }
+            let vol = shape.volume ?? 0
+            descriptions.append("\(labels[i]):\(String(format: "%.0f", vol))")
+        }
+
+        return Curve2DGallery.GalleryResult(
+            bodies: bodies,
+            description: "Fluent chain: " + descriptions.joined(separator: " → ")
+        )
+    }
+
+    // MARK: - Integration: Assembly Interference
+
+    /// Shaft + housing with bore, clearance check and interference volume.
+    static func assemblyInterferenceDemo() -> Curve2DGallery.GalleryResult {
+        var bodies: [ViewportBody] = []
+        var descriptions: [String] = []
+
+        guard let shaft = Shape.cylinder(radius: 10, height: 100),
+              let housing = Shape.cylinder(radius: 15, height: 20),
+              let bore = Shape.cylinder(radius: 10.05, height: 20) else {
+            return Curve2DGallery.GalleryResult(bodies: [], description: "Failed")
+        }
+
+        // Show shaft
+        if let b = CADFileLoader.shapeToBodyAndMetadata(shaft, id: "shaft", color: SIMD4(0.6, 0.65, 0.7, 0.6)).0 {
+            bodies.append(b)
+        }
+
+        // Hollow housing positioned on shaft
+        if let hollowHousing = housing.subtracting(bore),
+           let positioned = hollowHousing.translated(by: SIMD3(0.0, 0.0, 40.0)) {
+            if let b = CADFileLoader.shapeToBodyAndMetadata(positioned, id: "housing", color: SIMD4(0.3, 0.7, 0.9, 0.8)).0 {
+                bodies.append(b)
+            }
+            if let dist = shaft.distance(to: positioned) {
+                descriptions.append("Clearance: \(String(format: "%.3f", dist.distance))mm")
+            }
+        }
+
+        // Show interference zone
+        if let interferingHousing = housing.translated(by: SIMD3(0.0, 0.0, 40.0)),
+           let interference = shaft.intersection(with: interferingHousing) {
+            if var b = CADFileLoader.shapeToBodyAndMetadata(interference, id: "interference", color: SIMD4(1, 0.2, 0.2, 0.6)).0 {
+                bodies.append(b)
+            }
+            let vol = interference.volume ?? 0
+            descriptions.append("Interference vol: \(String(format: "%.0f", vol))")
+        }
+
+        return Curve2DGallery.GalleryResult(
+            bodies: bodies,
+            description: descriptions.joined(separator: " | ")
+        )
+    }
+
+    // MARK: - Integration: CAM Pocket & Z-Level Slicing
+
+    /// Pocket clearing (section + offset wire) and Z-level slicing of cylinder with holes.
+    static func camPocketAndSlicing() -> Curve2DGallery.GalleryResult {
+        var bodies: [ViewportBody] = []
+        var descriptions: [String] = []
+
+        // --- Pocket clearing ---
+        if let outerBox = Shape.box(width: 100, height: 100, depth: 30),
+           let innerBox = Shape.box(origin: SIMD3(-30.0, -30.0, -5.0), width: 60, height: 60, depth: 20),
+           let pocket = outerBox.subtracting(innerBox) {
+            if var b = CADFileLoader.shapeToBodyAndMetadata(pocket, id: "pocket-solid", color: SIMD4(0.6, 0.65, 0.7, 0.4)).0 {
+                offsetBody(&b, dx: -70, dy: 0, dz: 0)
+                bodies.append(b)
+            }
+
+            // Section at Z=0
+            let wires = pocket.sectionWiresAtZ(0.0)
+            for (i, wire) in wires.enumerated() {
+                var wb = wireToBody(wire, id: "pocket-wire-\(i)", color: SIMD4(1, 0.8, 0, 1))
+                offsetBody(&wb, dx: -70, dy: 0, dz: 0)
+                bodies.append(wb)
+            }
+
+            // Offset wire for toolpath
+            if let firstWire = wires.first, let offset = firstWire.offset(by: -5.0) {
+                var wb = wireToBody(offset, id: "pocket-offset", color: SIMD4(0, 1, 0.5, 1))
+                offsetBody(&wb, dx: -70, dy: 0, dz: 0)
+                bodies.append(wb)
+            }
+            descriptions.append("Pocket: \(wires.count) wires at Z=0")
+        }
+
+        // --- Z-level slicing ---
+        if var shape = Shape.cylinder(radius: 25, height: 50) {
+            let holePositions: [SIMD3<Double>] = [
+                SIMD3(10.0, 0.0, 55.0), SIMD3(-10.0, 0.0, 55.0), SIMD3(0.0, 10.0, 55.0)
+            ]
+            for pos in holePositions {
+                if let drilled = shape.drilled(at: pos, direction: SIMD3(0, 0, -1), radius: 3, depth: 0) {
+                    shape = drilled
+                }
+            }
+
+            if var b = CADFileLoader.shapeToBodyAndMetadata(shape, id: "sliced-cyl", color: SIMD4(0.5, 0.6, 0.7, 0.3)).0 {
+                offsetBody(&b, dx: 70, dy: 0, dz: 0)
+                bodies.append(b)
+            }
+
+            // Slice at multiple Z levels
+            let sliceColors: [SIMD4<Float>] = [
+                SIMD4(1, 0.3, 0.3, 1), SIMD4(1, 0.6, 0.2, 1), SIMD4(1, 1, 0.2, 1),
+                SIMD4(0.3, 1, 0.3, 1), SIMD4(0.2, 0.8, 1, 1)
+            ]
+            for i in 0..<5 {
+                let z = Double(i + 1) * 10.0
+                let wires = shape.sectionWiresAtZ(z)
+                for (j, wire) in wires.enumerated() {
+                    var wb = wireToBody(wire, id: "slice-z\(Int(z))-\(j)", color: sliceColors[i])
+                    offsetBody(&wb, dx: 70, dy: 0, dz: 0)
+                    bodies.append(wb)
+                }
+            }
+            let midWires = shape.sectionWiresAtZ(25.0)
+            descriptions.append("Z-slicing: \(midWires.count) wires at Z=25 (expect 4)")
+        }
+
+        return Curve2DGallery.GalleryResult(
+            bodies: bodies,
+            description: descriptions.joined(separator: " | ")
+        )
+    }
+
+    // MARK: - Integration: CAM Hole Detection & Profile Contouring
+
+    /// Plate with 4 holes (section shows 5 wires) and box+boss profile contour.
+    static func camHoleAndContouring() -> Curve2DGallery.GalleryResult {
+        var bodies: [ViewportBody] = []
+        var descriptions: [String] = []
+
+        // --- Hole detection ---
+        if var plate = Shape.box(width: 100, height: 100, depth: 10) {
+            let holePositions: [SIMD3<Double>] = [
+                SIMD3(-25.0, -25.0, 10.0), SIMD3(25.0, -25.0, 10.0),
+                SIMD3(-25.0, 25.0, 10.0), SIMD3(25.0, 25.0, 10.0)
+            ]
+            for pos in holePositions {
+                if let drilled = plate.drilled(at: pos, direction: SIMD3(0, 0, -1), radius: 5, depth: 0) {
+                    plate = drilled
+                }
+            }
+
+            if var b = CADFileLoader.shapeToBodyAndMetadata(plate, id: "holed-plate", color: SIMD4(0.6, 0.65, 0.7, 0.4)).0 {
+                offsetBody(&b, dx: -65, dy: 0, dz: 0)
+                bodies.append(b)
+            }
+
+            let wires = plate.sectionWiresAtZ(0.0)
+            let wireColors: [SIMD4<Float>] = [
+                SIMD4(1, 0.3, 0.3, 1), SIMD4(0.3, 1, 0.3, 1), SIMD4(0.3, 0.5, 1, 1),
+                SIMD4(1, 1, 0.2, 1), SIMD4(1, 0.5, 1, 1)
+            ]
+            for (i, wire) in wires.enumerated() {
+                var wb = wireToBody(wire, id: "hole-wire-\(i)", color: wireColors[i % wireColors.count])
+                offsetBody(&wb, dx: -65, dy: 0, dz: 0)
+                bodies.append(wb)
+            }
+            descriptions.append("Holes: \(wires.count) wires (expect 5)")
+        }
+
+        // --- Profile contouring ---
+        if let base = Shape.box(width: 60, height: 60, depth: 10),
+           let boss = Shape.cylinder(radius: 15, height: 20),
+           let combined = base.union(with: boss) {
+            if var b = CADFileLoader.shapeToBodyAndMetadata(combined, id: "boss-shape", color: SIMD4(0.5, 0.7, 0.6, 0.4)).0 {
+                offsetBody(&b, dx: 65, dy: 0, dz: 0)
+                bodies.append(b)
+            }
+
+            // Section at Z=6 (just above base top)
+            let wires = combined.sectionWiresAtZ(6.0)
+            for (i, wire) in wires.enumerated() {
+                var wb = wireToBody(wire, id: "contour-\(i)", color: SIMD4(0, 1, 0.5, 1))
+                offsetBody(&wb, dx: 65, dy: 0, dz: 0)
+                bodies.append(wb)
+            }
+            var totalLen = 0.0
+            for wire in wires {
+                if let len = wire.length { totalLen += len }
+            }
+            descriptions.append("Contour: \(wires.count) wires at Z=6, len=\(String(format: "%.1f", totalLen))")
+        }
+
+        return Curve2DGallery.GalleryResult(
+            bodies: bodies,
+            description: descriptions.joined(separator: " | ")
+        )
+    }
+
+    // MARK: - Integration: Draft & Thickness Analysis
+
+    /// Face normal classification for mold draft + wall thickness via ray casting.
+    static func draftAndThicknessAnalysis() -> Curve2DGallery.GalleryResult {
+        var bodies: [ViewportBody] = []
+        var descriptions: [String] = []
+
+        // --- Draft analysis: color faces by draft angle ---
+        if let box = Shape.box(width: 20, height: 30, depth: 40) {
+            let allFaces = box.faces()
+            let faceShapes = box.subShapes(ofType: .face)
+            let pullDirection = SIMD3<Double>(0, 0, 1)
+            var topBottom = 0
+            var side = 0
+
+            for (fi, face) in allFaces.enumerated() {
+                guard let n = face.normal else { continue }
+                let len = sqrt(n.x * n.x + n.y * n.y + n.z * n.z)
+                if len < 1e-10 { continue }
+                let normalized = n / len
+                let dot = normalized.x * pullDirection.x + normalized.y * pullDirection.y + normalized.z * pullDirection.z
+                let angleDeg = acos(min(max(dot, -1.0), 1.0)) * 180.0 / .pi
+
+                let color: SIMD4<Float>
+                if angleDeg < 5.0 {
+                    color = SIMD4(0.2, 0.8, 0.2, 0.9); topBottom += 1  // top (green)
+                } else if angleDeg > 175.0 {
+                    color = SIMD4(0.8, 0.2, 0.2, 0.9); topBottom += 1  // bottom (red)
+                } else {
+                    color = SIMD4(0.3, 0.5, 0.9, 0.9); side += 1  // side (blue)
+                }
+
+                if fi < faceShapes.count {
+                    if var b = CADFileLoader.shapeToBodyAndMetadata(faceShapes[fi], id: "draft-face-\(fi)", color: color).0 {
+                        offsetBody(&b, dx: -35, dy: 0, dz: 0)
+                        bodies.append(b)
+                    }
+                }
+            }
+            descriptions.append("Draft: \(topBottom) top/bottom, \(side) side faces")
+        }
+
+        // --- Thickness analysis: shelled box with ray casting ---
+        if let box = Shape.box(width: 40, height: 40, depth: 40) {
+            let wallThickness = 2.0
+            // Create hollow box via subtraction (more reliable than shelling)
+            if let innerBox = Shape.box(width: 40 - 2 * wallThickness,
+                                         height: 40 - 2 * wallThickness,
+                                         depth: 40 - 2 * wallThickness),
+               let hollow = box.subtracting(innerBox) {
+                if var b = CADFileLoader.shapeToBodyAndMetadata(hollow, id: "thickness-box", color: SIMD4(0.7, 0.75, 0.8, 0.5)).0 {
+                    offsetBody(&b, dx: 35, dy: 0, dz: 0)
+                    bodies.append(b)
+                }
+
+                // Ray cast from above
+                let hits = hollow.intersectLine(origin: SIMD3(0.0, 0.0, 50.0), direction: SIMD3(0, 0, -1))
+                descriptions.append("Thickness: \(hits.count) ray hits, wall=\(wallThickness)mm")
+
+                // Visualize ray hit points
+                for (hi, hit) in hits.prefix(4).enumerated() {
+                    let pt = SIMD3<Float>(Float(hit.point.x) + 35, Float(hit.point.y), Float(hit.point.z))
+                    bodies.append(makeMarker(at: pt, radius: 0.8, id: "hit-\(hi)", color: SIMD4(1, 0.3, 0.1, 1)))
+                }
+            }
+        }
+
+        return Curve2DGallery.GalleryResult(
+            bodies: bodies,
+            description: descriptions.joined(separator: " | ")
+        )
+    }
+
+    // MARK: - Integration: Boolean Stress & OBB
+
+    /// 20 spherical subtractions in a ring + OBB vs AABB comparison for rotated box.
+    static func booleanStressAndOBB() -> Curve2DGallery.GalleryResult {
+        var bodies: [ViewportBody] = []
+        var descriptions: [String] = []
+
+        // --- Boolean chain: 20 sphere subtractions ---
+        if var shape = Shape.box(width: 100, height: 100, depth: 100) {
+            let origVol = shape.volume ?? 0
+            for i in 0..<20 {
+                let angle = Double(i) * (2.0 * .pi / 20.0)
+                let x = 30.0 * cos(angle)
+                let y = 30.0 * sin(angle)
+                if let sphere = Shape.sphere(radius: 5),
+                   let positioned = sphere.translated(by: SIMD3(x, y, 0.0)),
+                   let result = shape.subtracting(positioned) {
+                    shape = result
+                }
+            }
+            if var b = CADFileLoader.shapeToBodyAndMetadata(shape, id: "bool-stress", color: SIMD4(0.7, 0.5, 0.3, 0.8)).0 {
+                offsetBody(&b, dx: -70, dy: 0, dz: 0)
+                bodies.append(b)
+            }
+            let finalVol = shape.volume ?? 0
+            descriptions.append("Bool×20: vol \(String(format: "%.0f", origVol))→\(String(format: "%.0f", finalVol))")
+        }
+
+        // --- OBB vs AABB ---
+        if let box = Shape.box(width: 40, height: 10, depth: 10),
+           let rotated = box.rotated(axis: SIMD3(0.0, 0.0, 1.0), angle: .pi / 4) {
+            if var b = CADFileLoader.shapeToBodyAndMetadata(rotated, id: "obb-shape", color: SIMD4(0.4, 0.7, 0.9, 0.7)).0 {
+                offsetBody(&b, dx: 70, dy: 0, dz: 0)
+                bodies.append(b)
+            }
+
+            // AABB
+            let bounds = rotated.bounds
+            let aabbSize = bounds.max - bounds.min
+            let aabbVol = aabbSize.x * aabbSize.y * aabbSize.z
+
+            // Show AABB as wireframe box
+            let mn = SIMD3<Float>(Float(bounds.min.x) + 70, Float(bounds.min.y), Float(bounds.min.z))
+            let mx = SIMD3<Float>(Float(bounds.max.x) + 70, Float(bounds.max.y), Float(bounds.max.z))
+            let aabbEdges: [[SIMD3<Float>]] = [
+                [SIMD3(mn.x,mn.y,mn.z), SIMD3(mx.x,mn.y,mn.z), SIMD3(mx.x,mx.y,mn.z), SIMD3(mn.x,mx.y,mn.z), SIMD3(mn.x,mn.y,mn.z)],
+                [SIMD3(mn.x,mn.y,mx.z), SIMD3(mx.x,mn.y,mx.z), SIMD3(mx.x,mx.y,mx.z), SIMD3(mn.x,mx.y,mx.z), SIMD3(mn.x,mn.y,mx.z)],
+                [SIMD3(mn.x,mn.y,mn.z), SIMD3(mn.x,mn.y,mx.z)],
+                [SIMD3(mx.x,mn.y,mn.z), SIMD3(mx.x,mn.y,mx.z)],
+                [SIMD3(mx.x,mx.y,mn.z), SIMD3(mx.x,mx.y,mx.z)],
+                [SIMD3(mn.x,mx.y,mn.z), SIMD3(mn.x,mx.y,mx.z)],
+            ]
+            bodies.append(ViewportBody(id: "aabb-wire", vertexData: [], indices: [],
+                edges: aabbEdges, color: SIMD4(1, 0.3, 0.3, 1)))
+
+            // OBB
+            if let obb = rotated.orientedBoundingBox(optimal: true) {
+                let obbVol = 8.0 * obb.halfSizes.x * obb.halfSizes.y * obb.halfSizes.z
+                descriptions.append("OBB vol=\(String(format: "%.0f", obbVol)) vs AABB=\(String(format: "%.0f", aabbVol))")
+            }
+        }
+
+        return Curve2DGallery.GalleryResult(
+            bodies: bodies,
+            description: descriptions.joined(separator: " | ")
+        )
+    }
+
+    // MARK: - Integration: Scallop & Surface Curvature
+
+    /// Sphere curvature analysis + Bezier surface with varying curvature visualization.
+    static func scallopCurvatureDemo() -> Curve2DGallery.GalleryResult {
+        var bodies: [ViewportBody] = []
+        var descriptions: [String] = []
+
+        // --- Sphere: constant curvature ---
+        let radius = 10.0
+        if let sphere = Surface.sphere(center: .zero, radius: radius) {
+            // Visualize evaluation points on sphere
+            let params: [(Double, Double)] = [
+                (0.0, 0.5), (1.0, 0.5), (0.5, 1.0), (1.5, 0.3), (2.0, 1.0)
+            ]
+            for (i, (u, v)) in params.enumerated() {
+                let pt = sphere.point(atU: u, v: v)
+                let marker = makeMarker(
+                    at: SIMD3<Float>(Float(pt.x) - 20, Float(pt.y), Float(pt.z)),
+                    radius: 0.4, id: "sphere-pt-\(i)", color: SIMD4(1, 0.3, 0.1, 1))
+                bodies.append(marker)
+                let gauss = sphere.gaussianCurvature(atU: u, v: v)
+                if i == 0 {
+                    descriptions.append("Sphere K=\(String(format: "%.4f", gauss)) (expect \(String(format: "%.4f", 1.0/(radius*radius))))")
+                }
+            }
+
+            // Show sphere solid
+            if let sphereShape = Shape.sphere(radius: radius) {
+                if var b = CADFileLoader.shapeToBodyAndMetadata(sphereShape, id: "curv-sphere", color: SIMD4(0.3, 0.6, 0.9, 0.4)).0 {
+                    offsetBody(&b, dx: -20, dy: 0, dz: 0)
+                    bodies.append(b)
+                }
+            }
+        }
+
+        // --- Bezier surface: varying curvature ---
+        let poles: [[SIMD3<Double>]] = [
+            [SIMD3(0, 0, 0), SIMD3(10, 0, 2), SIMD3(20, 0, 1), SIMD3(30, 0, 0)],
+            [SIMD3(0, 10, 1), SIMD3(10, 10, 5), SIMD3(20, 10, 3), SIMD3(30, 10, 1)],
+            [SIMD3(0, 20, 0), SIMD3(10, 20, 3), SIMD3(20, 20, 8), SIMD3(30, 20, 2)],
+            [SIMD3(0, 30, 0), SIMD3(10, 30, 1), SIMD3(20, 30, 2), SIMD3(30, 30, 0)]
+        ]
+        if let bezSurf = Surface.bezier(poles: poles) {
+            let dom = bezSurf.domain
+            // Evaluate curvature at grid points and show as colored markers
+            for ui in 0..<5 {
+                for vi in 0..<5 {
+                    let u = dom.uMin + (dom.uMax - dom.uMin) * (Double(ui) + 0.5) / 5.0
+                    let v = dom.vMin + (dom.vMax - dom.vMin) * (Double(vi) + 0.5) / 5.0
+                    let pt = bezSurf.point(atU: u, v: v)
+                    let gauss = bezSurf.gaussianCurvature(atU: u, v: v)
+                    // Color by curvature sign: positive=green, negative=red, near-zero=yellow
+                    let color: SIMD4<Float>
+                    if gauss > 0.001 {
+                        color = SIMD4(0.2, 0.9, 0.3, 1)
+                    } else if gauss < -0.001 {
+                        color = SIMD4(0.9, 0.2, 0.2, 1)
+                    } else {
+                        color = SIMD4(0.9, 0.9, 0.2, 1)
+                    }
+                    let marker = makeMarker(
+                        at: SIMD3<Float>(Float(pt.x) + 20, Float(pt.y), Float(pt.z)),
+                        radius: 0.5, id: "bez-curv-\(ui)-\(vi)", color: color)
+                    bodies.append(marker)
+                }
+            }
+
+            // Show control point grid
+            for row in poles {
+                let pts = row.map { SIMD3<Float>(Float($0.x) + 20, Float($0.y), Float($0.z)) }
+                bodies.append(ViewportBody(id: "bez-ctrl-u-\(row[0].y)", vertexData: [], indices: [],
+                    edges: [pts], color: SIMD4(0.5, 0.5, 0.5, 0.5)))
+            }
+            descriptions.append("Bezier: green=K+, red=K-, yellow=K≈0")
+        }
+
+        return Curve2DGallery.GalleryResult(
+            bodies: bodies,
+            description: descriptions.joined(separator: " | ")
+        )
+    }
+
+    // MARK: - Integration: UV Surface & Geodesic Path
+
+    /// Cylinder UV evaluation points + sphere geodesic path approximation.
+    static func uvAndGeodesicDemo() -> Curve2DGallery.GalleryResult {
+        var bodies: [ViewportBody] = []
+        var descriptions: [String] = []
+
+        // --- Cylinder UV evaluation ---
+        let cylRadius = 15.0
+        if let cyl = Surface.cylinder(origin: .zero, axis: SIMD3(0, 0, 1), radius: cylRadius) {
+            let dom = cyl.domain
+            var pts: [SIMD3<Float>] = []
+            for ui in 0..<16 {
+                let u = dom.uMin + (dom.uMax - dom.uMin) * Double(ui) / 16.0
+                for vi in 0..<4 {
+                    let v = Double(vi) * 10.0
+                    let pt = cyl.point(atU: u, v: v)
+                    pts.append(SIMD3<Float>(Float(pt.x) - 30, Float(pt.y), Float(pt.z)))
+                }
+            }
+            for pt in pts {
+                bodies.append(makeMarker(at: pt, radius: 0.3, id: "cyl-uv-\(pt.x)-\(pt.z)", color: SIMD4(0.2, 0.7, 1, 1)))
+            }
+
+            // Show a circumference ring at mid-height
+            var ringPts: [SIMD3<Float>] = []
+            for i in 0...64 {
+                let u = dom.uMin + (dom.uMax - dom.uMin) * Double(i) / 64.0
+                let pt = cyl.point(atU: u, v: 15.0)
+                ringPts.append(SIMD3<Float>(Float(pt.x) - 30, Float(pt.y), Float(pt.z)))
+            }
+            bodies.append(ViewportBody(id: "cyl-ring", vertexData: [], indices: [],
+                edges: [ringPts], color: SIMD4(1, 0.8, 0, 1)))
+            descriptions.append("Cyl UV: r=\(Int(cylRadius)), 2πr=\(String(format: "%.1f", 2.0 * .pi * cylRadius))")
+        }
+
+        // --- Geodesic path on sphere ---
+        let sphRadius = 20.0
+        if let sphere = Surface.sphere(center: .zero, radius: sphRadius) {
+            let dom = sphere.domain
+            let u1 = dom.uMin + 0.3 * (dom.uMax - dom.uMin)
+            let v1 = dom.vMin + 0.3 * (dom.vMax - dom.vMin)
+            let u2 = dom.uMin + 0.7 * (dom.uMax - dom.uMin)
+            let v2 = dom.vMin + 0.7 * (dom.vMax - dom.vMin)
+
+            // Draw UV-straight path on sphere
+            var pathPts: [SIMD3<Float>] = []
+            let nSeg = 100
+            for i in 0...nSeg {
+                let t = Double(i) / Double(nSeg)
+                let u = u1 + t * (u2 - u1)
+                let v = v1 + t * (v2 - v1)
+                let pt = sphere.point(atU: u, v: v)
+                pathPts.append(SIMD3<Float>(Float(pt.x) + 30, Float(pt.y), Float(pt.z)))
+            }
+            bodies.append(ViewportBody(id: "geodesic-path", vertexData: [], indices: [],
+                edges: [pathPts], color: SIMD4(1, 0.3, 0.1, 1)))
+
+            // Show start and end markers
+            let startPt = sphere.point(atU: u1, v: v1)
+            let endPt = sphere.point(atU: u2, v: v2)
+            bodies.append(makeMarker(at: SIMD3<Float>(Float(startPt.x) + 30, Float(startPt.y), Float(startPt.z)),
+                radius: 0.8, id: "geo-start", color: SIMD4(0, 1, 0, 1)))
+            bodies.append(makeMarker(at: SIMD3<Float>(Float(endPt.x) + 30, Float(endPt.y), Float(endPt.z)),
+                radius: 0.8, id: "geo-end", color: SIMD4(1, 0, 0, 1)))
+
+            // Show sphere ghost
+            if let sphShape = Shape.sphere(radius: sphRadius) {
+                if var b = CADFileLoader.shapeToBodyAndMetadata(sphShape, id: "geo-sphere", color: SIMD4(0.5, 0.6, 0.8, 0.25)).0 {
+                    offsetBody(&b, dx: 30, dy: 0, dz: 0)
+                    bodies.append(b)
+                }
+            }
+
+            // Compute path length
+            var polyLength = 0.0
+            var prevPt = sphere.point(atU: u1, v: v1)
+            for i in 1...nSeg {
+                let t = Double(i) / Double(nSeg)
+                let u = u1 + t * (u2 - u1)
+                let v = v1 + t * (v2 - v1)
+                let pt = sphere.point(atU: u, v: v)
+                let dx = pt.x - prevPt.x; let dy = pt.y - prevPt.y; let dz = pt.z - prevPt.z
+                polyLength += sqrt(dx*dx + dy*dy + dz*dz)
+                prevPt = pt
+            }
+            let straightDist = sqrt(
+                (endPt.x - startPt.x) * (endPt.x - startPt.x) +
+                (endPt.y - startPt.y) * (endPt.y - startPt.y) +
+                (endPt.z - startPt.z) * (endPt.z - startPt.z))
+            descriptions.append("Geodesic: path=\(String(format: "%.1f", polyLength)) chord=\(String(format: "%.1f", straightDist))")
+        }
+
+        return Curve2DGallery.GalleryResult(
+            bodies: bodies,
+            description: descriptions.joined(separator: " | ")
+        )
+    }
+
+    // MARK: - v0.117: Local Curvature, Polynomial Solvers, Integration, Projection
+
+    /// Demonstrates curve local curvature/tangent/normal, surface curvature directions,
+    /// rc4 polynomial solvers, Gauss integration, and ProjLib projection.
+    static func v117LocalCurvatureAndSolvers() -> Curve2DGallery.GalleryResult {
+        var bodies: [ViewportBody] = []
+        var descriptions: [String] = []
+
+        // --- Curve local curvature with tangent/normal visualization ---
+        if let circle = Curve3D.circle(center: .zero, normal: SIMD3(0, 0, 1), radius: 10) {
+            let domain = circle.domain
+            var curvePts: [SIMD3<Float>] = []
+            for i in 0...60 {
+                let t = domain.lowerBound + (domain.upperBound - domain.lowerBound) * Double(i) / 60.0
+                let p = circle.point(at: t)
+                curvePts.append(SIMD3<Float>(Float(p.x), Float(p.y), Float(p.z)))
+            }
+            bodies.append(ViewportBody(id: "v117-circle", vertexData: [], indices: [],
+                edges: [curvePts], color: SIMD4(0.3, 0.6, 1, 1)))
+
+            // Show tangent/normal at several points
+            for i in 0..<6 {
+                let t = domain.lowerBound + (domain.upperBound - domain.lowerBound) * Double(i) / 6.0
+                let p = circle.point(at: t)
+                let base = SIMD3<Float>(Float(p.x), Float(p.y), Float(p.z))
+
+                if let tan = circle.localTangent(at: t) {
+                    let tip = base + SIMD3<Float>(Float(tan.x), Float(tan.y), Float(tan.z)) * 3
+                    bodies.append(ViewportBody(id: "v117-tan-\(i)", vertexData: [], indices: [],
+                        edges: [[base, tip]], color: SIMD4(0, 1, 0, 1)))
+                }
+                if let norm = circle.localNormal(at: t) {
+                    let tip = base + SIMD3<Float>(Float(norm.x), Float(norm.y), Float(norm.z)) * 3
+                    bodies.append(ViewportBody(id: "v117-norm-\(i)", vertexData: [], indices: [],
+                        edges: [[base, tip]], color: SIMD4(1, 0.5, 0, 1)))
+                }
+                if let coc = circle.localCentreOfCurvature(at: t) {
+                    bodies.append(makeMarker(at: SIMD3<Float>(Float(coc.x), Float(coc.y), Float(coc.z)),
+                        radius: 0.3, id: "v117-coc-\(i)", color: SIMD4(1, 0, 0, 1)))
+                }
+            }
+            let k = circle.localCurvature(at: 0)
+            descriptions.append("Circle κ=\(String(format: "%.3f", k)) (=1/R)")
+        }
+
+        // --- Surface curvature directions ---
+        if let sphere = Surface.sphere(center: .zero, radius: 10) {
+            if let curvs = sphere.localCurvatures(u: 1.0, v: 0.5) {
+                descriptions.append("Sph gauss=\(String(format: "%.4f", curvs.gaussian)) mean=\(String(format: "%.3f", curvs.mean))")
+            }
+        }
+
+        // --- Polynomial solvers ---
+        if let roots = PolynomialSolver.quadraticRc4(a: 1, b: -3, c: 2) {
+            descriptions.append("x²-3x+2: roots=\(roots.map { String(format: "%.1f", $0) }.joined(separator: ","))")
+        }
+        if let roots = PolynomialSolver.cubicRc4(a: 1, b: 0, c: -1, d: 0) {
+            descriptions.append("x³-x: roots=\(roots.map { String(format: "%.1f", $0) }.joined(separator: ","))")
+        }
+
+        // --- Gauss integration ---
+        if let result = MathSolver.integGauss(over: 0...1, points: 5, function: { x in x * x }) {
+            descriptions.append("∫x²dx[0,1]=\(String(format: "%.6f", result.value)) err=\(String(format: "%.1e", result.error))")
+        }
+
+        return Curve2DGallery.GalleryResult(
+            bodies: bodies,
+            description: descriptions.joined(separator: " | ")
+        )
+    }
+
+    // MARK: - v0.118: Bounding Boxes, Tolerance, Boolean Validation
+
+    /// Demonstrates AABB/OBB bounding boxes, tolerance analysis, boolean pre-validation,
+    /// and transformation matrix operations.
+    static func v118BoundingBoxAndValidation() -> Curve2DGallery.GalleryResult {
+        var bodies: [ViewportBody] = []
+        var descriptions: [String] = []
+
+        // --- Optimal bounding box ---
+        if let cyl = Shape.cylinder(radius: 10, height: 30) {
+            if var b = CADFileLoader.shapeToBodyAndMetadata(cyl, id: "v118-cyl", color: SIMD4(0.5, 0.7, 0.85, 0.6)).0 {
+                bodies.append(b)
+            }
+
+            // Standard bounds
+            let bounds = cyl.bounds
+            descriptions.append("AABB: [\(String(format: "%.0f", bounds.min.x)),\(String(format: "%.0f", bounds.max.x))]")
+
+            // Optimal bounding box
+            if let optimal = cyl.boundingBoxOptimal() {
+                descriptions.append("Optimal: [\(String(format: "%.1f", optimal.min.x)),\(String(format: "%.1f", optimal.max.x))]")
+            }
+
+            // OBB detailed
+            if let obb = cyl.orientedBoundingBoxDetailed() {
+                descriptions.append("OBB half: \(String(format: "%.1f", obb.xHalfSize))×\(String(format: "%.1f", obb.yHalfSize))×\(String(format: "%.1f", obb.zHalfSize))")
+            }
+        }
+
+        // --- Tolerance analysis ---
+        if let box = Shape.box(width: 10, height: 10, depth: 10) {
+            if let filleted = box.filleted(radius: 1.0) {
+                let avgTol = filleted.toleranceValue(mode: .average)
+                let maxTol = filleted.toleranceValue(mode: .maximum)
+                descriptions.append("Tol avg=\(String(format: "%.1e", avgTol)) max=\(String(format: "%.1e", maxTol))")
+            }
+        }
+
+        // --- Boolean pre-validation ---
+        if let box1 = Shape.box(width: 20, height: 20, depth: 20),
+           let box2 = Shape.box(width: 10, height: 10, depth: 10) {
+            let valid1 = box1.isBooleanValid()
+            let valid2 = box2.isBooleanValid()
+            descriptions.append("BoolValid: box1=\(valid1) box2=\(valid2)")
+        }
+
+        // --- Polynomial to poles conversion ---
+        if let result = PolynomialConvert.polynomialToPoles(
+            dimension: 3, maxDegree: 2, degree: 2,
+            coefficients: [0, 0, 0, 1, 0, 0, 0, 0, 1],
+            polynomialInterval: 0...1, trueInterval: 0...1
+        ) {
+            descriptions.append("Poly→Poles: \(result.poles.count/3) poles, \(result.knots.count) knots")
+        }
+
+        return Curve2DGallery.GalleryResult(
+            bodies: bodies,
+            description: descriptions.joined(separator: " | ")
+        )
+    }
+
+    // MARK: - v0.119: BREP Serialization, Plane/Line Geometry, Bezier Control
+
+    /// Demonstrates BREP string round-trip, PlaneGeometry/LineGeometry distances,
+    /// and direct Bezier surface control point access.
+    static func v119BrepAndBezierControl() -> Curve2DGallery.GalleryResult {
+        var bodies: [ViewportBody] = []
+        var descriptions: [String] = []
+
+        // --- BREP string round-trip ---
+        if let box = Shape.box(width: 20, height: 15, depth: 10) {
+            if let filleted = box.filleted(radius: 1.0) {
+                let origVol = filleted.volume ?? 0
+                if let brepStr = filleted.toBREPString() {
+                    if let restored = Shape.fromBREPString(brepStr) {
+                        let restoredVol = restored.volume ?? 0
+                        let diff = abs(restoredVol - origVol) / origVol * 100
+                        descriptions.append("BREP round-trip: Δvol=\(String(format: "%.4f", diff))%")
+
+                        if var b = CADFileLoader.shapeToBodyAndMetadata(restored, id: "v119-brep", color: SIMD4(0.4, 0.7, 0.5, 0.8)).0 {
+                            offsetBody(&b, dx: -25, dy: 0, dz: 0)
+                            bodies.append(b)
+                        }
+                    }
+                }
+            }
+        }
+
+        // --- PlaneGeometry distances ---
+        let ptDist = PlaneGeometry.distanceToPoint(
+            planeOrigin: .zero, planeNormal: SIMD3(0, 0, 1), point: SIMD3(5, 5, 10))
+        descriptions.append("Plane→pt dist=\(String(format: "%.1f", ptDist))")
+
+        let lineDist = LineGeometry.distanceToPoint(
+            linePoint: .zero, lineDirection: SIMD3(1, 0, 0), point: SIMD3(5, 3, 0))
+        descriptions.append("Line→pt dist=\(String(format: "%.1f", lineDist))")
+
+        // --- Bezier surface control point manipulation ---
+        let poles: [[SIMD3<Double>]] = [
+            [SIMD3(0, 0, 0), SIMD3(10, 0, 0), SIMD3(20, 0, 0)],
+            [SIMD3(0, 10, 0), SIMD3(10, 10, 5), SIMD3(20, 10, 0)],
+            [SIMD3(0, 20, 0), SIMD3(10, 20, 0), SIMD3(20, 20, 0)]
+        ]
+        if let bezSurf = Surface.bezier(poles: poles) {
+            let props = bezSurf.bezierProperties
+            descriptions.append("Bezier: \(props.nbUPoles)×\(props.nbVPoles) deg \(props.uDegree)×\(props.vDegree)")
+
+            // Show surface evaluation grid
+            var surfPts: [[SIMD3<Float>]] = []
+            for ui in 0...10 {
+                var row: [SIMD3<Float>] = []
+                for vi in 0...10 {
+                    let u = Double(ui) / 10.0
+                    let v = Double(vi) / 10.0
+                    let pt = bezSurf.point(atU: u, v: v)
+                    row.append(SIMD3<Float>(Float(pt.x) + 25, Float(pt.y), Float(pt.z)))
+                }
+                surfPts.append(row)
+            }
+            // Add U-direction lines
+            for row in surfPts {
+                bodies.append(ViewportBody(id: "v119-surf-u-\(row[0].y)", vertexData: [], indices: [],
+                    edges: [row], color: SIMD4(0.3, 0.7, 0.9, 0.8)))
+            }
+            // Add V-direction lines
+            for vi in 0...10 {
+                let col = surfPts.map { $0[vi] }
+                bodies.append(ViewportBody(id: "v119-surf-v-\(vi)", vertexData: [], indices: [],
+                    edges: [col], color: SIMD4(0.3, 0.9, 0.5, 0.8)))
+            }
+
+            // Show control points
+            for row in poles {
+                for p in row {
+                    bodies.append(makeMarker(at: SIMD3<Float>(Float(p.x) + 25, Float(p.y), Float(p.z)),
+                        radius: 0.5, id: "v119-cp-\(p.x)-\(p.y)", color: SIMD4(1, 0.3, 0.1, 1)))
+                }
+            }
+        }
+
+        return Curve2DGallery.GalleryResult(
+            bodies: bodies,
+            description: descriptions.joined(separator: " | ")
+        )
+    }
+
+    // MARK: - v0.120: Continuity Analysis, Reversed Surfaces, Vector Utilities
+
+    /// Demonstrates curve/surface continuity checking, reversed parameter mapping,
+    /// and vector cross magnitude/direction tests.
+    static func v120ContinuityAndVectors() -> Curve2DGallery.GalleryResult {
+        var bodies: [ViewportBody] = []
+        var descriptions: [String] = []
+
+        // --- Curve continuity ---
+        if let circle = Curve3D.circle(center: .zero, normal: SIMD3(0, 0, 1), radius: 8) {
+            let cn = circle.continuityOrder
+            let isC2 = circle.isCN(2)
+            descriptions.append("Circle: C\(cn) isCN(2)=\(isC2)")
+
+            // Reversed parameter
+            let t = 1.0
+            let revT = circle.reversedParameter(t)
+            descriptions.append("RevParam: t=\(t)→\(String(format: "%.3f", revT))")
+
+            // Show circle
+            let domain = circle.domain
+            var pts: [SIMD3<Float>] = []
+            for i in 0...60 {
+                let u = domain.lowerBound + (domain.upperBound - domain.lowerBound) * Double(i) / 60.0
+                let p = circle.point(at: u)
+                pts.append(SIMD3<Float>(Float(p.x) - 20, Float(p.y), Float(p.z)))
+            }
+            bodies.append(ViewportBody(id: "v120-circle", vertexData: [], indices: [],
+                edges: [pts], color: SIMD4(0.3, 0.7, 1, 1)))
+        }
+
+        // --- 2D curve continuity ---
+        if let line2d = Curve2D.line(through: SIMD2(0, 0), direction: SIMD2(1, 1)) {
+            let cn2d = line2d.continuityOrder
+            descriptions.append("Line2D: C\(cn2d)")
+        }
+
+        // --- Surface continuity ---
+        if let plane = Surface.plane(origin: .zero, normal: SIMD3(0, 0, 1)) {
+            let cnu = plane.isCNu(2)
+            let cnv = plane.isCNv(2)
+            descriptions.append("Plane: CNu(2)=\(cnu) CNv(2)=\(cnv)")
+        }
+
+        // --- Surface reversed ---
+        if let sphere = Surface.sphere(center: .zero, radius: 10) {
+            if let uRev = sphere.uReversed() {
+                let origPt = sphere.point(atU: 0.5, v: 0.5)
+                let revU = sphere.uReversedParameter(0.5)
+                let revPt = uRev.point(atU: revU, v: 0.5)
+                let dist = sqrt(pow(origPt.x - revPt.x, 2) + pow(origPt.y - revPt.y, 2) + pow(origPt.z - revPt.z, 2))
+                descriptions.append("URev: dist=\(String(format: "%.6f", dist)) (expect 0)")
+            }
+        }
+
+        // --- Vector utilities ---
+        let v1 = SIMD3<Double>(1, 0, 0)
+        let v2 = SIMD3<Double>(0, 1, 0)
+        let crossMag = Shape.vecCrossMagnitude(v1, v2)
+        descriptions.append("|v1×v2|=\(String(format: "%.1f", crossMag))")
+
+        let isOpp = Shape.dirIsOpposite(SIMD3(1, 0, 0), SIMD3(-1, 0, 0))
+        let isNorm = Shape.dirIsNormal(SIMD3(1, 0, 0), SIMD3(0, 1, 0))
+        descriptions.append("Opposite=\(isOpp) Normal=\(isNorm)")
+
+        // --- Bezier/BSpline max degrees (static) ---
+        let bezMax = Curve3D.bezierMaxDegree
+        let bspMax = Curve3D.bsplineMaxDegree
+        descriptions.append("MaxDeg: Bezier=\(bezMax) BSpline=\(bspMax)")
+
+        return Curve2DGallery.GalleryResult(
+            bodies: bodies,
+            description: descriptions.joined(separator: " | ")
+        )
+    }
+
+    // MARK: - v0.121: FilletBuilder, ChamferBuilder, GLTF, BSpline Completions
+
+    /// Demonstrates FilletBuilder, ChamferBuilder, and BSpline queries.
+    static func v121FilletChamferAndBSpline() -> Curve2DGallery.GalleryResult {
+        var bodies: [ViewportBody] = []
+        var descriptions: [String] = []
+
+        // --- FilletBuilder: selective edge filleting ---
+        if let box = Shape.box(width: 30, height: 20, depth: 15) {
+            let boxEdges = box.edges()
+
+            if let builder = FilletBuilder(shape: box), boxEdges.count >= 2 {
+                builder.addEdge(boxEdges[0], radius: 2.0)
+                builder.addEdge(boxEdges[1], radius: 3.0)
+                if let filleted = builder.build() {
+                    if let b = CADFileLoader.shapeToBodyAndMetadata(filleted, id: "v121-fillet", color: SIMD4(0.4, 0.7, 0.9, 0.9)).0 {
+                        bodies.append(b)
+                    }
+                    descriptions.append("Fillet: \(builder.contourCount) contours, hasResult=\(builder.hasResult)")
+                }
+            }
+        }
+
+        // --- ChamferBuilder ---
+        if let box = Shape.box(width: 25, height: 25, depth: 15) {
+            let boxEdges = box.edges()
+            if let builder = ChamferBuilder(shape: box), boxEdges.count >= 1 {
+                builder.addEdge(boxEdges[0], distance: 2.0)
+                if let chamfered = builder.build() {
+                    if var b = CADFileLoader.shapeToBodyAndMetadata(chamfered, id: "v121-chamfer", color: SIMD4(0.9, 0.7, 0.3, 0.9)).0 {
+                        offsetBody(&b, dx: 35, dy: 0, dz: 0)
+                        bodies.append(b)
+                    }
+                    descriptions.append("Chamfer: \(builder.contourCount) contours")
+                }
+            }
+        }
+
+        // --- BSpline info ---
+        if let bspline = Curve3D.interpolate(points: [
+            SIMD3(0, 0, 0), SIMD3(5, 5, 0), SIMD3(10, 0, 0),
+            SIMD3(15, -5, 0), SIMD3(20, 0, 0)
+        ]) {
+            let domain = bspline.domain
+            var pts: [SIMD3<Float>] = []
+            for i in 0...40 {
+                let t = domain.lowerBound + (domain.upperBound - domain.lowerBound) * Double(i) / 40.0
+                let p = bspline.point(at: t)
+                pts.append(SIMD3<Float>(Float(p.x) - 20, Float(p.y), Float(p.z)))
+            }
+            bodies.append(ViewportBody(id: "v121-bsp", vertexData: [], indices: [],
+                edges: [pts], color: SIMD4(0.3, 0.7, 1, 1)))
+            let props = bspline.bspline
+            descriptions.append("BSpline: deg=\(props.degree) poles=\(props.poleCount) knots=\(props.knotCount)")
+        }
+
+        descriptions.append("GLTF: import/export Shape & Document supported")
+
+        return Curve2DGallery.GalleryResult(
+            bodies: bodies,
+            description: descriptions.joined(separator: " | ")
+        )
+    }
+
+    // MARK: - v0.122: WireFixer Extended, ShapeFix_Edge, BRepTools/BRepLib, Sewing
+
+    /// Demonstrates wire fixing, edge repair, BRepTools utilities,
+    /// sewing queries, and shape topology operations.
+    static func v122WireFixAndRepair() -> Curve2DGallery.GalleryResult {
+        var bodies: [ViewportBody] = []
+        var descriptions: [String] = []
+
+        // --- WireFixer extended operations ---
+        if let box = Shape.box(width: 20, height: 20, depth: 20),
+           let filleted = box.filleted(radius: 2.0) {
+            // Get a face and its wire for the fixer
+            let faces = filleted.subShapes(ofType: .face)
+            let wireShapes = filleted.subShapes(ofType: .wire)
+            if let face = faces.first, let wireShape = wireShapes.first,
+               let fixer = WireFixer(wire: wireShape, face: face, precision: 1e-4) {
+                fixer.fixGaps2d()
+                fixer.fixShifted()
+                fixer.fixNotchedEdges()
+                if let fixed = fixer.wire {
+                    if var b = CADFileLoader.shapeToBodyAndMetadata(fixed, id: "v122-fixed-wire", color: SIMD4(0.2, 0.9, 0.4, 1)).0 {
+                        offsetBody(&b, dx: -30, dy: 0, dz: 0)
+                        bodies.append(b)
+                    }
+                }
+                descriptions.append("WireFixer: gaps2d + shifted + notched")
+            }
+
+            // Show the filleted shape
+            if var b = CADFileLoader.shapeToBodyAndMetadata(filleted, id: "v122-shape", color: SIMD4(0.5, 0.65, 0.8, 0.5)).0 {
+                offsetBody(&b, dx: -30, dy: 0, dz: 0)
+                bodies.append(b)
+            }
+        }
+
+        // --- BRepTools: clean triangulation, remove internals, closedness detection ---
+        if let cyl = Shape.cylinder(radius: 10, height: 30) {
+            // Mesh it first, then clean
+            let _ = cyl.mesh(linearDeflection: 0.5)
+            let beforeNodes = cyl.triangulationNodeCount
+            cyl.cleanTriangulation()
+            let afterNodes = cyl.triangulationNodeCount
+            descriptions.append("Clean: nodes \(beforeNodes)→\(afterNodes)")
+
+            // Detect closedness
+            let faces = cyl.subShapes(ofType: .face)
+            if let cylFace = faces.first {
+                let closed = cylFace.detectClosedness()
+                descriptions.append("Cyl face: closedU=\(closed.isClosedU) closedV=\(closed.isClosedV)")
+            }
+
+            if var b = CADFileLoader.shapeToBodyAndMetadata(cyl, id: "v122-cyl", color: SIMD4(0.6, 0.7, 0.85, 0.7)).0 {
+                bodies.append(b)
+            }
+        }
+
+        // --- BRepLib: buildCurves3dAll, sameParameter ---
+        if let box = Shape.box(width: 15, height: 15, depth: 15) {
+            let built = box.buildCurves3dAll()
+            descriptions.append("BuildCurves3d: \(built)")
+        }
+
+        // --- Sewing extended ---
+        if let box1 = Shape.box(width: 20, height: 20, depth: 10),
+           let box2 = Shape.box(origin: SIMD3(20.0, 0.0, 0.0), width: 20, height: 20, depth: 10),
+           let sewing = SewingBuilder(tolerance: 1e-3) {
+            sewing.load(box1)
+            sewing.load(box2)
+            sewing.setNonManifoldMode(false)
+            sewing.perform()
+            if let sewn = sewing.result {
+                if var b = CADFileLoader.shapeToBodyAndMetadata(sewn, id: "v122-sewn", color: SIMD4(0.7, 0.8, 0.5, 0.8)).0 {
+                    offsetBody(&b, dx: 35, dy: 0, dz: 0)
+                    bodies.append(b)
+                }
+                let nDel = sewing.nbDeletedFaces
+                descriptions.append("Sewing: \(sewn.subShapeCount(ofType: .face)) faces, \(nDel) deleted")
+            }
+        }
+
+        // --- ShapeFix_Edge ---
+        if let box = Shape.box(width: 10, height: 10, depth: 10) {
+            let edges = box.subShapes(ofType: .edge)
+            let faces = box.subShapes(ofType: .face)
+            if let edge = edges.first, let face = faces.first {
+                let hasCurve = Shape.fixEdgeAddCurve3d(edge)
+                descriptions.append("FixEdge addCurve3d=\(hasCurve)")
+            }
+        }
+
+        // --- History extended ---
+        descriptions.append("History: merge, replaceGenerated/Modified, query shapes")
+
+        return Curve2DGallery.GalleryResult(
+            bodies: bodies,
+            description: descriptions.joined(separator: " | ")
+        )
+    }
+
+    // MARK: - v0.123: UnifySameDomain, Section Ops, PipeShell Simulate, Builder Extensions
+
+    /// Demonstrates UnifySameDomain face merging, boolean section with ancestor tracking,
+    /// PipeShell simulation of intermediate cross-sections, and ThruSections parameterization.
+    static func v123BuilderAndSectionOps() -> Curve2DGallery.GalleryResult {
+        var bodies: [ViewportBody] = []
+        var descriptions: [String] = []
+
+        // --- UnifySameDomain: merge co-planar faces ---
+        if let box1 = Shape.box(width: 10, height: 20, depth: 10),
+           let box2 = Shape.box(origin: SIMD3(10.0, 0.0, 0.0), width: 10, height: 20, depth: 10),
+           let fused = box1.union(with: box2) {
+            let beforeFaces = fused.subShapeCount(ofType: .face)
+
+            // Show fused (before unification)
+            if var b = CADFileLoader.shapeToBodyAndMetadata(fused, id: "v123-fused", color: SIMD4(0.7, 0.5, 0.5, 0.5)).0 {
+                offsetBody(&b, dx: -50, dy: 0, dz: 0)
+                bodies.append(b)
+            }
+
+            let unifier = UnifySameDomainBuilder(shape: fused)
+            unifier.build()
+            if let unified = unifier.shape {
+                let afterFaces = unified.subShapeCount(ofType: .face)
+                if var b = CADFileLoader.shapeToBodyAndMetadata(unified, id: "v123-unified", color: SIMD4(0.4, 0.8, 0.5, 0.8)).0 {
+                    offsetBody(&b, dx: -50, dy: 0, dz: 18)
+                    bodies.append(b)
+                }
+                descriptions.append("Unify: \(beforeFaces)→\(afterFaces) faces")
+            }
+        }
+
+        // --- Section with options: intersection curves between two shapes ---
+        if let box = Shape.box(width: 30, height: 30, depth: 30),
+           let sphere = Shape.sphere(radius: 20) {
+            // Show both shapes as ghosts
+            if var b = CADFileLoader.shapeToBodyAndMetadata(box, id: "v123-sect-box", color: SIMD4(0.5, 0.6, 0.8, 0.25)).0 {
+                bodies.append(b)
+            }
+            if var b = CADFileLoader.shapeToBodyAndMetadata(sphere, id: "v123-sect-sphere", color: SIMD4(0.8, 0.5, 0.5, 0.25)).0 {
+                bodies.append(b)
+            }
+
+            // Compute section curves
+            if let section = Shape.sectionWithOptions(box, sphere) {
+                let edgeCount = section.subShapeCount(ofType: .edge)
+                // Render section edges
+                for i in 0..<section.edgeCount {
+                    if let pts = section.edgePolyline(at: i, deflection: 0.1) {
+                        let floatPts = pts.map { SIMD3<Float>(Float($0.x), Float($0.y), Float($0.z)) }
+                        if floatPts.count >= 2 {
+                            bodies.append(ViewportBody(id: "v123-sect-edge-\(i)", vertexData: [], indices: [],
+                                edges: [floatPts], color: SIMD4(1, 0.8, 0, 1)))
+                        }
+                    }
+                }
+                descriptions.append("Section: \(edgeCount) edges (box∩sphere)")
+            }
+        }
+
+        // --- PipeShell simulate: show intermediate cross-sections ---
+        if let spine = Wire.circle(origin: .zero, normal: SIMD3(0, 0, 1), radius: 15),
+           let spineShape = Shape.fromWire(spine),
+           let profile = Wire.circle(origin: SIMD3(15, 0, 0), normal: SIMD3(0, 1, 0), radius: 3),
+           let profileShape = Shape.fromWire(profile) {
+            if let builder = PipeShellBuilder(spine: spineShape) {
+                builder.setFrenet(true)
+                builder.add(profile: profileShape)
+
+                // Simulate intermediate sections
+                let sections = builder.simulate(numberOfSections: 8)
+                for (i, sect) in sections.enumerated() {
+                    if var b = CADFileLoader.shapeToBodyAndMetadata(sect, id: "v123-pipe-sect-\(i)",
+                        color: SIMD4(0.3, Float(i) / 8.0, 1.0 - Float(i) / 8.0, 0.8)).0 {
+                        offsetBody(&b, dx: 50, dy: 0, dz: 0)
+                        bodies.append(b)
+                    }
+                }
+
+                // Build the full pipe
+                if builder.build() {
+                    let status = builder.status
+                    if let pipe = builder.shape {
+                        if var b = CADFileLoader.shapeToBodyAndMetadata(pipe, id: "v123-pipe", color: SIMD4(0.5, 0.7, 0.9, 0.5)).0 {
+                            offsetBody(&b, dx: 50, dy: 0, dz: 0)
+                            bodies.append(b)
+                        }
+                        descriptions.append("PipeShell: \(sections.count) sects, status=\(status)")
+                    }
+                }
+            }
+        }
+
+        // --- ThruSections with parameterization ---
+        if let w1 = Wire.circle(origin: SIMD3(0, 0, -10), normal: SIMD3(0, 0, 1), radius: 8),
+           let w2 = Wire.rectangle(width: 8, height: 8),
+           let w3 = Wire.circle(origin: SIMD3(0, 0, 10), normal: SIMD3(0, 0, 1), radius: 6),
+           let s1 = Shape.fromWire(w1), let s2 = Shape.fromWire(w2), let s3 = Shape.fromWire(w3) {
+            let loft = ThruSectionsBuilder(isSolid: true, isRuled: false)
+            loft.checkCompatibility(true)
+            loft.addWire(s1)
+            loft.addWire(s2)
+            loft.addWire(s3)
+            if loft.build(), let shape = loft.shape {
+                if var b = CADFileLoader.shapeToBodyAndMetadata(shape, id: "v123-loft", color: SIMD4(0.6, 0.4, 0.85, 0.8)).0 {
+                    offsetBody(&b, dx: 50, dy: 40, dz: 0)
+                    bodies.append(b)
+                }
+                let vol = shape.volume ?? 0
+                descriptions.append("Loft: circle→square→circle, vol=\(String(format: "%.0f", vol))")
+            }
+        }
+
+        // --- Shape query extras ---
+        if let box = Shape.box(width: 10, height: 10, depth: 10) {
+            let typeName = box.typeName ?? "?"
+            descriptions.append("TypeName: \(typeName)")
+        }
+
+        return Curve2DGallery.GalleryResult(
+            bodies: bodies,
+            description: descriptions.joined(separator: " | ")
+        )
+    }
+
+    // MARK: - v0.124: WireAnalyzer, ChamferBuilder/FilletBuilder Completions
+
+    /// Demonstrates WireAnalyzer quality checks, ChamferBuilder query methods,
+    /// and FilletBuilder contour diagnostics.
+    static func v124WireAnalyzerAndBuilderQueries() -> Curve2DGallery.GalleryResult {
+        var bodies: [ViewportBody] = []
+        var descriptions: [String] = []
+
+        // --- WireAnalyzer: check wire quality ---
+        if let box = Shape.box(width: 30, height: 20, depth: 15),
+           let filleted = box.filleted(radius: 2.0) {
+            let faces = filleted.subShapes(ofType: .face)
+            let wires = filleted.subShapes(ofType: .wire)
+            if let face = faces.first, let wireShape = wires.first {
+                // Get the wire as a Wire type via section
+                let sectionWires = filleted.sectionWiresAtZ(0.0)
+                if let wire = sectionWires.first,
+                   let analyzer = WireAnalyzer(wire: wire, face: face) {
+                    let ok = analyzer.perform()
+                    let selfInt = analyzer.checkSelfIntersection()
+                    let closed = analyzer.checkClosed()
+                    let order = analyzer.checkOrder()
+                    let nEdges = analyzer.edgeCount
+                    let minDist = analyzer.minDistance3d
+                    let maxDist = analyzer.maxDistance3d
+                    descriptions.append("WireAnalyzer: ok=\(ok) edges=\(nEdges) selfInt=\(selfInt) closed=\(closed) order=\(order)")
+                    descriptions.append("Dist3d: min=\(String(format: "%.1e", minDist)) max=\(String(format: "%.1e", maxDist))")
+
+                    // Show the analyzed wire
+                    var wb = wireToBody(wire, id: "v124-wire", color: SIMD4(0.2, 0.9, 0.4, 1))
+                    offsetBody(&wb, dx: -35, dy: 0, dz: 0)
+                    bodies.append(wb)
+                }
+            }
+
+            // Show shape
+            if var b = CADFileLoader.shapeToBodyAndMetadata(filleted, id: "v124-shape", color: SIMD4(0.5, 0.65, 0.8, 0.4)).0 {
+                offsetBody(&b, dx: -35, dy: 0, dz: 0)
+                bodies.append(b)
+            }
+        }
+
+        // --- FilletBuilder: contour queries ---
+        if let box = Shape.box(width: 25, height: 25, depth: 15) {
+            let boxEdges = box.edges()
+            if let builder = FilletBuilder(shape: box), boxEdges.count >= 3 {
+                builder.addEdge(boxEdges[0], radius: 2.0)
+                builder.addEdge(boxEdges[1], radius: 3.0)
+                builder.addEdge(boxEdges[2], radius1: 1.0, radius2: 4.0)
+                if let filleted = builder.build() {
+                    if var b = CADFileLoader.shapeToBodyAndMetadata(filleted, id: "v124-fillet-query", color: SIMD4(0.4, 0.7, 0.9, 0.8)).0 {
+                        offsetBody(&b, dx: 0, dy: 0, dz: 0)
+                        bodies.append(b)
+                    }
+                    let nContours = builder.contourCount
+                    let nSurfaces = builder.surfaceCount
+                    var contourInfo: [String] = []
+                    for c in 1...min(nContours, 3) {
+                        let r = builder.radius(contour: c)
+                        let l = builder.length(contour: c)
+                        let isConst = builder.isConstant(contour: c)
+                        contourInfo.append("c\(c):r=\(String(format: "%.1f", r)) l=\(String(format: "%.1f", l)) const=\(isConst)")
+                    }
+                    descriptions.append("Fillet: \(nContours) contours, \(nSurfaces) surfaces")
+                    descriptions.append(contourInfo.joined(separator: " "))
+                }
+            }
+        }
+
+        // --- ChamferBuilder: query methods ---
+        if let box = Shape.box(width: 20, height: 20, depth: 12) {
+            let boxEdges = box.edges()
+            let boxFaces = box.faces()
+            if let builder = ChamferBuilder(shape: box), boxEdges.count >= 2, boxFaces.count >= 1 {
+                builder.addEdge(boxEdges[0], distance: 2.0)
+                builder.addEdge(boxEdges[1], face: boxFaces[0], distance: 3.0, angle: .pi / 6)
+                if let chamfered = builder.build() {
+                    if var b = CADFileLoader.shapeToBodyAndMetadata(chamfered, id: "v124-cham-query", color: SIMD4(0.9, 0.7, 0.3, 0.8)).0 {
+                        offsetBody(&b, dx: 35, dy: 0, dz: 0)
+                        bodies.append(b)
+                    }
+                    let nContours = builder.contourCount
+                    var info: [String] = []
+                    for c in 1...min(nContours, 2) {
+                        let isDA = builder.isDistanceAngle(contour: c)
+                        let isSym = builder.isSymmetric(contour: c)
+                        let isTwoD = builder.isTwoDistances(contour: c)
+                        info.append("c\(c):DA=\(isDA) sym=\(isSym) 2d=\(isTwoD)")
+                    }
+                    descriptions.append("Chamfer: \(nContours) contours — \(info.joined(separator: " "))")
+                }
+            }
+        }
+
+        return Curve2DGallery.GalleryResult(
+            bodies: bodies,
+            description: descriptions.joined(separator: " | ")
+        )
+    }
+
+    // MARK: - v0.125-v0.126: BSpline Deep Methods, ColorTool, ShapeTool
+
+    /// Demonstrates BSpline deep mutation/query, Bezier completions,
+    /// XDE ColorTool and ShapeTool document queries.
+    static func v125v126BSplineAndXDE() -> Curve2DGallery.GalleryResult {
+        var bodies: [ViewportBody] = []
+        var descriptions: [String] = []
+
+        // --- BSpline surface pole row/column manipulation ---
+        let poles: [[SIMD3<Double>]] = [
+            [SIMD3(0, 0, 0), SIMD3(5, 0, 0), SIMD3(10, 0, 0), SIMD3(15, 0, 0)],
+            [SIMD3(0, 5, 0), SIMD3(5, 5, 2), SIMD3(10, 5, 2), SIMD3(15, 5, 0)],
+            [SIMD3(0, 10, 0), SIMD3(5, 10, 2), SIMD3(10, 10, 2), SIMD3(15, 10, 0)],
+            [SIMD3(0, 15, 0), SIMD3(5, 15, 0), SIMD3(10, 15, 0), SIMD3(15, 15, 0)]
+        ]
+        if let bezSurf = Surface.bezier(poles: poles) {
+            // Show original surface grid
+            func surfaceGrid(_ surf: Surface, xOff: Float, color: SIMD4<Float>, prefix: String) {
+                let dom = surf.domain
+                for ui in 0...8 {
+                    var row: [SIMD3<Float>] = []
+                    let u = dom.uMin + (dom.uMax - dom.uMin) * Double(ui) / 8.0
+                    for vi in 0...8 {
+                        let v = dom.vMin + (dom.vMax - dom.vMin) * Double(vi) / 8.0
+                        let pt = surf.point(atU: u, v: v)
+                        row.append(SIMD3<Float>(Float(pt.x) + xOff, Float(pt.y), Float(pt.z)))
+                    }
+                    bodies.append(ViewportBody(id: "\(prefix)-u\(ui)", vertexData: [], indices: [],
+                        edges: [row], color: color))
+                }
+                for vi in 0...8 {
+                    var col: [SIMD3<Float>] = []
+                    let v = dom.vMin + (dom.vMax - dom.vMin) * Double(vi) / 8.0
+                    for ui in 0...8 {
+                        let u = dom.uMin + (dom.uMax - dom.uMin) * Double(ui) / 8.0
+                        let pt = surf.point(atU: u, v: v)
+                        col.append(SIMD3<Float>(Float(pt.x) + xOff, Float(pt.y), Float(pt.z)))
+                    }
+                    bodies.append(ViewportBody(id: "\(prefix)-v\(vi)", vertexData: [], indices: [],
+                        edges: [col], color: color))
+                }
+            }
+
+            // Original
+            surfaceGrid(bezSurf, xOff: -20, color: SIMD4(0.5, 0.5, 0.5, 0.6), prefix: "v125-orig")
+
+            // Modify: raise center pole via bsplineMovePoint
+            let props = bezSurf.bezierProperties
+            if props.nbUPoles >= 2 && props.nbVPoles >= 2 {
+                // Set center pole higher
+                bezSurf.bezierProperties.setPole(uIndex: 2, vIndex: 2, point: SIMD3(10, 10, 8))
+                surfaceGrid(bezSurf, xOff: 20, color: SIMD4(0.3, 0.9, 0.5, 0.8), prefix: "v125-mod")
+                descriptions.append("Bezier: raised center pole Z:2→8")
+            }
+        }
+
+        // --- BSpline curve reverse ---
+        if let bsp = Curve3D.interpolate(points: [
+            SIMD3(0, 0, 0), SIMD3(3, 4, 0), SIMD3(8, 3, 0), SIMD3(12, 6, 0), SIMD3(15, 0, 0)
+        ]) {
+            let domain = bsp.domain
+            let startPt = bsp.point(at: domain.lowerBound)
+            let endPt = bsp.point(at: domain.upperBound)
+
+            // Reverse
+            bsp.bsplineReverse()
+            let newStartPt = bsp.point(at: domain.lowerBound)
+
+            // The reversed start should be near the old end
+            let dist = sqrt(pow(newStartPt.x - endPt.x, 2) + pow(newStartPt.y - endPt.y, 2))
+            descriptions.append("BSpline reverse: start→end dist=\(String(format: "%.4f", dist))")
+
+            // Show reversed curve
+            var pts: [SIMD3<Float>] = []
+            for i in 0...40 {
+                let t = domain.lowerBound + (domain.upperBound - domain.lowerBound) * Double(i) / 40.0
+                let p = bsp.point(at: t)
+                pts.append(SIMD3<Float>(Float(p.x) + 40, Float(p.y), Float(p.z)))
+            }
+            bodies.append(ViewportBody(id: "v125-bsp-rev", vertexData: [], indices: [],
+                edges: [pts], color: SIMD4(0.9, 0.4, 0.2, 1)))
+
+            // Mark new start/end
+            bodies.append(makeMarker(at: SIMD3<Float>(Float(newStartPt.x) + 40, Float(newStartPt.y), Float(newStartPt.z)),
+                radius: 0.4, id: "v125-rev-start", color: SIMD4(0, 1, 0, 1)))
+        }
+
+        // --- XDE ColorTool ---
+        guard let doc = Document.create() else {
+            return Curve2DGallery.GalleryResult(bodies: bodies, description: descriptions.joined(separator: " | ") + " | Doc create failed")
+        }
+        let colorId = doc.colorToolAddColor(r: 0.8, g: 0.2, b: 0.1)
+        let colorCount = doc.colorToolColorCount
+        let foundId = doc.colorToolFindColor(r: 0.8, g: 0.2, b: 0.1)
+        descriptions.append("ColorTool: added id=\(colorId), count=\(colorCount), found=\(foundId)")
+
+        // --- XDE ShapeTool queries ---
+        if let box = Shape.box(width: 10, height: 10, depth: 10) {
+            let labelId = doc.addShape(box)
+            let isFree = doc.shapeToolIsFree(labelId: labelId)
+            let isSimple = doc.shapeToolIsSimpleShape(labelId: labelId)
+            let isComponent = doc.shapeToolIsComponent(labelId: labelId)
+            descriptions.append("ShapeTool: free=\(isFree) simple=\(isSimple) component=\(isComponent)")
+        }
+
+        return Curve2DGallery.GalleryResult(
+            bodies: bodies,
+            description: descriptions.joined(separator: " | ")
+        )
+    }
+
+    // MARK: - v0.130: GeomEval, Geom2dEval, PointSetLib, Gordon Surface
+
+    /// Demonstrates RC5 analytical geometry: helix/sine evaluation, spirals/involute,
+    /// point set analysis, and Gordon surface interpolation.
+    static func v130GeomEvalAndPointSet() -> Curve2DGallery.GalleryResult {
+        var bodies: [ViewportBody] = []
+        var descriptions: [String] = []
+
+        // --- GeomEval: circular helix ---
+        var helixPts: [SIMD3<Float>] = []
+        for i in 0...100 {
+            let u = Double(i) * 0.1
+            let pt = GeomEval.circularHelixD0(radius: 5, pitch: 3, u: u)
+            helixPts.append(SIMD3<Float>(Float(pt.x) - 20, Float(pt.y), Float(pt.z)))
+        }
+        bodies.append(ViewportBody(id: "v130-helix", vertexData: [], indices: [],
+            edges: [helixPts], color: SIMD4(0.3, 0.7, 1, 1)))
+        // Show derivative at midpoint
+        let helixD1 = GeomEval.circularHelixD1(radius: 5, pitch: 3, u: 5.0)
+        let base = SIMD3<Float>(Float(helixD1.point.x) - 20, Float(helixD1.point.y), Float(helixD1.point.z))
+        let tip = base + SIMD3<Float>(Float(helixD1.d1.x), Float(helixD1.d1.y), Float(helixD1.d1.z)) * 2
+        bodies.append(ViewportBody(id: "v130-helix-d1", vertexData: [], indices: [],
+            edges: [[base, tip]], color: SIMD4(1, 0.5, 0, 1)))
+        descriptions.append("Helix: r=5 p=3")
+
+        // --- GeomEval: sine wave ---
+        var sinePts: [SIMD3<Float>] = []
+        for i in 0...80 {
+            let u = Double(i) * 0.1
+            let pt = GeomEval.sineWaveD0(amplitude: 3, omega: 2, phase: 0, u: u)
+            sinePts.append(SIMD3<Float>(Float(pt.x) - 20, Float(pt.y) + 15, Float(pt.z)))
+        }
+        bodies.append(ViewportBody(id: "v130-sine", vertexData: [], indices: [],
+            edges: [sinePts], color: SIMD4(0.9, 0.3, 0.5, 1)))
+        descriptions.append("Sine: A=3 ω=2")
+
+        // --- GeomEval: ellipsoid surface ---
+        var ellPts: [[SIMD3<Float>]] = []
+        for ui in 0...16 {
+            var row: [SIMD3<Float>] = []
+            let u = Double(ui) * 2.0 * .pi / 16.0
+            for vi in 0...8 {
+                let v = -Double.pi / 2.0 + Double(vi) * .pi / 8.0
+                let pt = GeomEval.ellipsoidD0(a: 8, b: 5, c: 3, u: u, v: v)
+                row.append(SIMD3<Float>(Float(pt.x) + 20, Float(pt.y), Float(pt.z)))
+            }
+            ellPts.append(row)
+        }
+        for (i, row) in ellPts.enumerated() {
+            bodies.append(ViewportBody(id: "v130-ell-u\(i)", vertexData: [], indices: [],
+                edges: [row], color: SIMD4(0.4, 0.8, 0.5, 0.7)))
+        }
+        descriptions.append("Ellipsoid: 8×5×3")
+
+        // --- Geom2dEval: Archimedean spiral ---
+        var spiralPts: [SIMD3<Float>] = []
+        for i in 0...60 {
+            let u = Double(i) * 0.2
+            let pt = Geom2dEval.archimedeanSpiralD0(initialRadius: 1, growthRate: 0.5, u: u)
+            spiralPts.append(SIMD3<Float>(Float(pt.x) + 20, Float(pt.y) + 20, 0))
+        }
+        bodies.append(ViewportBody(id: "v130-spiral", vertexData: [], indices: [],
+            edges: [spiralPts], color: SIMD4(0.8, 0.6, 0.2, 1)))
+        descriptions.append("Spiral: r0=1 g=0.5")
+
+        // --- Geom2dEval: circle involute ---
+        var invPts: [SIMD3<Float>] = []
+        for i in 0...40 {
+            let u = Double(i) * 0.15
+            let pt = Geom2dEval.circleInvoluteD0(radius: 3, u: u)
+            invPts.append(SIMD3<Float>(Float(pt.x) - 20, Float(pt.y) + 20, 0))
+        }
+        bodies.append(ViewportBody(id: "v130-involute", vertexData: [], indices: [],
+            edges: [invPts], color: SIMD4(0.5, 0.3, 0.9, 1)))
+        descriptions.append("Involute: r=3")
+
+        // --- PointSetLib ---
+        let points: [SIMD3<Double>] = (0..<20).map { i in
+            let angle = Double(i) * 2.0 * .pi / 20.0
+            return SIMD3(5 * cos(angle), 5 * sin(angle), Double.random(in: -0.5...0.5))
+        }
+        let props = PointSetLib.properties(points: points)
+        let bary = PointSetLib.barycentre(points: points)
+        descriptions.append("PointSet: centroid=(\(String(format: "%.1f", props.centroid.x)),\(String(format: "%.1f", props.centroid.y)),\(String(format: "%.1f", props.centroid.z)))")
+
+        if let eq = PointSetLib.equation(points: points) {
+            descriptions.append("Eq: type=\(eq.type.rawValue) n=(\(String(format: "%.2f", eq.planeNormal.x)),\(String(format: "%.2f", eq.planeNormal.y)),\(String(format: "%.2f", eq.planeNormal.z)))")
+        }
+
+        // Show point cloud
+        for (i, pt) in points.enumerated() {
+            bodies.append(makeMarker(at: SIMD3<Float>(Float(pt.x), Float(pt.y) - 15, Float(pt.z)),
+                radius: 0.3, id: "v130-pt-\(i)", color: SIMD4(0.9, 0.9, 0.3, 1)))
+        }
+
+        return Curve2DGallery.GalleryResult(
+            bodies: bodies,
+            description: descriptions.joined(separator: " | ")
+        )
+    }
+
+    // MARK: - v0.131: BSplineApproxInterp, TBezier, AHTBezier, New Surfaces
+
+    /// Demonstrates advanced curve fitting, TBezier/AHTBezier curves and surfaces,
+    /// and new parametric surface factories (ellipsoid, hyperboloid, paraboloid, helicoid).
+    static func v131ApproxAndSurfaces() -> Curve2DGallery.GalleryResult {
+        var bodies: [ViewportBody] = []
+        var descriptions: [String] = []
+
+        // --- BSplineApproxInterp: fit noisy data ---
+        var fitPoints: [SIMD3<Double>] = []
+        for i in 0..<30 {
+            let t = Double(i) / 29.0 * 20.0
+            fitPoints.append(SIMD3(t, sin(t * 0.5) * 5 + Double.random(in: -0.3...0.3), 0))
+        }
+        if let approx = BSplineApproxInterp(points: fitPoints, nbControlPoints: 10,
+                                             degree: 3) {
+            // Mark specific points for interpolation
+            approx.interpolatePoint(0)
+            approx.interpolatePoint(fitPoints.count - 1)
+            approx.perform()
+            if approx.isDone, let curve = approx.curve {
+                let domain = curve.domain
+                var curvePts: [SIMD3<Float>] = []
+                for j in 0...60 {
+                    let u = domain.lowerBound + (domain.upperBound - domain.lowerBound) * Double(j) / 60.0
+                    let p = curve.point(at: u)
+                    curvePts.append(SIMD3<Float>(Float(p.x) - 30, Float(p.y), Float(p.z)))
+                }
+                bodies.append(ViewportBody(id: "v131-approx", vertexData: [], indices: [],
+                    edges: [curvePts], color: SIMD4(0.2, 0.8, 0.4, 1)))
+                descriptions.append("ApproxInterp: err=\(String(format: "%.3f", approx.maxError))")
+            }
+        }
+
+        // Show fit points
+        for (i, pt) in fitPoints.enumerated() {
+            bodies.append(makeMarker(at: SIMD3<Float>(Float(pt.x) - 30, Float(pt.y), Float(pt.z)),
+                radius: 0.2, id: "v131-fitpt-\(i)", color: SIMD4(0.8, 0.4, 0.2, 0.8)))
+        }
+
+        // --- New parametric surfaces ---
+        // Paraboloid
+        if let parab = Surface.paraboloid(focal: 2) {
+            var pts: [[SIMD3<Float>]] = []
+            for ui in 0...10 {
+                var row: [SIMD3<Float>] = []
+                let u = -3.0 + Double(ui) * 0.6
+                for vi in 0...10 {
+                    let v = Double(vi) * 2.0 * .pi / 10.0
+                    let pt = parab.point(atU: u, v: v)
+                    row.append(SIMD3<Float>(Float(pt.x) + 15, Float(pt.y), Float(pt.z)))
+                }
+                pts.append(row)
+            }
+            for (i, row) in pts.enumerated() {
+                bodies.append(ViewportBody(id: "v131-parab-\(i)", vertexData: [], indices: [],
+                    edges: [row], color: SIMD4(0.5, 0.7, 0.9, 0.7)))
+            }
+            descriptions.append("Paraboloid: f=2")
+        }
+
+        // Circular helicoid surface
+        if let helicoid = Surface.circularHelicoid(pitch: 4) {
+            var pts: [[SIMD3<Float>]] = []
+            for ui in 0...12 {
+                var row: [SIMD3<Float>] = []
+                let u = Double(ui) * 2.0 * .pi / 12.0
+                for vi in 0...6 {
+                    let v = 1.0 + Double(vi) * 1.0
+                    let pt = helicoid.point(atU: u, v: v)
+                    row.append(SIMD3<Float>(Float(pt.x) + 40, Float(pt.y), Float(pt.z)))
+                }
+                pts.append(row)
+            }
+            for (i, row) in pts.enumerated() {
+                bodies.append(ViewportBody(id: "v131-helicoid-\(i)", vertexData: [], indices: [],
+                    edges: [row], color: SIMD4(0.9, 0.5, 0.3, 0.7)))
+            }
+            descriptions.append("Helicoid: pitch=4")
+        }
+
+        // --- TBezier curve (2D) ---
+        let tbPoles: [SIMD2<Double>] = [
+            SIMD2(0, 0), SIMD2(3, 5), SIMD2(7, 4), SIMD2(10, 0)
+        ]
+        if let tbCurve = Curve2D.tBezier(poles: tbPoles, alpha: 1.0) {
+            let domain = tbCurve.domain
+            var pts: [SIMD3<Float>] = []
+            for i in 0...40 {
+                let t = domain.lowerBound + (domain.upperBound - domain.lowerBound) * Double(i) / 40.0
+                let p = tbCurve.point(at: t)
+                pts.append(SIMD3<Float>(Float(p.x) - 30, Float(p.y) + 15, 0))
+            }
+            bodies.append(ViewportBody(id: "v131-tbezier", vertexData: [], indices: [],
+                edges: [pts], color: SIMD4(0.3, 0.5, 1, 1)))
+            descriptions.append("TBezier2D: alpha=1")
+        }
+
+        // --- Circular helix as Curve3D ---
+        if let helix = Curve3D.circularHelix(radius: 4, pitch: 2) {
+            let domain = helix.domain
+            var pts: [SIMD3<Float>] = []
+            let range = min(domain.upperBound, 6.0 * .pi)
+            for i in 0...80 {
+                let t = domain.lowerBound + range * Double(i) / 80.0
+                let p = helix.point(at: t)
+                pts.append(SIMD3<Float>(Float(p.x) - 5, Float(p.y) - 20, Float(p.z)))
+            }
+            bodies.append(ViewportBody(id: "v131-chelix", vertexData: [], indices: [],
+                edges: [pts], color: SIMD4(0.7, 0.3, 0.9, 1)))
+            descriptions.append("CircHelix: r=4 p=2")
+        }
+
+        // --- Sine wave as Curve3D ---
+        if let sine = Curve3D.sineWave(amplitude: 3, omega: 2) {
+            let domain = sine.domain
+            var pts: [SIMD3<Float>] = []
+            let range = min(domain.upperBound - domain.lowerBound, 4.0 * .pi)
+            for i in 0...60 {
+                let t = domain.lowerBound + range * Double(i) / 60.0
+                let p = sine.point(at: t)
+                pts.append(SIMD3<Float>(Float(p.x) + 15, Float(p.y) - 20, Float(p.z)))
+            }
+            bodies.append(ViewportBody(id: "v131-sine3d", vertexData: [], indices: [],
+                edges: [pts], color: SIMD4(0.2, 0.9, 0.6, 1)))
+            descriptions.append("Sine3D: A=3 ω=2")
+        }
+
+        return Curve2DGallery.GalleryResult(
+            bodies: bodies,
+            description: descriptions.joined(separator: " | ")
+        )
+    }
 }
