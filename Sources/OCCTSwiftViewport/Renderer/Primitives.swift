@@ -114,7 +114,7 @@ extension ViewportBody {
         id: String,
         radius: Float = 0.5,
         height: Float = 1,
-        segments: Int = 32,
+        segments: Int = 64,
         color: SIMD4<Float> = SIMD4<Float>(0.8, 0.8, 0.8, 1.0)
     ) -> ViewportBody {
         let hh = height * 0.5
@@ -215,8 +215,8 @@ extension ViewportBody {
     public static func sphere(
         id: String,
         radius: Float = 0.5,
-        segments: Int = 32,
-        rings: Int = 16,
+        segments: Int = 48,
+        rings: Int = 32,
         color: SIMD4<Float> = SIMD4<Float>(0.8, 0.8, 0.8, 1.0)
     ) -> ViewportBody {
         var verts: [Float] = []

@@ -3253,7 +3253,7 @@ enum OCCT8Gallery {
         if polylines.isEmpty, let shape = Shape.fromWire(wire) {
             let count = shape.edgeCount
             for i in 0..<count {
-                if let pts = shape.edgePolyline(at: i, deflection: 0.1) {
+                if let pts = shape.edgePolyline(at: i, deflection: 0.005) {
                     let floatPts = pts.map { SIMD3<Float>(Float($0.x), Float($0.y), Float($0.z)) }
                     if floatPts.count >= 2 {
                         polylines.append(floatPts)
@@ -4230,7 +4230,7 @@ enum OCCT8Gallery {
             ) {
                 // Render trimmed edges
                 for (i, edgeShape) in [(0, result.edge1), (1, result.edge2)].enumerated() {
-                    let polylines = edgeShape.1.allEdgePolylines(deflection: 0.05)
+                    let polylines = edgeShape.1.allEdgePolylines(deflection: 0.005)
                     for pl in polylines {
                         let floatPts = pl.map { SIMD3<Float>(Float($0.x), Float($0.y), Float($0.z)) + filletOffset }
                         if floatPts.count >= 2 {
@@ -4240,7 +4240,7 @@ enum OCCT8Gallery {
                     }
                 }
                 // Render fillet arc
-                let filletPolylines = result.fillet.allEdgePolylines(deflection: 0.02)
+                let filletPolylines = result.fillet.allEdgePolylines(deflection: 0.005)
                 for pl in filletPolylines {
                     let floatPts = pl.map { SIMD3<Float>(Float($0.x), Float($0.y), Float($0.z)) + filletOffset }
                     if floatPts.count >= 2 {
@@ -4342,7 +4342,7 @@ enum OCCT8Gallery {
             SIMD2(0, 0), SIMD2(6, 0), SIMD2(6, 6), SIMD2(0, 6)
         ])!) {
             if let offsetShape = Shape.offsetWire(face: face.faces().first!, offset: -1.0) {
-                let polylines = offsetShape.allEdgePolylines(deflection: 0.05)
+                let polylines = offsetShape.allEdgePolylines(deflection: 0.005)
                 for (i, pl) in polylines.enumerated() {
                     let offset = SIMD3<Float>(10, 12, 0)
                     let floatPts = pl.map { SIMD3<Float>(Float($0.x), Float($0.y), Float($0.z)) + offset }
@@ -4352,7 +4352,7 @@ enum OCCT8Gallery {
                     }
                 }
                 // Show original outline too
-                let origPolylines = face.allEdgePolylines(deflection: 0.05)
+                let origPolylines = face.allEdgePolylines(deflection: 0.005)
                 for (i, pl) in origPolylines.enumerated() {
                     let offset = SIMD3<Float>(10, 12, 0)
                     let floatPts = pl.map { SIMD3<Float>(Float($0.x), Float($0.y), Float($0.z)) + offset }
@@ -4376,7 +4376,7 @@ enum OCCT8Gallery {
             ) {
                 let filletOffset = SIMD3<Float>(20, 12, 0)
                 for (i, edgeShape) in [(0, result.edge1), (1, result.edge2)].enumerated() {
-                    let polylines = edgeShape.1.allEdgePolylines(deflection: 0.02)
+                    let polylines = edgeShape.1.allEdgePolylines(deflection: 0.005)
                     for pl in polylines {
                         let floatPts = pl.map { SIMD3<Float>(Float($0.x), Float($0.y), Float($0.z)) + filletOffset }
                         if floatPts.count >= 2 {
@@ -4385,7 +4385,7 @@ enum OCCT8Gallery {
                         }
                     }
                 }
-                let arcPolylines = result.fillet.allEdgePolylines(deflection: 0.01)
+                let arcPolylines = result.fillet.allEdgePolylines(deflection: 0.005)
                 for pl in arcPolylines {
                     let floatPts = pl.map { SIMD3<Float>(Float($0.x), Float($0.y), Float($0.z)) + filletOffset }
                     if floatPts.count >= 2 {
@@ -5559,7 +5559,7 @@ enum OCCT8Gallery {
                         // Extract edges from the intersection curve
                         let edgeCount = curve.edgeCount
                         for e in 0..<edgeCount {
-                            if let pts = curve.edgePolyline(at: e, deflection: 0.05) {
+                            if let pts = curve.edgePolyline(at: e, deflection: 0.005) {
                                 let floatPts = pts.map { SIMD3<Float>(Float($0.x), Float($0.y), Float($0.z)) }
                                 if floatPts.count >= 2 {
                                     var body = polylineToBody(floatPts, id: "intcurve-\(i)-\(e)",
@@ -7688,7 +7688,7 @@ enum OCCT8Gallery {
         // --- VRML export ---
         if let box = Shape.box(width: 3, height: 3, depth: 3) {
             let tmpURL = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("test.wrl")
-            let wrote = box.writeVRML(to: tmpURL, version: 2, deflection: 0.01)
+            let wrote = box.writeVRML(to: tmpURL, version: 2, deflection: 0.005)
             descriptions.append("VRML write: \(wrote)")
             try? FileManager.default.removeItem(at: tmpURL)
 
@@ -12583,7 +12583,7 @@ enum OCCT8Gallery {
                 let edgeCount = section.subShapeCount(ofType: .edge)
                 // Render section edges
                 for i in 0..<section.edgeCount {
-                    if let pts = section.edgePolyline(at: i, deflection: 0.1) {
+                    if let pts = section.edgePolyline(at: i, deflection: 0.005) {
                         let floatPts = pts.map { SIMD3<Float>(Float($0.x), Float($0.y), Float($0.z)) }
                         if floatPts.count >= 2 {
                             bodies.append(ViewportBody(id: "v123-sect-edge-\(i)", vertexData: [], indices: [],
@@ -13099,6 +13099,398 @@ enum OCCT8Gallery {
                 edges: [pts], color: SIMD4(0.2, 0.9, 0.6, 1)))
             descriptions.append("Sine3D: A=3 ω=2")
         }
+
+        return Curve2DGallery.GalleryResult(
+            bodies: bodies,
+            description: descriptions.joined(separator: " | ")
+        )
+    }
+
+    // MARK: - v0.132: BRepGraph Topology Graph — Core
+
+    /// Demonstrates TopologyGraph: build from shape, adjacency queries, boundary/manifold
+    /// edge classification, validation, compaction, deduplication, and stats.
+    static func v132TopologyGraphCore() -> Curve2DGallery.GalleryResult {
+        var bodies: [ViewportBody] = []
+        var descriptions: [String] = []
+
+        // Build a filleted box — rich topology with curved and flat faces
+        guard let box = Shape.box(width: 8, height: 5, depth: 6) else {
+            return Curve2DGallery.GalleryResult(bodies: [], description: "Box creation failed")
+        }
+        let filleted = box.filleted(radius: 0.8) ?? box
+
+        guard let graph = TopologyGraph(shape: filleted) else {
+            return Curve2DGallery.GalleryResult(bodies: [], description: "TopologyGraph init failed")
+        }
+
+        let st = graph.stats
+        descriptions.append("Graph: \(st.faces)F \(st.edges)E \(st.vertices)V \(st.wires)W")
+        descriptions.append("Geo: \(st.surfaces)S \(st.curves3D)C3 \(st.curves2D)C2")
+
+        // Colour faces by adjacency count — more neighbours = warmer colour
+        let faces = filleted.subShapes(ofType: .face)
+        for (fi, face) in faces.enumerated() {
+            let adj = graph.adjacentFaces(of: fi)
+            let t = Float(adj.count) / max(Float(st.faces), 1.0)
+            let color = SIMD4<Float>(0.3 + t * 0.6, 0.5 * (1.0 - t), 0.8 * (1.0 - t), 1.0)
+            let (body, _) = CADFileLoader.shapeToBodyAndMetadata(
+                face, id: "v132-face-\(fi)", color: color
+            )
+            if let body { bodies.append(body) }
+        }
+
+        // Highlight boundary edges (red) vs manifold edges (green)
+        var boundaryCount = 0
+        var manifoldCount = 0
+        for ei in 0..<graph.edgeCount {
+            if graph.isRemoved(nodeKind: .edge, nodeIndex: ei) { continue }
+            let isBoundary = graph.isBoundaryEdge(ei)
+            if isBoundary { boundaryCount += 1 } else { manifoldCount += 1 }
+
+            if let edgeShape = graph.shape(nodeKind: .edge, nodeIndex: ei) {
+                let edgeCount = edgeShape.edgeCount
+                for e in 0..<edgeCount {
+                    if let pts = edgeShape.edgePolyline(at: e, deflection: 0.005) {
+                        let floatPts = pts.map { SIMD3<Float>(Float($0.x), Float($0.y), Float($0.z)) }
+                        let color: SIMD4<Float> = isBoundary
+                            ? SIMD4(1.0, 0.2, 0.2, 1.0)
+                            : SIMD4(0.2, 0.8, 0.2, 1.0)
+                        bodies.append(ViewportBody(id: "v132-edge-\(ei)", vertexData: [], indices: [],
+                            edges: [floatPts], color: color))
+                    }
+                }
+            }
+        }
+        descriptions.append("Edges: \(boundaryCount) boundary, \(manifoldCount) manifold")
+
+        // Shared edges between face 0 and its first neighbour
+        let adj0 = graph.adjacentFaces(of: 0)
+        if let neighbour = adj0.first {
+            let shared = graph.sharedEdges(between: 0, and: neighbour)
+            descriptions.append("F0↔F\(neighbour): \(shared.count) shared edges")
+        }
+
+        // Validation
+        let val = graph.validate()
+        descriptions.append("Valid=\(val.isValid) err=\(val.errorCount)")
+
+        // Compaction
+        let comp = graph.compact()
+        descriptions.append("Compact: \(comp.nodesAfter) nodes")
+
+        // Deduplication
+        let dedup = graph.deduplicate()
+        descriptions.append("Dedup: \(dedup.surfaceRewrites)S \(dedup.curveRewrites)C rewrites")
+
+        return Curve2DGallery.GalleryResult(
+            bodies: bodies,
+            description: descriptions.joined(separator: " | ")
+        )
+    }
+
+    // MARK: - v0.133: BRepGraph Extended — Geometry, Reconstruction & History
+
+    /// Demonstrates shape reconstruction from graph nodes, vertex/edge/face geometry queries,
+    /// coedge (half-edge) inspection, wire closure, copy and translate, history tracking.
+    static func v133GraphGeometryAndHistory() -> Curve2DGallery.GalleryResult {
+        var bodies: [ViewportBody] = []
+        var descriptions: [String] = []
+
+        // Build a cylinder with a hole — interesting topology
+        guard let cyl = Shape.cylinder(radius: 4, height: 8),
+              let hole = Shape.cylinder(radius: 1.5, height: 10) else {
+            return Curve2DGallery.GalleryResult(bodies: [], description: "Shape creation failed")
+        }
+        let drilled = cyl.subtracting(hole) ?? cyl
+
+        guard let graph = TopologyGraph(shape: drilled) else {
+            return Curve2DGallery.GalleryResult(bodies: [], description: "TopologyGraph init failed")
+        }
+
+        // Show original shape (translucent gray)
+        let (origBody, _) = CADFileLoader.shapeToBodyAndMetadata(
+            drilled, id: "v133-orig", color: SIMD4(0.7, 0.7, 0.7, 0.6)
+        )
+        if let origBody { bodies.append(origBody) }
+
+        // Vertex positions — mark all vertices as small spheres
+        var vertexDesc = "Verts=\(graph.vertexCount)"
+        for vi in 0..<min(graph.vertexCount, 30) {
+            if graph.isRemoved(nodeKind: .vertex, nodeIndex: vi) { continue }
+            let pt = graph.vertexPoint(vi)
+            let tol = graph.vertexTolerance(vi)
+            bodies.append(makeMarker(
+                at: SIMD3<Float>(Float(pt.x), Float(pt.y), Float(pt.z)),
+                radius: Float(max(tol * 100, 0.15)),
+                id: "v133-vert-\(vi)",
+                color: SIMD4(1.0, 1.0, 0.2, 1.0)
+            ))
+        }
+
+        // Edge geometry info
+        var degenCount = 0
+        var closedEdges = 0
+        for ei in 0..<graph.edgeCount {
+            if graph.isRemoved(nodeKind: .edge, nodeIndex: ei) { continue }
+            if graph.isEdgeDegenerated(ei) { degenCount += 1 }
+            if graph.isEdgeClosed(ei) { closedEdges += 1 }
+        }
+        descriptions.append(vertexDesc)
+        descriptions.append("Edges: \(graph.edgeCount) (\(degenCount) degen, \(closedEdges) closed)")
+
+        // Face geometry: check surfaces and triangulations
+        var hasSurf = 0
+        var hasTri = 0
+        for fi in 0..<graph.faceCount {
+            if graph.isRemoved(nodeKind: .face, nodeIndex: fi) { continue }
+            if graph.faceHasSurface(fi) { hasSurf += 1 }
+            if graph.faceHasTriangulation(fi) { hasTri += 1 }
+        }
+        descriptions.append("Faces: \(hasSurf) surf, \(hasTri) tri")
+
+        // Wire closure
+        var closedWires = 0
+        for wi in 0..<graph.wireCount {
+            if graph.isWireClosed(wi) { closedWires += 1 }
+        }
+        descriptions.append("Wires: \(graph.wireCount) (\(closedWires) closed)")
+
+        // CoEdge inspection
+        if graph.coedgeCount > 0 {
+            let ce0edge = graph.coedgeEdge(0)
+            let ce0face = graph.coedgeFace(0)
+            let hasPCurve = graph.coedgeHasPCurve(0)
+            descriptions.append("CoEdge0: edge=\(ce0edge) face=\(ce0face) pcurve=\(hasPCurve)")
+        }
+
+        // Shape reconstruction: recover face 0 from graph and show it offset
+        if let face0shape = graph.shape(nodeKind: .face, nodeIndex: 0) {
+            let (body, _) = CADFileLoader.shapeToBodyAndMetadata(
+                face0shape, id: "v133-reconstructed", color: SIMD4(0.3, 0.9, 0.4, 1.0)
+            )
+            if var body {
+                offsetBody(&body, dx: 12, dy: 0, dz: 0)
+                bodies.append(body)
+            }
+            descriptions.append("Reconstructed face 0")
+        }
+
+        // Copy + translate
+        if let translated = graph.translated(dx: -12, dy: 0, dz: 0) {
+            let translatedStats = translated.stats
+            descriptions.append("Copy: \(translatedStats.faces)F \(translatedStats.edges)E")
+            // Reconstruct and show
+            if let root = translated.rootNodes.first,
+               let translatedShape = translated.shape(nodeKind: root.kind, nodeIndex: root.index) {
+                let (body, _) = CADFileLoader.shapeToBodyAndMetadata(
+                    translatedShape, id: "v133-translated", color: SIMD4(0.4, 0.6, 1.0, 1.0)
+                )
+                if let body { bodies.append(body) }
+            }
+        }
+
+        // History
+        graph.isHistoryEnabled = true
+        descriptions.append("History: \(graph.historyRecordCount) records")
+
+        return Curve2DGallery.GalleryResult(
+            bodies: bodies,
+            description: descriptions.joined(separator: " | ")
+        )
+    }
+
+    // MARK: - v0.134: BRepGraph Assembly, Refs & Deep Topology
+
+    /// Demonstrates product/occurrence queries, reference navigation, edge start/end vertices,
+    /// shell closure, and face/edge definition queries on an assembly.
+    static func v134AssemblyAndRefs() -> Curve2DGallery.GalleryResult {
+        var bodies: [ViewportBody] = []
+        var descriptions: [String] = []
+
+        // Build a compound of two shapes — simulates an assembly
+        guard let plate = Shape.box(width: 10, height: 1, depth: 6),
+              let boss = Shape.cylinder(radius: 1.5, height: 3) else {
+            return Curve2DGallery.GalleryResult(bodies: [], description: "Shape creation failed")
+        }
+        let bossUp = boss.translated(by: SIMD3<Double>(3, 1, 0)) ?? boss
+        let assembly = plate.union(with: bossUp) ?? plate
+
+        guard let graph = TopologyGraph(shape: assembly) else {
+            return Curve2DGallery.GalleryResult(bodies: [], description: "TopologyGraph init failed")
+        }
+
+        descriptions.append("Products: \(graph.productCount) Occ: \(graph.occurrenceCount)")
+
+        // Ref counts
+        descriptions.append("Refs: shell=\(graph.shellRefCount) face=\(graph.faceRefCount) wire=\(graph.wireRefCount) coedge=\(graph.coedgeRefCount)")
+
+        // Show faces coloured by their shell membership
+        let faceColors: [SIMD4<Float>] = [
+            SIMD4(0.4, 0.7, 1.0, 1.0),   // shell 0 — blue
+            SIMD4(1.0, 0.6, 0.3, 1.0),   // shell 1 — orange
+            SIMD4(0.5, 0.9, 0.4, 1.0),   // shell 2 — green
+            SIMD4(0.9, 0.4, 0.8, 1.0),   // other — purple
+        ]
+        for fi in 0..<graph.faceCount {
+            if graph.isRemoved(nodeKind: .face, nodeIndex: fi) { continue }
+            let shells = graph.faceShells(fi)
+            let shellIdx = shells.first ?? 0
+            let color = faceColors[min(shellIdx, faceColors.count - 1)]
+            if let faceShape = graph.shape(nodeKind: .face, nodeIndex: fi) {
+                let (body, _) = CADFileLoader.shapeToBodyAndMetadata(
+                    faceShape, id: "v134-face-\(fi)", color: color
+                )
+                if let body { bodies.append(body) }
+            }
+        }
+
+        // Edge start/end vertex analysis
+        var edgesWithEndpoints = 0
+        for ei in 0..<min(graph.edgeCount, 50) {
+            if graph.isRemoved(nodeKind: .edge, nodeIndex: ei) { continue }
+            if let startV = graph.edgeStartVertex(ei),
+               let endV = graph.edgeEndVertex(ei) {
+                edgesWithEndpoints += 1
+                // Mark start vertices green, end vertices red (first 10 edges only)
+                if ei < 10 {
+                    let sp = graph.vertexPoint(startV)
+                    let ep = graph.vertexPoint(endV)
+                    bodies.append(makeMarker(
+                        at: SIMD3<Float>(Float(sp.x), Float(sp.y), Float(sp.z)),
+                        radius: 0.12, id: "v134-sv-\(ei)", color: SIMD4(0.2, 1.0, 0.2, 1.0)))
+                    bodies.append(makeMarker(
+                        at: SIMD3<Float>(Float(ep.x), Float(ep.y), Float(ep.z)),
+                        radius: 0.12, id: "v134-ev-\(ei)", color: SIMD4(1.0, 0.2, 0.2, 1.0)))
+                }
+            }
+        }
+        descriptions.append("Edges w/ endpoints: \(edgesWithEndpoints)")
+
+        // Shell closure
+        var closedShells = 0
+        for si in 0..<graph.shellCount {
+            if graph.isShellClosed(si) { closedShells += 1 }
+        }
+        descriptions.append("Shells: \(graph.shellCount) (\(closedShells) closed)")
+
+        // Face wire counts
+        if graph.faceCount > 0 {
+            let wc = graph.faceWireCount(0)
+            descriptions.append("Face0: \(wc) wires")
+        }
+
+        // Edge coedge relationship
+        if graph.edgeCount > 0 {
+            let coedges = graph.edgeCoEdges(0)
+            descriptions.append("Edge0: \(coedges.count) coedges")
+        }
+
+        return Curve2DGallery.GalleryResult(
+            bodies: bodies,
+            description: descriptions.joined(separator: " | ")
+        )
+    }
+
+    // MARK: - v0.135: BRepGraph Builder — Construction & Mutation
+
+    /// Demonstrates graph builder: add vertices/shells/solids, append shapes,
+    /// split edges, remove subgraphs, deferred mutation, and validation.
+    static func v135GraphBuilder() -> Curve2DGallery.GalleryResult {
+        var bodies: [ViewportBody] = []
+        var descriptions: [String] = []
+
+        // Start with a box
+        guard let box = Shape.box(width: 6, height: 4, depth: 3) else {
+            return Curve2DGallery.GalleryResult(bodies: [], description: "Box creation failed")
+        }
+
+        guard let graph = TopologyGraph(shape: box) else {
+            return Curve2DGallery.GalleryResult(bodies: [], description: "TopologyGraph init failed")
+        }
+
+        let initialStats = graph.stats
+        descriptions.append("Initial: \(initialStats.faces)F \(initialStats.edges)E \(initialStats.vertices)V")
+
+        // Show original box
+        let (origBody, _) = CADFileLoader.shapeToBodyAndMetadata(
+            box, id: "v135-orig", color: SIMD4(0.6, 0.6, 0.8, 0.5)
+        )
+        if let origBody { bodies.append(origBody) }
+
+        // Add standalone vertices
+        if let v0 = graph.addVertex(x: 0, y: 6, z: 0, tolerance: 1e-6),
+           let v1 = graph.addVertex(x: 3, y: 7, z: 1.5, tolerance: 1e-6),
+           let v2 = graph.addVertex(x: 6, y: 6, z: 0, tolerance: 1e-6) {
+            descriptions.append("Added verts: \(v0),\(v1),\(v2)")
+
+            // Show added vertices as markers
+            let pts: [(Int, SIMD3<Double>)] = [
+                (v0, SIMD3(0, 6, 0)), (v1, SIMD3(3, 7, 1.5)), (v2, SIMD3(6, 6, 0))
+            ]
+            for (idx, pt) in pts {
+                bodies.append(makeMarker(
+                    at: SIMD3<Float>(Float(pt.x), Float(pt.y), Float(pt.z)),
+                    radius: 0.2, id: "v135-addv-\(idx)",
+                    color: SIMD4(1.0, 0.8, 0.2, 1.0)
+                ))
+            }
+        }
+
+        // Append another shape into the graph
+        if let sphere = Shape.sphere(radius: 1.5) {
+            let sphereMoved = sphere.translated(by: SIMD3<Double>(10, 2, 0)) ?? sphere
+            graph.appendFlattenedShape(sphereMoved)
+            let afterAppend = graph.stats
+            descriptions.append("After append: \(afterAppend.faces)F \(afterAppend.edges)E")
+
+            // Show the appended sphere
+            let (sBody, _) = CADFileLoader.shapeToBodyAndMetadata(
+                sphereMoved, id: "v135-appended", color: SIMD4(0.3, 0.9, 0.5, 1.0)
+            )
+            if let sBody { bodies.append(sBody) }
+        }
+
+        // Deferred mutation mode
+        graph.beginDeferredInvalidation()
+        descriptions.append("Deferred=\(graph.isDeferredMode)")
+
+        // Add shell + solid
+        if let shellIdx = graph.addShell(),
+           let solidIdx = graph.addSolid() {
+            descriptions.append("Added shell=\(shellIdx) solid=\(solidIdx)")
+        }
+
+        graph.endDeferredInvalidation()
+
+        // Edge split demo: split first edge
+        if graph.edgeCount > 0 {
+            let range = graph.edgeRange(0)
+            let midParam = (range.first + range.last) / 2.0
+            // Need a vertex at the split point
+            if let splitV = graph.addVertex(x: 0, y: 0, z: 0, tolerance: 1e-6) {
+                if let result = graph.splitEdge(edgeIndex: 0, vertexIndex: splitV, param: midParam) {
+                    descriptions.append("Split edge0 → sub(\(result.subA),\(result.subB))")
+                } else {
+                    descriptions.append("Split edge0: not supported")
+                }
+            }
+        }
+
+        // Remove a face subgraph (removes face + its wires + edges)
+        let beforeRemove = graph.activeFaceCount
+        if graph.faceCount > 2 {
+            graph.removeSubgraph(nodeKind: .face, nodeIndex: graph.faceCount - 1)
+            descriptions.append("Remove face: \(beforeRemove)→\(graph.activeFaceCount) active")
+        }
+
+        // Validate mutation
+        let mutValid = graph.validateMutation()
+        descriptions.append("MutValid=\(mutValid)")
+
+        // Final stats
+        let finalStats = graph.stats
+        descriptions.append("Final: \(finalStats.totalNodes) nodes")
 
         return Curve2DGallery.GalleryResult(
             bodies: bodies,

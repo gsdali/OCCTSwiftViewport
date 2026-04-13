@@ -231,18 +231,53 @@ public enum CADFileLoader {
 
     // MARK: - Shape → Body Conversion
 
+    /// High-quality mesh parameters for smooth curved surface rendering (no GPU tessellation).
+    public static let highQualityMeshParams: MeshParameters = {
+        var p = MeshParameters.default
+        p.deflection = 0.03          // 3× finer than default 0.1
+        p.angle = 0.2                // ~11° (vs default 0.5 rad ≈ 29°)
+        p.angleInterior = 0.2        // Match interior B-spline quality
+        p.controlSurfaceDeflection = true
+        p.inParallel = true
+        return p
+    }()
+
+    /// Moderate mesh parameters for GPU tessellation (PN triangles).
+    /// Balanced: enough triangles for good normals, large enough for visible PN displacement.
+    public static let tessellationMeshParams: MeshParameters = {
+        var p = MeshParameters.default
+        p.deflection = 0.1           // OCCT default — moderate triangle density
+        p.angle = 0.35               // ~20° — good normal quality for PN patches
+        p.controlSurfaceDeflection = true
+        p.inParallel = true
+        return p
+    }()
+
     /// Converts an OCCTSwift Shape to a ViewportBody and optional metadata.
     /// - Parameter stl: If true, uses coarser deflection suitable for pre-tessellated STL data
     /// - Parameter deflection: Custom linear deflection override. Lower = smoother (default 0.1, STL uses 1.0).
+    /// - Parameter gpuTessellation: If true, uses coarser CPU mesh (GPU PN triangles will refine).
     public static func shapeToBodyAndMetadata(
         _ shape: Shape,
         id bodyID: String,
         color rgba: SIMD4<Float>,
         stl: Bool = false,
-        deflection customDeflection: Double? = nil
+        deflection customDeflection: Double? = nil,
+        gpuTessellation: Bool = false
     ) -> (ViewportBody?, CADBodyMetadata?) {
-        let deflection: Double = customDeflection ?? (stl ? 1.0 : 0.1)
-        guard let mesh = shape.mesh(linearDeflection: deflection) else {
+        let mesh: Mesh?
+        if let customDeflection {
+            mesh = shape.mesh(linearDeflection: customDeflection)
+        } else if stl {
+            mesh = shape.mesh(linearDeflection: 1.0)
+        } else if gpuTessellation {
+            // Coarser CPU mesh — GPU PN tessellation will refine
+            mesh = shape.mesh(parameters: tessellationMeshParams)
+        } else {
+            // Default: fine CPU mesh for smooth rendering without GPU tessellation.
+            mesh = shape.mesh(parameters: highQualityMeshParams)
+        }
+        guard let mesh else {
             let edgePolylines = extractEdgePolylines(from: shape)
             if !edgePolylines.isEmpty {
                 let edges = edgePolylines.map { $0.points }
@@ -278,6 +313,10 @@ public enum CADFileLoader {
         }
 
         let indices = mesh.indices
+
+        // Apply crease-aware normal smoothing for smooth curved surfaces
+        NormalSmoothing.smoothNormals(vertexData: &vertexData, indices: indices)
+
         let edgePolylines = extractEdgePolylines(from: shape)
         let edges = edgePolylines.map { $0.points }
         let uniqueVerts = deduplicateVertices(from: edgePolylines)
@@ -303,7 +342,7 @@ public enum CADFileLoader {
         result.reserveCapacity(count)
 
         for i in 0..<count {
-            guard let polyline = shape.edgePolyline(at: i, deflection: 0.1) else { continue }
+            guard let polyline = shape.edgePolyline(at: i, deflection: 0.005) else { continue }
             let floatPoints = polyline.map { SIMD3<Float>(Float($0.x), Float($0.y), Float($0.z)) }
             guard floatPoints.count >= 2 else { continue }
             result.append((edgeIndex: i, points: floatPoints))

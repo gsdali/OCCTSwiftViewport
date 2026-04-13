@@ -284,6 +284,7 @@ struct SpikeView: View {
                 shadowSection
                 dofSection
                 taaSection
+                debugRenderingSection
             }
 
             statusSection
@@ -803,6 +804,7 @@ struct SpikeView: View {
         case v121FilletChamfer, v122WireFixRepair, v123BuilderAndSection
         case v124WireAnalyzer, v125v126BSplineAndXDE
         case v130GeomEval, v131ApproxAndSurfaces
+        case v132TopologyGraph, v133GraphGeometry, v134AssemblyRefs, v135GraphBuilder
     }
 
     // MARK: - OCCT 8 Sub-groups
@@ -956,6 +958,10 @@ struct SpikeView: View {
         Button("v0.125-126 BSpline & XDE") { loadOCCT8Demo(.v125v126BSplineAndXDE) }
         Button("v0.130 GeomEval & PointSet") { loadOCCT8Demo(.v130GeomEval) }
         Button("v0.131 Approx & Surfaces") { loadOCCT8Demo(.v131ApproxAndSurfaces) }
+        Button("v0.132 Topology Graph") { loadOCCT8Demo(.v132TopologyGraph) }
+        Button("v0.133 Graph Geometry") { loadOCCT8Demo(.v133GraphGeometry) }
+        Button("v0.134 Assembly & Refs") { loadOCCT8Demo(.v134AssemblyRefs) }
+        Button("v0.135 Graph Builder") { loadOCCT8Demo(.v135GraphBuilder) }
     }
 
     private func loadOCCT8Demo(_ demo: OCCT8Demo) {
@@ -1218,6 +1224,14 @@ struct SpikeView: View {
             result = OCCT8Gallery.v130GeomEvalAndPointSet()
         case .v131ApproxAndSurfaces:
             result = OCCT8Gallery.v131ApproxAndSurfaces()
+        case .v132TopologyGraph:
+            result = OCCT8Gallery.v132TopologyGraphCore()
+        case .v133GraphGeometry:
+            result = OCCT8Gallery.v133GraphGeometryAndHistory()
+        case .v134AssemblyRefs:
+            result = OCCT8Gallery.v134AssemblyAndRefs()
+        case .v135GraphBuilder:
+            result = OCCT8Gallery.v135GraphBuilder()
         }
 
         bodies = result.bodies
@@ -1584,6 +1598,31 @@ struct SpikeView: View {
                     Slider(value: $controller.taaBlendFactor, in: 0.5...0.98)
                 }
             }
+        }
+    }
+
+    private var debugRenderingSection: some View {
+        Section("Debug Rendering") {
+            Toggle("1. Disable SSAO + Silhouettes", isOn: Binding(
+                get: { !controller.lightingConfiguration.enableSSAO && !controller.configuration.enableSilhouettes },
+                set: { disabled in
+                    controller.lightingConfiguration.enableSSAO = !disabled
+                }
+            ))
+            Toggle("2. Disable Edges (Shaded Only)", isOn: Binding(
+                get: { controller.displayMode == .shaded },
+                set: { shadedOnly in
+                    controller.displayMode = shadedOnly ? .shaded : .shadedWithEdges
+                }
+            ))
+            Toggle("3. Disable Shadows", isOn: Binding(
+                get: { !controller.lightingConfiguration.shadowsEnabled },
+                set: { disabled in
+                    controller.lightingConfiguration.shadowsEnabled = !disabled
+                }
+            ))
+            Toggle("4. Disable Curvature", isOn: $controller.debugDisableCurvature)
+            Toggle("5. Disable Tessellation", isOn: $controller.debugDisableTessellation)
         }
     }
 

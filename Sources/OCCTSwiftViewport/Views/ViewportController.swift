@@ -92,6 +92,12 @@ public final class ViewportController: ObservableObject {
     /// Maximum DoF blur radius in pixels.
     @Published public var dofMaxBlurRadius: Float = 8.0
 
+    /// Debug: disable screen-space curvature enhancement in shaded fragment.
+    @Published public var debugDisableCurvature: Bool = false
+
+    /// Debug: disable GPU tessellation (fall back to standard triangles).
+    @Published public var debugDisableTessellation: Bool = false
+
     /// Whether temporal anti-aliasing is enabled.
     @Published public var enableTAA: Bool = false
 

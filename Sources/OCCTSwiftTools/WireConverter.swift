@@ -32,7 +32,7 @@ public enum WireConverter {
         if polylines.isEmpty, let shape = Shape.fromWire(wire) {
             let count = shape.edgeCount
             for i in 0..<count {
-                if let pts = shape.edgePolyline(at: i, deflection: 0.1) {
+                if let pts = shape.edgePolyline(at: i, deflection: 0.005) {
                     let floatPts = pts.map { SIMD3<Float>(Float($0.x), Float($0.y), Float($0.z)) }
                     if floatPts.count >= 2 {
                         polylines.append(floatPts)

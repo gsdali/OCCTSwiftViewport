@@ -21,6 +21,8 @@ targets:
       - path: Sources/OCCTSwiftMetalDemo
     dependencies:
       - package: OCCTSwiftViewport
+      - package: OCCTSwiftViewport
+        product: OCCTSwiftTools
       - package: OCCTSwift
         product: OCCTSwift
     settings:
@@ -33,6 +35,7 @@ targets:
         GENERATE_INFOPLIST_FILE: YES
         SWIFT_STRICT_CONCURRENCY: complete
         OTHER_LDFLAGS: ["-weak_framework", "AVKit"]
+        DEVELOPMENT_TEAM: 6D6BN844NR
       configs:
         debug:
           SWIFT_OPTIMIZATION_LEVEL: "-Onone"

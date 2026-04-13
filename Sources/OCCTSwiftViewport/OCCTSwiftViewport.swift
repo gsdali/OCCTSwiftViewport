@@ -94,6 +94,7 @@ public typealias _GestureConfiguration = GestureConfiguration
 public typealias _GestureAction = GestureAction
 public typealias _ViewCubePosition = ViewCubePosition
 public typealias _ClipPlane = ClipPlane
+public typealias _RenderingQuality = RenderingQuality
 
 // Display
 public typealias _DisplayMode = DisplayMode

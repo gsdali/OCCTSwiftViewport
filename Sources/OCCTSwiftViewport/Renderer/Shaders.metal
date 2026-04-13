@@ -359,12 +359,13 @@ fragment ShadedFragmentOut shaded_fragment(
     // Screen-space curvature: brightens convex edges, darkens concave creases
     // Uses fragment derivatives of the world normal to detect surface curvature.
     // Suppressed at mesh boundaries where derivatives are discontinuous.
-    {
+    // shadowParams2.z > 0.5 = debug disable curvature
+    if (uniforms.shadowParams2.z < 0.5) {
         float3 dx = dfdx(N);
         float3 dy = dfdy(N);
         float derivMag = length(dx) + length(dy);
         // Only apply curvature where derivatives are smooth (not at triangle seams)
-        if (derivMag < 1.5) {
+        if (derivMag < 1.0) {
             float3 xneg = N - dx;
             float3 xpos = N + dx;
             float3 yneg = N - dy;
@@ -372,7 +373,7 @@ fragment ShadedFragmentOut shaded_fragment(
             float depth = in.clipPositionCopy.w;
             float curvature = (cross(xneg, xpos).y - cross(yneg, ypos).x) * 4.0 / max(depth, 0.01);
             // Smooth falloff near the derivative threshold to avoid hard transitions
-            float strength = 0.15 * smoothstep(1.5, 0.5, derivMag);
+            float strength = 0.2 * smoothstep(1.0, 0.3, derivMag);
             curvature = clamp(curvature, -1.0, 1.0);
             litColor *= 1.0 + curvature * strength;
         }
@@ -553,12 +554,8 @@ fragment WireframeFragmentOut wireframe_fragment(
 
     // Contrast-adaptive edge color: light edges on dark bodies, dark edges on light bodies
     float luminance = dot(bodyColor, float3(0.299, 0.587, 0.114));
-    // At intensity 1.0: darkEdge = bodyColor*0.4, lightEdge = bodyColor*0.5+0.5 (original)
-    // At higher intensity: push edges darker/more contrasting
-    float darkMul = mix(0.4, 0.15, saturate(edgeIntensity - 1.0));
-    float3 darkEdge = max(bodyColor * darkMul, float3(0.1));
-    float lightMul = mix(0.5, 0.3, saturate(edgeIntensity - 1.0));
-    float3 lightEdge = bodyColor * lightMul + (1.0 - lightMul);
+    float3 darkEdge = max(bodyColor * 0.25, float3(0.08));
+    float3 lightEdge = bodyColor * 0.4 + 0.6;
     float3 edgeColor = mix(lightEdge, darkEdge, smoothstep(0.3, 0.6, luminance));
 
     // Depth-based edge alpha: near edges fully opaque, far edges fade
@@ -567,9 +564,8 @@ fragment WireframeFragmentOut wireframe_fragment(
     float clipZ = in.clipPositionCopy.z;
     float clipW = in.clipPositionCopy.w;
     float linearDepth = saturate((clipZ / clipW - nearPlane / farPlane) / (1.0 - nearPlane / farPlane));
-    // At intensity 1.0: alpha fades from 1.0 to 0.3 (original)
-    // At higher intensity: minimum alpha stays higher
-    float minAlpha = mix(0.3, 0.8, saturate(edgeIntensity - 1.0));
+    // edgeIntensity: 0 = invisible, 1 = normal, 2 = fully opaque at all depths
+    float minAlpha = mix(0.2, 1.0, saturate(edgeIntensity));
     float edgeAlpha = mix(1.0, minAlpha, linearDepth) * saturate(edgeIntensity);
 
     WireframeFragmentOut out;
@@ -774,8 +770,9 @@ fragment float4 ssao_fragment(
         // Normalize by center depth to make edges depth-invariant
         float edgeMag = sqrt(sobelX * sobelX + sobelY * sobelY) / max(linearDepth, 0.01);
 
-        // Threshold and scale
-        result_edge = smoothstep(0.02, 0.15, edgeMag) * params.silhouetteIntensity;
+        // Threshold: raised to ignore subtle tessellation sub-triangle depth steps.
+        // Only major feature edges (creases, silhouettes against background) trigger.
+        result_edge = smoothstep(0.08, 0.4, edgeMag) * params.silhouetteIntensity;
     }
 
     // --- Depth Unsharp Masking ---
@@ -1110,3 +1107,577 @@ kernel void brdf_integration(
     B /= float(SAMPLE_COUNT);
     lut.write(float4(A, B, 0.0, 1.0), gid);
 }
+
+// =====================================================================
+// MARK: - Hardware Tessellation (PN Triangles)
+// =====================================================================
+
+// Per-patch data: 10 Bezier control points + 3 corner normals + face index
+// Uses packed_float3 (12 bytes, alignment 4) to avoid float3's 16-byte padding.
+// Total: 13 * 12 + 4 + 4 = 164 bytes per patch.
+struct PNPatchData {
+    packed_float3 b300, b030, b003;           // Corner positions
+    packed_float3 b210, b120, b201, b102, b021, b012; // Edge control points
+    packed_float3 b111;                        // Center control point
+    packed_float3 n200, n020, n002;           // Corner normals
+    int32_t faceIndex;                         // For picking
+    float _pad;                                // Alignment to 168? No — 164 is 4-aligned
+};
+
+// Tessellation factor parameters
+struct TessFactorParams {
+    float4x4 viewProjectionMatrix;
+    float2 viewportSize;
+    float targetEdgePixels;    // Target pixels per edge (default 16)
+    float maxFactor;           // Max tessellation factor (default 16)
+};
+
+// --- Compute kernel: Build PN triangle patches from triangle mesh ---
+
+kernel void compute_pn_patches(
+    device float*       vertices     [[buffer(0)]],  // stride 6: px,py,pz,nx,ny,nz
+    device uint32_t*    indices      [[buffer(1)]],  // 3 per triangle
+    device PNPatchData* patches      [[buffer(2)]],  // output: 1 per triangle
+    device int32_t*     faceIndices  [[buffer(3)]],  // per-triangle face index
+    constant uint&      triangleCount [[buffer(4)]],
+    uint gid [[thread_position_in_grid]]
+) {
+    if (gid >= triangleCount) return;
+
+    // Read triangle vertex data
+    uint i0 = indices[gid * 3];
+    uint i1 = indices[gid * 3 + 1];
+    uint i2 = indices[gid * 3 + 2];
+
+    float3 p0 = float3(vertices[i0*6], vertices[i0*6+1], vertices[i0*6+2]);
+    float3 p1 = float3(vertices[i1*6], vertices[i1*6+1], vertices[i1*6+2]);
+    float3 p2 = float3(vertices[i2*6], vertices[i2*6+1], vertices[i2*6+2]);
+
+    float3 n0 = normalize(float3(vertices[i0*6+3], vertices[i0*6+4], vertices[i0*6+5]));
+    float3 n1 = normalize(float3(vertices[i1*6+3], vertices[i1*6+4], vertices[i1*6+5]));
+    float3 n2 = normalize(float3(vertices[i2*6+3], vertices[i2*6+4], vertices[i2*6+5]));
+
+    // Corner control points
+    float3 b300 = p0;
+    float3 b030 = p1;
+    float3 b003 = p2;
+
+    // Crease detection: if normals differ by more than ~30 degrees along an edge,
+    // keep that edge flat (linear interpolation) to prevent scalloping artifacts
+    // at sharp feature edges like cylinder-side-to-cap transitions.
+    float creaseThreshold = 0.866; // cos(30°)
+    bool edge01_smooth = dot(n0, n1) > creaseThreshold;
+    bool edge02_smooth = dot(n0, n2) > creaseThreshold;
+    bool edge12_smooth = dot(n1, n2) > creaseThreshold;
+
+    // Linear 1/3 and 2/3 points for flat edges
+    float3 lin_b210 = (2.0 * p0 + p1) / 3.0;
+    float3 lin_b120 = (p0 + 2.0 * p1) / 3.0;
+    float3 lin_b201 = (2.0 * p0 + p2) / 3.0;
+    float3 lin_b102 = (p0 + 2.0 * p2) / 3.0;
+    float3 lin_b021 = (2.0 * p1 + p2) / 3.0;
+    float3 lin_b012 = (p1 + 2.0 * p2) / 3.0;
+
+    // Edge control points: project 1/3 and 2/3 edge points onto tangent planes
+    // wij = dot(pj - pi, ni)  =>  bij = (2*pi + pj - wij*ni) / 3
+    float3 b210, b120, b201, b102, b021, b012;
+
+    // PN amplification: 1.0 = mathematically correct PN triangles.
+    // Higher values exaggerate curvature (useful for coarse meshes).
+    float pnScale = 1.0;
+
+    if (edge01_smooth) {
+        float w01 = dot(p1 - p0, n0) * pnScale;
+        float w10 = dot(p0 - p1, n1) * pnScale;
+        b210 = (2.0 * p0 + p1 - w01 * n0) / 3.0;
+        b120 = (2.0 * p1 + p0 - w10 * n1) / 3.0;
+    } else {
+        b210 = lin_b210;
+        b120 = lin_b120;
+    }
+
+    if (edge02_smooth) {
+        float w02 = dot(p2 - p0, n0) * pnScale;
+        float w20 = dot(p0 - p2, n2) * pnScale;
+        b201 = (2.0 * p0 + p2 - w02 * n0) / 3.0;
+        b102 = (2.0 * p2 + p0 - w20 * n2) / 3.0;
+    } else {
+        b201 = lin_b201;
+        b102 = lin_b102;
+    }
+
+    if (edge12_smooth) {
+        float w12 = dot(p2 - p1, n1) * pnScale;
+        float w21 = dot(p1 - p2, n2) * pnScale;
+        b021 = (2.0 * p1 + p2 - w12 * n1) / 3.0;
+        b012 = (2.0 * p2 + p1 - w21 * n2) / 3.0;
+    } else {
+        b021 = lin_b021;
+        b012 = lin_b012;
+    }
+
+    // Center control point with correction
+    float3 E = (b210 + b120 + b201 + b102 + b021 + b012) / 6.0;
+    float3 V = (p0 + p1 + p2) / 3.0;
+    float3 b111 = E + (E - V) * 0.5;
+
+    // Write patch
+    PNPatchData patch;
+    patch.b300 = b300; patch.b030 = b030; patch.b003 = b003;
+    patch.b210 = b210; patch.b120 = b120;
+    patch.b201 = b201; patch.b102 = b102;
+    patch.b021 = b021; patch.b012 = b012;
+    patch.b111 = b111;
+    patch.n200 = n0; patch.n020 = n1; patch.n002 = n2;
+    patch.faceIndex = faceIndices[gid];
+    patches[gid] = patch;
+}
+
+// --- Compute kernel: Adaptive tessellation factors ---
+
+kernel void compute_tess_factors(
+    device PNPatchData*                          patches  [[buffer(0)]],
+    device MTLTriangleTessellationFactorsHalf*   factors  [[buffer(1)]],
+    constant TessFactorParams&                   params   [[buffer(2)]],
+    constant uint&                               patchCount [[buffer(3)]],
+    uint gid [[thread_position_in_grid]]
+) {
+    if (gid >= patchCount) return;
+
+    PNPatchData patch = patches[gid];
+
+    // Project corners to screen space
+    float4 c0 = params.viewProjectionMatrix * float4(patch.b300, 1.0);
+    float4 c1 = params.viewProjectionMatrix * float4(patch.b030, 1.0);
+    float4 c2 = params.viewProjectionMatrix * float4(patch.b003, 1.0);
+
+    // NDC → pixel coordinates
+    float2 s0 = (c0.xy / c0.w * 0.5 + 0.5) * params.viewportSize;
+    float2 s1 = (c1.xy / c1.w * 0.5 + 0.5) * params.viewportSize;
+    float2 s2 = (c2.xy / c2.w * 0.5 + 0.5) * params.viewportSize;
+
+    // Edge lengths in pixels
+    float e0 = length(s1 - s2); // edge opposite vertex 0
+    float e1 = length(s0 - s2); // edge opposite vertex 1
+    float e2 = length(s0 - s1); // edge opposite vertex 2
+
+    // Curvature boost: if normals differ, the surface is curved and needs more subdivision.
+    // Even small normal differences produce visible silhouette faceting.
+    float nd01 = 1.0 - dot(patch.n200, patch.n020);
+    float nd02 = 1.0 - dot(patch.n200, patch.n002);
+    float nd12 = 1.0 - dot(patch.n020, patch.n002);
+
+    // Aggressive curvature boost: flat triangles get factor 1, curved get up to 4x
+    float curvBoost2 = 1.0 + nd01 * 8.0; // edge 2 (v0-v1)
+    float curvBoost0 = 1.0 + nd12 * 8.0; // edge 0 (v1-v2)
+    float curvBoost1 = 1.0 + nd02 * 8.0; // edge 1 (v0-v2)
+
+    float target = max(params.targetEdgePixels, 1.0);
+    float maxF = params.maxFactor;
+
+    // Edge factors
+    half f0 = half(clamp(e0 * curvBoost0 / target, 1.0, maxF));
+    half f1 = half(clamp(e1 * curvBoost1 / target, 1.0, maxF));
+    half f2 = half(clamp(e2 * curvBoost2 / target, 1.0, maxF));
+
+    // Inside factor: average of edge factors
+    half fInside = half(clamp(float(f0 + f1 + f2) / 3.0, 1.0, maxF));
+
+    // Handle degenerate/behind-camera patches: if any w <= 0, use factor 1
+    if (c0.w <= 0.001 || c1.w <= 0.001 || c2.w <= 0.001) {
+        f0 = 1; f1 = 1; f2 = 1; fInside = 1;
+    }
+
+    MTLTriangleTessellationFactorsHalf tf;
+    tf.edgeTessellationFactor[0] = f0;
+    tf.edgeTessellationFactor[1] = f1;
+    tf.edgeTessellationFactor[2] = f2;
+    tf.insideTessellationFactor = fInside;
+    factors[gid] = tf;
+}
+
+// --- Post-tessellation vertex function: evaluate PN triangle ---
+
+[[patch(triangle, 3)]]
+vertex ShadedVertexOut tessellated_vertex(
+    uint patchID [[patch_id]],
+    float3 bary [[position_in_patch]],
+    device PNPatchData* patches [[buffer(0)]],
+    constant Uniforms& uniforms [[buffer(1)]]
+) {
+    PNPatchData p = patches[patchID];
+
+    float u = bary.x;  // weight for b300 (vertex 0)
+    float v = bary.y;  // weight for b030 (vertex 1)
+    float w = bary.z;  // weight for b003 (vertex 2)
+
+    float uu = u * u;
+    float vv = v * v;
+    float ww = w * w;
+
+    // Evaluate cubic Bezier triangle
+    float3 pos = p.b300 * uu * u
+               + p.b030 * vv * v
+               + p.b003 * ww * w
+               + p.b210 * 3.0 * uu * v
+               + p.b120 * 3.0 * u * vv
+               + p.b201 * 3.0 * uu * w
+               + p.b102 * 3.0 * u * ww
+               + p.b021 * 3.0 * vv * w
+               + p.b012 * 3.0 * v * ww
+               + p.b111 * 6.0 * u * v * w;
+
+    // Quadratically interpolate normals
+    float3 normal = normalize(p.n200 * u + p.n020 * v + p.n002 * w);
+
+    // Transform to world space
+    float4 worldPos = uniforms.modelMatrix * float4(pos, 1.0);
+
+    ShadedVertexOut out;
+    out.clipPosition = uniforms.viewProjectionMatrix * worldPos;
+    out.worldNormal = normalize((uniforms.modelMatrix * float4(normal, 0.0)).xyz);
+    out.worldPosition = worldPos.xyz;
+    out.viewNormal = normalize((uniforms.viewMatrix * uniforms.modelMatrix * float4(normal, 0.0)).xyz);
+    out.clipPositionCopy = out.clipPosition;
+    return out;
+}
+
+// --- Post-tessellation shadow vertex ---
+
+[[patch(triangle, 3)]]
+vertex ShadowVertexOut tessellated_shadow_vertex(
+    uint patchID [[patch_id]],
+    float3 bary [[position_in_patch]],
+    device PNPatchData* patches [[buffer(0)]],
+    constant ShadowUniforms& uniforms [[buffer(1)]]
+) {
+    PNPatchData p = patches[patchID];
+    float u = bary.x, v = bary.y, w = bary.z;
+    float uu = u*u, vv = v*v, ww = w*w;
+
+    float3 pos = p.b300*uu*u + p.b030*vv*v + p.b003*ww*w
+               + p.b210*3.0*uu*v + p.b120*3.0*u*vv
+               + p.b201*3.0*uu*w + p.b102*3.0*u*ww
+               + p.b021*3.0*vv*w + p.b012*3.0*v*ww
+               + p.b111*6.0*u*v*w;
+
+    float4 worldPos = uniforms.modelMatrix * float4(pos, 1.0);
+    ShadowVertexOut out;
+    out.clipPosition = uniforms.lightViewProjectionMatrix * worldPos;
+    return out;
+}
+
+// --- Post-tessellation depth-only vertex ---
+
+[[patch(triangle, 3)]]
+vertex PickVertexOut tessellated_depth_vertex(
+    uint patchID [[patch_id]],
+    float3 bary [[position_in_patch]],
+    device PNPatchData* patches [[buffer(0)]],
+    constant Uniforms& uniforms [[buffer(1)]]
+) {
+    PNPatchData p = patches[patchID];
+    float u = bary.x, v = bary.y, w = bary.z;
+    float uu = u*u, vv = v*v, ww = w*w;
+
+    float3 pos = p.b300*uu*u + p.b030*vv*v + p.b003*ww*w
+               + p.b210*3.0*uu*v + p.b120*3.0*u*vv
+               + p.b201*3.0*uu*w + p.b102*3.0*u*ww
+               + p.b021*3.0*vv*w + p.b012*3.0*v*ww
+               + p.b111*6.0*u*v*w;
+
+    float4 worldPos = uniforms.modelMatrix * float4(pos, 1.0);
+    PickVertexOut out;
+    out.clipPosition = uniforms.viewProjectionMatrix * worldPos;
+    return out;
+}
+
+// --- Post-tessellation pick vertex ---
+
+struct TessPatchPickVertexOut {
+    float4 clipPosition [[position]];
+    int32_t faceIndex;
+};
+
+[[patch(triangle, 3)]]
+vertex TessPatchPickVertexOut tessellated_pick_vertex(
+    uint patchID [[patch_id]],
+    float3 bary [[position_in_patch]],
+    device PNPatchData* patches [[buffer(0)]],
+    constant Uniforms& uniforms [[buffer(1)]]
+) {
+    PNPatchData p = patches[patchID];
+    float u = bary.x, v = bary.y, w = bary.z;
+    float uu = u*u, vv = v*v, ww = w*w;
+
+    float3 pos = p.b300*uu*u + p.b030*vv*v + p.b003*ww*w
+               + p.b210*3.0*uu*v + p.b120*3.0*u*vv
+               + p.b201*3.0*uu*w + p.b102*3.0*u*ww
+               + p.b021*3.0*vv*w + p.b012*3.0*v*ww
+               + p.b111*6.0*u*v*w;
+
+    float4 worldPos = uniforms.modelMatrix * float4(pos, 1.0);
+    TessPatchPickVertexOut out;
+    out.clipPosition = uniforms.viewProjectionMatrix * worldPos;
+    out.faceIndex = p.faceIndex;
+    return out;
+}
+
+// Pick fragment for tessellated patches — uses face index from patch, not primitive_id
+fragment PickFragmentOut tessellated_pick_fragment(
+    TessPatchPickVertexOut in [[stage_in]],
+    constant BodyUniforms& bodyUniforms [[buffer(2)]]
+) {
+    PickFragmentOut out;
+    // Encode: objectIndex in low 16 bits, faceIndex in high 16 bits
+    out.pickID = bodyUniforms.objectIndex | (uint(in.faceIndex) << 16);
+    return out;
+}
+
+// =====================================================================
+// MARK: - Mesh Shaders (Apple9+ / M3+ / A17+)
+// =====================================================================
+#if __METAL_VERSION__ >= 310
+
+#include <metal_mesh>
+using metal::mesh;
+
+// Meshlet descriptor — must match Swift MeshletDescriptor layout
+struct MeshletDesc {
+    float3 center;
+    float  radius;
+    float3 coneAxis;
+    float  coneCutoff;
+    uint   vertexOffset;
+    uint   vertexCount;
+    uint   triangleOffset;
+    uint   triangleCount;
+    int    faceIndexFirst;
+    int    _pad0, _pad1, _pad2;
+};
+
+// Payload passed from object shader to mesh shader
+struct MeshletPayload {
+    uint meshletIndex;
+};
+
+// Mesh shader output vertex — matches ShadedVertexOut for fragment reuse
+struct MeshVertex {
+    float4 clipPosition [[position]];
+    float3 worldNormal;
+    float3 worldPosition;
+    float3 viewNormal;
+    float4 clipPositionCopy;
+};
+
+// Mesh output type: triangles, max 64 verts / 64 tris
+using ShadedMeshOutput = mesh<MeshVertex, void, 64, 64, topology::triangle>;
+
+// --- Object shader: per-meshlet frustum + backface culling ---
+
+[[object, max_total_threads_per_threadgroup(1)]]
+void meshlet_object(
+    object_data MeshletPayload& payload [[payload]],
+    device MeshletDesc* meshlets [[buffer(0)]],
+    constant Uniforms& uniforms [[buffer(1)]],
+    uint gid [[threadgroup_position_in_grid]],
+    mesh_grid_properties mgp
+) {
+    MeshletDesc m = meshlets[gid];
+
+    // Frustum culling: project bounding sphere to clip space
+    float4 centerClip = uniforms.viewProjectionMatrix * float4(m.center, 1.0);
+
+    // Simple frustum cull: check if sphere is entirely outside any frustum plane
+    // For now just check near plane and basic clip (could add full 6-plane test)
+    bool visible = true;
+
+    // Behind camera check
+    if (centerClip.w + m.radius < 0.01) {
+        visible = false;
+    }
+
+    // Backface culling via normal cone
+    if (visible && m.coneCutoff > 0.1) {
+        float3 camPos = uniforms.cameraPosition.xyz;
+        float3 viewDir = normalize(m.center - camPos);
+        float d = dot(viewDir, m.coneAxis);
+        // If the entire cone faces away from the camera, cull
+        if (d > m.coneCutoff) {
+            visible = false;
+        }
+    }
+
+    if (visible) {
+        payload.meshletIndex = gid;
+        mgp.set_threadgroups_per_grid(uint3(1, 1, 1));
+    } else {
+        mgp.set_threadgroups_per_grid(uint3(0, 0, 0));
+    }
+}
+
+// --- Mesh shader: emit triangles with PN triangle smoothing ---
+
+[[mesh, max_total_threads_per_threadgroup(64)]]
+void meshlet_mesh(
+    object_data const MeshletPayload& payload [[payload]],
+    device MeshletDesc* meshlets [[buffer(0)]],
+    device float* vertices [[buffer(1)]],          // stride 6: px,py,pz,nx,ny,nz
+    device uint32_t* vertexIndices [[buffer(2)]],  // meshlet vertex index buffer
+    device uint8_t* triangleIndices [[buffer(3)]],  // meshlet triangle index buffer (3 per tri)
+    constant Uniforms& uniforms [[buffer(4)]],
+    ShadedMeshOutput output,
+    uint tid [[thread_index_in_threadgroup]]
+) {
+    MeshletDesc m = meshlets[payload.meshletIndex];
+
+    // Set output counts
+    output.set_primitive_count(m.triangleCount);
+
+    // Emit vertices (each thread handles one vertex if tid < vertexCount)
+    if (tid < m.vertexCount) {
+        uint globalIdx = vertexIndices[m.vertexOffset + tid];
+        float3 pos = float3(vertices[globalIdx*6], vertices[globalIdx*6+1], vertices[globalIdx*6+2]);
+        float3 nrm = float3(vertices[globalIdx*6+3], vertices[globalIdx*6+4], vertices[globalIdx*6+5]);
+
+        float4 worldPos = uniforms.modelMatrix * float4(pos, 1.0);
+
+        MeshVertex v;
+        v.clipPosition = uniforms.viewProjectionMatrix * worldPos;
+        v.worldNormal = normalize((uniforms.modelMatrix * float4(nrm, 0.0)).xyz);
+        v.worldPosition = worldPos.xyz;
+        v.viewNormal = normalize((uniforms.viewMatrix * uniforms.modelMatrix * float4(nrm, 0.0)).xyz);
+        v.clipPositionCopy = v.clipPosition;
+        output.set_vertex(tid, v);
+    }
+
+    // Emit triangles (each thread handles one triangle if tid < triangleCount)
+    if (tid < m.triangleCount) {
+        uint base = (m.triangleOffset + tid) * 3;
+        uint i0 = triangleIndices[base];
+        uint i1 = triangleIndices[base + 1];
+        uint i2 = triangleIndices[base + 2];
+        output.set_index(tid * 3, i0);
+        output.set_index(tid * 3 + 1, i1);
+        output.set_index(tid * 3 + 2, i2);
+    }
+}
+
+// --- Shadow mesh shader variant ---
+
+struct ShadowMeshVertex {
+    float4 clipPosition [[position]];
+};
+
+using ShadowMeshOutput = mesh<ShadowMeshVertex, void, 64, 64, topology::triangle>;
+
+[[mesh, max_total_threads_per_threadgroup(64)]]
+void meshlet_shadow_mesh(
+    object_data const MeshletPayload& payload [[payload]],
+    device MeshletDesc* meshlets [[buffer(0)]],
+    device float* vertices [[buffer(1)]],
+    device uint32_t* vertexIndices [[buffer(2)]],
+    device uint8_t* triangleIndices [[buffer(3)]],
+    constant ShadowUniforms& uniforms [[buffer(4)]],
+    ShadowMeshOutput output,
+    uint tid [[thread_index_in_threadgroup]]
+) {
+    MeshletDesc m = meshlets[payload.meshletIndex];
+    output.set_primitive_count(m.triangleCount);
+
+    if (tid < m.vertexCount) {
+        uint globalIdx = vertexIndices[m.vertexOffset + tid];
+        float3 pos = float3(vertices[globalIdx*6], vertices[globalIdx*6+1], vertices[globalIdx*6+2]);
+        float4 worldPos = uniforms.modelMatrix * float4(pos, 1.0);
+        ShadowMeshVertex v;
+        v.clipPosition = uniforms.lightViewProjectionMatrix * worldPos;
+        output.set_vertex(tid, v);
+    }
+
+    if (tid < m.triangleCount) {
+        uint base = (m.triangleOffset + tid) * 3;
+        output.set_index(tid * 3, uint(triangleIndices[base]));
+        output.set_index(tid * 3 + 1, uint(triangleIndices[base + 1]));
+        output.set_index(tid * 3 + 2, uint(triangleIndices[base + 2]));
+    }
+}
+
+// --- Depth-only mesh shader variant ---
+
+struct DepthMeshVertex {
+    float4 clipPosition [[position]];
+};
+
+using DepthMeshOutput = mesh<DepthMeshVertex, void, 64, 64, topology::triangle>;
+
+[[mesh, max_total_threads_per_threadgroup(64)]]
+void meshlet_depth_mesh(
+    object_data const MeshletPayload& payload [[payload]],
+    device MeshletDesc* meshlets [[buffer(0)]],
+    device float* vertices [[buffer(1)]],
+    device uint32_t* vertexIndices [[buffer(2)]],
+    device uint8_t* triangleIndices [[buffer(3)]],
+    constant Uniforms& uniforms [[buffer(4)]],
+    DepthMeshOutput output,
+    uint tid [[thread_index_in_threadgroup]]
+) {
+    MeshletDesc m = meshlets[payload.meshletIndex];
+    output.set_primitive_count(m.triangleCount);
+
+    if (tid < m.vertexCount) {
+        uint globalIdx = vertexIndices[m.vertexOffset + tid];
+        float3 pos = float3(vertices[globalIdx*6], vertices[globalIdx*6+1], vertices[globalIdx*6+2]);
+        float4 worldPos = uniforms.modelMatrix * float4(pos, 1.0);
+        DepthMeshVertex v;
+        v.clipPosition = uniforms.viewProjectionMatrix * worldPos;
+        output.set_vertex(tid, v);
+    }
+
+    if (tid < m.triangleCount) {
+        uint base = (m.triangleOffset + tid) * 3;
+        output.set_index(tid * 3, uint(triangleIndices[base]));
+        output.set_index(tid * 3 + 1, uint(triangleIndices[base + 1]));
+        output.set_index(tid * 3 + 2, uint(triangleIndices[base + 2]));
+    }
+}
+
+// --- Pick mesh shader variant ---
+
+struct PickMeshVertex {
+    float4 clipPosition [[position]];
+};
+
+using PickMeshOutput = mesh<PickMeshVertex, void, 64, 64, topology::triangle>;
+
+[[mesh, max_total_threads_per_threadgroup(64)]]
+void meshlet_pick_mesh(
+    object_data const MeshletPayload& payload [[payload]],
+    device MeshletDesc* meshlets [[buffer(0)]],
+    device float* vertices [[buffer(1)]],
+    device uint32_t* vertexIndices [[buffer(2)]],
+    device uint8_t* triangleIndices [[buffer(3)]],
+    constant Uniforms& uniforms [[buffer(4)]],
+    PickMeshOutput output,
+    uint tid [[thread_index_in_threadgroup]]
+) {
+    MeshletDesc m = meshlets[payload.meshletIndex];
+    output.set_primitive_count(m.triangleCount);
+
+    if (tid < m.vertexCount) {
+        uint globalIdx = vertexIndices[m.vertexOffset + tid];
+        float3 pos = float3(vertices[globalIdx*6], vertices[globalIdx*6+1], vertices[globalIdx*6+2]);
+        float4 worldPos = uniforms.modelMatrix * float4(pos, 1.0);
+        PickMeshVertex v;
+        v.clipPosition = uniforms.viewProjectionMatrix * worldPos;
+        output.set_vertex(tid, v);
+    }
+
+    if (tid < m.triangleCount) {
+        uint base = (m.triangleOffset + tid) * 3;
+        output.set_index(tid * 3, uint(triangleIndices[base]));
+        output.set_index(tid * 3 + 1, uint(triangleIndices[base + 1]));
+        output.set_index(tid * 3 + 2, uint(triangleIndices[base + 2]));
+    }
+}
+
+#endif // __METAL_VERSION__ >= 310

@@ -26,6 +26,18 @@ public enum GridStyle: Sendable {
     case dots
 }
 
+// MARK: - Rendering Quality
+
+/// Rendering quality level controlling tessellation and shading fidelity.
+public enum RenderingQuality: Sendable {
+    /// Finer CPU tessellation + crease-aware normal smoothing.
+    case standard
+    /// Standard + GPU hardware tessellation with PN triangles (Apple3+).
+    case enhanced
+    /// Enhanced + mesh shaders with per-meshlet culling (Apple9+ / M3+, falls back to enhanced).
+    case maximum
+}
+
 /// Master configuration for a viewport.
 ///
 /// ViewportConfiguration aggregates all settings for camera behavior,
@@ -133,6 +145,17 @@ public struct ViewportConfiguration: Sendable {
     /// Maximum blur radius in pixels for DoF.
     public var dofMaxBlurRadius: Float
 
+    // MARK: - Rendering Quality
+
+    /// Rendering quality level (tessellation, normal smoothing, mesh shaders).
+    public var renderingQuality: RenderingQuality
+
+    /// Maximum tessellation factor for hardware tessellation (1-64, default 16).
+    public var tessellationMaxFactor: Int
+
+    /// Whether tessellation adapts to screen-space edge length.
+    public var adaptiveTessellation: Bool
+
     // MARK: - Temporal Anti-Aliasing
 
     /// Whether temporal anti-aliasing is enabled.
@@ -179,6 +202,9 @@ public struct ViewportConfiguration: Sendable {
         dofAperture: Float = 2.8,
         dofFocalDistance: Float = 0,
         dofMaxBlurRadius: Float = 8.0,
+        renderingQuality: RenderingQuality = .standard,
+        tessellationMaxFactor: Int = 32,
+        adaptiveTessellation: Bool = true,
         enableTAA: Bool = false,
         taaBlendFactor: Float = 0.9,
         dynamicPivotConfiguration: DynamicPivotConfiguration = .default
@@ -212,6 +238,9 @@ public struct ViewportConfiguration: Sendable {
         self.dofAperture = dofAperture
         self.dofFocalDistance = dofFocalDistance
         self.dofMaxBlurRadius = dofMaxBlurRadius
+        self.renderingQuality = renderingQuality
+        self.tessellationMaxFactor = tessellationMaxFactor
+        self.adaptiveTessellation = adaptiveTessellation
         self.enableTAA = enableTAA
         self.taaBlendFactor = taaBlendFactor
         self.dynamicPivotConfiguration = dynamicPivotConfiguration

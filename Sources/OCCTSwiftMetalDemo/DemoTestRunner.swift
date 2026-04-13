@@ -215,6 +215,10 @@ enum DemoTestRunner {
             ("v125v126BSplineAndXDE", OCCT8Gallery.v125v126BSplineAndXDE),
             ("v130GeomEval", OCCT8Gallery.v130GeomEvalAndPointSet),
             ("v131ApproxAndSurfaces", OCCT8Gallery.v131ApproxAndSurfaces),
+            ("v132TopologyGraph", OCCT8Gallery.v132TopologyGraphCore),
+            ("v133GraphGeometry", OCCT8Gallery.v133GraphGeometryAndHistory),
+            ("v134AssemblyRefs", OCCT8Gallery.v134AssemblyAndRefs),
+            ("v135GraphBuilder", OCCT8Gallery.v135GraphBuilder),
         ]
         for (name, run) in occt8 {
             demos.append(DemoEntry(category: "OCCT8", name: name, run: run))
