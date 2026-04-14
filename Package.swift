@@ -18,7 +18,7 @@ let package = Package(
         ),
     ],
     dependencies: [
-        .package(path: "../OCCTSwift"),
+        .package(url: "https://github.com/gsdali/OCCTSwift.git", from: "0.135.0"),
     ],
     targets: [
         .target(
