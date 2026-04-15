@@ -1302,7 +1302,7 @@ kernel void compute_tess_factors(
 vertex ShadedVertexOut tessellated_vertex(
     uint patchID [[patch_id]],
     float3 bary [[position_in_patch]],
-    device PNPatchData* patches [[buffer(0)]],
+    const device PNPatchData* patches [[buffer(0)]],
     constant Uniforms& uniforms [[buffer(1)]]
 ) {
     PNPatchData p = patches[patchID];
@@ -1348,7 +1348,7 @@ vertex ShadedVertexOut tessellated_vertex(
 vertex ShadowVertexOut tessellated_shadow_vertex(
     uint patchID [[patch_id]],
     float3 bary [[position_in_patch]],
-    device PNPatchData* patches [[buffer(0)]],
+    const device PNPatchData* patches [[buffer(0)]],
     constant ShadowUniforms& uniforms [[buffer(1)]]
 ) {
     PNPatchData p = patches[patchID];
@@ -1373,7 +1373,7 @@ vertex ShadowVertexOut tessellated_shadow_vertex(
 vertex PickVertexOut tessellated_depth_vertex(
     uint patchID [[patch_id]],
     float3 bary [[position_in_patch]],
-    device PNPatchData* patches [[buffer(0)]],
+    const device PNPatchData* patches [[buffer(0)]],
     constant Uniforms& uniforms [[buffer(1)]]
 ) {
     PNPatchData p = patches[patchID];
@@ -1403,7 +1403,7 @@ struct TessPatchPickVertexOut {
 vertex TessPatchPickVertexOut tessellated_pick_vertex(
     uint patchID [[patch_id]],
     float3 bary [[position_in_patch]],
-    device PNPatchData* patches [[buffer(0)]],
+    const device PNPatchData* patches [[buffer(0)]],
     constant Uniforms& uniforms [[buffer(1)]]
 ) {
     PNPatchData p = patches[patchID];
