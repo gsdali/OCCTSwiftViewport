@@ -6513,11 +6513,11 @@ enum OCCT8Gallery {
         if let box = Shape.box(width: 4, height: 4, depth: 4),
            let cyl = Shape.cylinder(radius: 1.5, height: 6) {
 
-            if var bb = CADFileLoader.shapeToBodyAndMetadata(
+            if let bb = CADFileLoader.shapeToBodyAndMetadata(
                 box, id: "bool-box", color: SIMD4(0.4, 0.6, 0.9, 0.5)).0 {
                 bodies.append(bb)
             }
-            if var cb = CADFileLoader.shapeToBodyAndMetadata(
+            if let cb = CADFileLoader.shapeToBodyAndMetadata(
                 cyl, id: "bool-cyl", color: SIMD4(0.9, 0.5, 0.3, 0.5)).0 {
                 bodies.append(cb)
             }
@@ -6729,7 +6729,7 @@ enum OCCT8Gallery {
         if let box2 = Shape.box(width: 5, height: 5, depth: 5) {
             let edges = box2.subShapes(ofType: .edge)
             if !edges.isEmpty {
-                if let result = box2.filletSurfaces(edges: [edges[0]], radius: 0.5) {
+                if box2.filletSurfaces(edges: [edges[0]], radius: 0.5) != nil {
                     descriptions.append("FilletSurf: done")
                 }
             }
@@ -6750,7 +6750,7 @@ enum OCCT8Gallery {
 
         // --- HLR edges from a torus ---
         if let torus = Shape.torus(majorRadius: 4, minorRadius: 1.5) {
-            if var tb = CADFileLoader.shapeToBodyAndMetadata(
+            if let tb = CADFileLoader.shapeToBodyAndMetadata(
                 torus, id: "hlr-torus", color: SIMD4(0.5, 0.5, 0.7, 0.3)).0 {
                 bodies.append(tb)
             }
@@ -7958,7 +7958,7 @@ enum OCCT8Gallery {
         // --- GeomTransformation: compose translate + rotate ---
         if let box = Shape.box(width: 3, height: 2, depth: 1) {
             // Original
-            if var b = CADFileLoader.shapeToBodyAndMetadata(
+            if let b = CADFileLoader.shapeToBodyAndMetadata(
                 box, id: "gt-original", color: SIMD4(0.4, 0.4, 0.8, 0.5)).0 {
                 bodies.append(b)
             }
@@ -7973,7 +7973,7 @@ enum OCCT8Gallery {
                     t2.setRotation(originX: 0, originY: 0, originZ: 0,
                                    dirX: 0, dirY: 0, dirZ: 1, angle: .pi / 4)
                     if let combined = t.multiplied(by: t2) {
-                        let p2 = combined.apply(x: 1, y: 0, z: 0)
+                        let _ = combined.apply(x: 1, y: 0, z: 0)
                         descriptions.append("Scale=\(String(format: "%.1f", combined.scaleFactor))")
                     }
                 }
@@ -7990,7 +7990,7 @@ enum OCCT8Gallery {
 
             // Show translated copy
             if let moved = box.translated(by: SIMD3(8, 0, 0)) {
-                if var b = CADFileLoader.shapeToBodyAndMetadata(
+                if let b = CADFileLoader.shapeToBodyAndMetadata(
                     moved, id: "gt-translated", color: SIMD4(0.2, 0.8, 0.4, 1)).0 {
                     bodies.append(b)
                 }
@@ -7999,7 +7999,7 @@ enum OCCT8Gallery {
             // Show rotated copy
             if let rotated = box.rotated(axis: SIMD3(0, 0, 1), angle: .pi / 4)?
                 .translated(by: SIMD3(16, 0, 0)) {
-                if var b = CADFileLoader.shapeToBodyAndMetadata(
+                if let b = CADFileLoader.shapeToBodyAndMetadata(
                     rotated, id: "gt-rotated", color: SIMD4(0.8, 0.6, 0.2, 1)).0 {
                     bodies.append(b)
                 }
@@ -8007,7 +8007,7 @@ enum OCCT8Gallery {
 
             // Show scaled copy
             if let scaled = box.scaled(by: 2.0)?.translated(by: SIMD3(0, 8, 0)) {
-                if var b = CADFileLoader.shapeToBodyAndMetadata(
+                if let b = CADFileLoader.shapeToBodyAndMetadata(
                     scaled, id: "gt-scaled", color: SIMD4(0.8, 0.3, 0.3, 1)).0 {
                     bodies.append(b)
                 }
@@ -8105,7 +8105,7 @@ enum OCCT8Gallery {
                 }
 
                 // Show the box
-                if var b = CADFileLoader.shapeToBodyAndMetadata(
+                if let b = CADFileLoader.shapeToBodyAndMetadata(
                     box, id: "naming-box", color: SIMD4(0.4, 0.6, 0.9, 1)).0 {
                     bodies.append(b)
                 }
@@ -8174,7 +8174,7 @@ enum OCCT8Gallery {
                 let attrCount = delta.attributeDeltaCount
                 delta.setName("Batch Create")
                 let name = delta.name
-                descriptions.append("Delta: empty=\(isEmpty) attrs=\(attrCount) name=\(name)")
+                descriptions.append("Delta: empty=\(isEmpty) attrs=\(attrCount) name=\(name ?? "nil")")
             }
 
             // Transaction number
@@ -8214,7 +8214,7 @@ enum OCCT8Gallery {
 
         // Visual: show a box with "before" and "after" transaction states
         if let box = Shape.box(width: 4, height: 4, depth: 4) {
-            if var b = CADFileLoader.shapeToBodyAndMetadata(
+            if let b = CADFileLoader.shapeToBodyAndMetadata(
                 box, id: "txn-before", color: SIMD4(0.5, 0.5, 0.8, 1)).0 {
                 bodies.append(b)
             }
@@ -8310,7 +8310,7 @@ enum OCCT8Gallery {
             // --- Translator copy ---
             if let box = Shape.box(width: 3, height: 3, depth: 3) {
                 if let copy = box.translatorCopy() {
-                    if var b = CADFileLoader.shapeToBodyAndMetadata(
+                    if let b = CADFileLoader.shapeToBodyAndMetadata(
                         copy, id: "translator-copy", color: SIMD4(0.6, 0.4, 0.8, 1)).0 {
                         bodies.append(b)
                     }
@@ -8470,7 +8470,7 @@ enum OCCT8Gallery {
                 let angle = Double(i) * .pi / 3.0
                 if let rotShape = box.rotated(axis: SIMD3(0, 0, 1), angle: angle)?
                     .translated(by: SIMD3(35 + 5 * cos(angle), 5 * sin(angle), 0)) {
-                    if var b = CADFileLoader.shapeToBodyAndMetadata(
+                    if let b = CADFileLoader.shapeToBodyAndMetadata(
                         rotShape, id: "quat-\(i)",
                         color: SIMD4(Float(0.3 + 0.1 * Double(i)), 0.5, Float(0.8 - 0.1 * Double(i)), 1)).0 {
                         bodies.append(b)
@@ -8507,7 +8507,7 @@ enum OCCT8Gallery {
            let rotated = box.rotated(axis: SIMD3(0, 0, 1), angle: .pi / 6) {
 
             // Show the rotated box
-            if var b = CADFileLoader.shapeToBodyAndMetadata(
+            if let b = CADFileLoader.shapeToBodyAndMetadata(
                 rotated, id: "obb-shape", color: SIMD4(0.3, 0.6, 0.9, 0.8)).0 {
                 bodies.append(b)
             }
@@ -8563,7 +8563,7 @@ enum OCCT8Gallery {
         if let box = Shape.box(width: 10, height: 10, depth: 10)?
             .translated(by: SIMD3(20, 0, 0)) {
 
-            if var b = CADFileLoader.shapeToBodyAndMetadata(
+            if let b = CADFileLoader.shapeToBodyAndMetadata(
                 box, id: "classify-box", color: SIMD4(0.5, 0.8, 0.5, 0.4)).0 {
                 bodies.append(b)
             }
@@ -8716,7 +8716,7 @@ enum OCCT8Gallery {
             if let pattern = cyl.linearPattern(direction: SIMD3(4, 0, 0),
                                                 spacing: 4, count: 5) {
                 if let moved = pattern.translated(by: SIMD3(0, 20, 0)) {
-                    if var b = CADFileLoader.shapeToBodyAndMetadata(
+                    if let b = CADFileLoader.shapeToBodyAndMetadata(
                         moved, id: "linear-pattern",
                         color: SIMD4(0.4, 0.7, 0.9, 1)).0 {
                         bodies.append(b)
@@ -8734,7 +8734,7 @@ enum OCCT8Gallery {
                 axisDirection: SIMD3(0, 0, 1),
                 count: 8) {
                 if let moved = pattern.translated(by: SIMD3(0, 35, 0)) {
-                    if var b = CADFileLoader.shapeToBodyAndMetadata(
+                    if let b = CADFileLoader.shapeToBodyAndMetadata(
                         moved, id: "circ-pattern",
                         color: SIMD4(0.9, 0.5, 0.3, 1)).0 {
                         bodies.append(b)
@@ -8749,7 +8749,7 @@ enum OCCT8Gallery {
            let profile = Wire.circle(radius: 1) {
             if let evolved = Shape.evolved(spine: spine, profile: profile) {
                 if let moved = evolved.translated(by: SIMD3(30, 20, 0)) {
-                    if var b = CADFileLoader.shapeToBodyAndMetadata(
+                    if let b = CADFileLoader.shapeToBodyAndMetadata(
                         moved, id: "evolved-shape",
                         color: SIMD4(0.6, 0.8, 0.4, 1)).0 {
                         bodies.append(b)
@@ -8765,7 +8765,7 @@ enum OCCT8Gallery {
             .translated(by: SIMD3(5, 0, 0)) {
             if let glued = Shape.glue(box1, box2) {
                 if let moved = glued.translated(by: SIMD3(30, 0, 0)) {
-                    if var b = CADFileLoader.shapeToBodyAndMetadata(
+                    if let b = CADFileLoader.shapeToBodyAndMetadata(
                         moved, id: "glued-boxes",
                         color: SIMD4(0.7, 0.5, 0.8, 1)).0 {
                         bodies.append(b)
@@ -9094,7 +9094,7 @@ enum OCCT8Gallery {
             let isImg = image.isImage(filleted)
             descriptions.append("Image: has=\(hasImg) is=\(isImg)")
 
-            if var b = CADFileLoader.shapeToBodyAndMetadata(
+            if let b = CADFileLoader.shapeToBodyAndMetadata(
                 box, id: "image-old", color: SIMD4(0.5, 0.5, 0.8, 0.5)).0 {
                 bodies.append(b)
             }
@@ -9280,7 +9280,7 @@ enum OCCT8Gallery {
                                     color: SIMD4(0.3, 0.6, 1, 1)))
         // Draw sphere wireframe
         if let sphere = Shape.sphere(radius: 4)?.translated(by: SIMD3(0, 15, 0)) {
-            if var b = CADFileLoader.shapeToBodyAndMetadata(
+            if let b = CADFileLoader.shapeToBodyAndMetadata(
                 sphere, id: "ls-sphere", color: SIMD4(0.5, 0.8, 0.5, 0.3)).0 {
                 bodies.append(b)
             }
@@ -9504,7 +9504,7 @@ enum OCCT8Gallery {
         // Use a merged box shape (no actual defects, but API runs)
         if let box = Shape.box(width: 8, height: 6, depth: 4) {
             // Original
-            if var orig = CADFileLoader.shapeToBodyAndMetadata(
+            if let orig = CADFileLoader.shapeToBodyAndMetadata(
                 box, id: "orig-box", color: SIMD4(0.5, 0.5, 0.5, 0.6)).0 {
                 bodies.append(orig)
             }
@@ -9560,7 +9560,7 @@ enum OCCT8Gallery {
         if let box = Shape.box(width: 8, height: 6, depth: 4) {
             let wrote = box.writeSTLBinary(to: tmpSTL)
             if wrote, let readBack = Shape.readSTL(from: tmpSTL) {
-                if var b = CADFileLoader.shapeToBodyAndMetadata(
+                if let b = CADFileLoader.shapeToBodyAndMetadata(
                     readBack, id: "stl-roundtrip", color: SIMD4(0.3, 0.8, 0.6, 1)).0 {
                     bodies.append(b)
                 }
@@ -9671,7 +9671,7 @@ enum OCCT8Gallery {
             if let face = faces.first {
                 let wires = face.subShapes(ofType: .wire)
                 if let wire = wires.first {
-                    if let surf = wire.findSurface(tolerance: -1, onlyPlane: true) {
+                    if wire.findSurface(tolerance: -1, onlyPlane: true) != nil {
                         descriptions.append("FindSurface: found plane")
                         // Show the face
                         if var b = CADFileLoader.shapeToBodyAndMetadata(
@@ -9731,7 +9731,7 @@ enum OCCT8Gallery {
         descriptions.append("VertEdge: \(vertEdgeAdj.count) verts, \(vertEdgeAdj.first ?? 0) edges each")
 
         // Show box with markers at vertices
-        if var b = CADFileLoader.shapeToBodyAndMetadata(
+        if let b = CADFileLoader.shapeToBodyAndMetadata(
             box, id: "adj-box", color: SIMD4(0.5, 0.6, 0.8, 0.6)).0 {
             bodies.append(b)
         }
@@ -9958,7 +9958,7 @@ enum OCCT8Gallery {
         descriptions.append("SphBnd: (\(String(format: "%.0f", sphereB.min.x)),\(String(format: "%.0f", sphereB.min.y)))→(\(String(format: "%.0f", sphereB.max.x)),\(String(format: "%.0f", sphereB.max.y)))")
         // Show sphere + bounding box wireframe
         if let sp = Shape.sphere(radius: 5) {
-            if var b = CADFileLoader.shapeToBodyAndMetadata(
+            if let b = CADFileLoader.shapeToBodyAndMetadata(
                 sp, id: "bndlib-sphere", color: SIMD4(0.4, 0.7, 0.9, 0.4)).0 {
                 bodies.append(b)
             }
@@ -10001,7 +10001,7 @@ enum OCCT8Gallery {
 
         // --- HostInfo ---
         let host = HostInfo.hostName ?? "?"
-        let sysVer = HostInfo.systemVersion ?? "?"
+        let _ = HostInfo.systemVersion ?? "?"
         descriptions.append("Host: \(host.prefix(15))")
 
         // --- PerfMeter ---
@@ -10199,32 +10199,32 @@ enum OCCT8Gallery {
         var descriptions: [String] = []
 
         // --- GC conical surface ---
-        if let coneSurf = Surface.gcConicalSurface(center: .zero, normal: SIMD3(0, 0, 1),
-                                                     semiAngle: .pi / 6, radius: 5) {
+        if Surface.gcConicalSurface(center: .zero, normal: SIMD3(0, 0, 1),
+                                                     semiAngle: .pi / 6, radius: 5) != nil {
             descriptions.append("GC cone surf: OK")
         }
 
         // --- GC cylindrical surface from 3 points ---
-        if let cylSurf = Surface.gcCylindricalSurface3Pts(
-            p1: SIMD3(5, 0, 0), p2: SIMD3(0, 5, 0), p3: SIMD3(-5, 0, 0)) {
+        if Surface.gcCylindricalSurface3Pts(
+            p1: SIMD3(5, 0, 0), p2: SIMD3(0, 5, 0), p3: SIMD3(-5, 0, 0)) != nil {
             descriptions.append("GC cyl 3pts: OK")
         }
 
         // --- GC trimmed cylinder ---
-        if let trimCyl = Surface.gcTrimmedCylinderCircle(
-            center: .zero, normal: SIMD3(0, 0, 1), radius: 5, height: 10) {
+        if Surface.gcTrimmedCylinderCircle(
+            center: .zero, normal: SIMD3(0, 0, 1), radius: 5, height: 10) != nil {
             descriptions.append("GC trimCyl: OK")
         }
 
         // --- GC trimmed cone from 2 points + radii ---
-        if let trimCone = Surface.gcTrimmedCone2Pts(
-            p1: SIMD3(0, 0, 0), p2: SIMD3(0, 0, 10), r1: 5, r2: 2) {
+        if Surface.gcTrimmedCone2Pts(
+            p1: SIMD3(0, 0, 0), p2: SIMD3(0, 0, 10), r1: 5, r2: 2) != nil {
             descriptions.append("GC trimCone: OK")
         }
 
         // Show a cylinder + cone side by side
         if let cyl = Shape.cylinder(radius: 5, height: 10) {
-            if var b = CADFileLoader.shapeToBodyAndMetadata(
+            if let b = CADFileLoader.shapeToBodyAndMetadata(
                 cyl, id: "gc-cyl", color: SIMD4(0.4, 0.7, 0.9, 0.7)).0 {
                 bodies.append(b)
             }
@@ -10455,7 +10455,7 @@ enum OCCT8Gallery {
                 let degen = edge.isEdgeDegenerated
                 descriptions.append("Edge: tol=\(String(format: "%.0e", tol)) degen=\(degen)")
 
-                if let (curve, first, last) = edge.extractEdgeCurve3D() {
+                if let (_, first, last) = edge.extractEdgeCurve3D() {
                     descriptions.append("EdgeCurve: [\(String(format: "%.1f", first)),\(String(format: "%.1f", last))]")
                 }
             }
@@ -10756,18 +10756,18 @@ enum OCCT8Gallery {
         var descriptions: [String] = []
 
         // --- MathSolver: find root of x² - 4 = 0 near x=3 ---
-        if let root = MathSolver.findRoot(near: 3.0) { (x: Double) -> (value: Double, derivative: Double) in
+        if let root = MathSolver.findRoot(near: 3.0, function: { (x: Double) -> (value: Double, derivative: Double) in
             return (x * x - 4.0, 2.0 * x)
-        } {
+        }) {
             descriptions.append("Root(x²-4): \(String(format: "%.2f", root))")
         }
 
         // --- MathSolver: BFGS minimize (x-3)² + (y-2)² ---
-        if let result = MathSolver.minimize(variables: 2, startPoint: [0, 0]) { (x: [Double]) -> (value: Double, gradient: [Double]) in
+        if let result = MathSolver.minimize(variables: 2, startPoint: [0, 0], function: { (x: [Double]) -> (value: Double, gradient: [Double]) in
             let val = (x[0] - 3) * (x[0] - 3) + (x[1] - 2) * (x[1] - 2)
             let grad = [2 * (x[0] - 3), 2 * (x[1] - 2)]
             return (val, grad)
-        } {
+        }) {
             descriptions.append("Min: (\(String(format: "%.1f", result.point[0])),\(String(format: "%.1f", result.point[1]))) val=\(String(format: "%.2f", result.minimum))")
         }
 
@@ -10778,12 +10778,12 @@ enum OCCT8Gallery {
         // --- PSO: minimize Rosenbrock near (1,1) ---
         if let pso = MathSolver.particleSwarm(
             variables: 2, lower: [-5, -5], upper: [5, 5], steps: [0.1, 0.1],
-            particles: 32, iterations: 50
-        ) { (x: [Double]) -> Double in
+            particles: 32, iterations: 50,
+            function: { (x: [Double]) -> Double in
             let a = 1.0 - x[0]
             let b = x[1] - x[0] * x[0]
             return a * a + 100 * b * b
-        } {
+        }) {
             descriptions.append("PSO: (\(String(format: "%.1f", pso.point[0])),\(String(format: "%.1f", pso.point[1])))")
         }
 
@@ -10807,7 +10807,7 @@ enum OCCT8Gallery {
             // Batch eval
             let params = stride(from: 0.0, through: 2 * .pi, by: .pi / 20).map { $0 }
             let batch = circle.evalBatchD0(params: params)
-            var pts: [SIMD3<Float>] = batch.map { SIMD3<Float>(Float($0.x), Float($0.y), Float($0.z)) }
+            let pts: [SIMD3<Float>] = batch.map { SIMD3<Float>(Float($0.x), Float($0.y), Float($0.z)) }
             bodies.append(ViewportBody(id: "eval-circle", vertexData: [], indices: [],
                 edges: [pts], color: SIMD4(0.3, 0.8, 1, 1)))
 
@@ -10871,7 +10871,7 @@ enum OCCT8Gallery {
                 descriptions.append("MeshFace: \(totalTris) tris")
             }
 
-            if var b = CADFileLoader.shapeToBodyAndMetadata(
+            if let b = CADFileLoader.shapeToBodyAndMetadata(
                 sphere, id: "mesh-sphere", color: SIMD4(0.4, 0.7, 0.9, 0.6)).0 {
                 bodies.append(b)
             }
@@ -10970,7 +10970,7 @@ enum OCCT8Gallery {
         // --- MakeEdge: ellipse edge ---
         if let ellipseEdge = Shape.edgeFromEllipse(center: SIMD3(0, -10, 0), normal: SIMD3(0, 0, 1),
                                                      majorRadius: 6, minorRadius: 3) {
-            if var b = CADFileLoader.shapeToBodyAndMetadata(
+            if let b = CADFileLoader.shapeToBodyAndMetadata(
                 ellipseEdge, id: "edge-ellipse", color: SIMD4(0.8, 0.4, 0.9, 1)).0 {
                 bodies.append(b)
             }
@@ -11038,7 +11038,7 @@ enum OCCT8Gallery {
                let sph = Shape.sphere(radius: 3)?.translated(by: SIMD3(8, 0, 0)) {
                 let _ = compound.builderAdd(box)
                 let _ = compound.builderAdd(sph)
-                if var b = CADFileLoader.shapeToBodyAndMetadata(
+                if let b = CADFileLoader.shapeToBodyAndMetadata(
                     compound, id: "builder-compound", color: SIMD4(0.5, 0.7, 0.9, 0.7)).0 {
                     bodies.append(b)
                 }
@@ -11102,7 +11102,7 @@ enum OCCT8Gallery {
         if let box = Shape.box(width: 10, height: 10, depth: 10) {
             let lp = box.linearProperties()
             let inertia = box.momentOfInertia()
-            let axes = box.principalAxes()
+            let _ = box.principalAxes()
             descriptions.append("LinProp: len=\(String(format: "%.1f", lp.length)) com=(\(String(format: "%.0f", lp.centerOfMass.x)),\(String(format: "%.0f", lp.centerOfMass.y)))")
             descriptions.append("Inertia: Ixx=\(String(format: "%.0f", inertia.ixx))")
         }
@@ -11320,7 +11320,7 @@ enum OCCT8Gallery {
 
         // --- Helix: evaluate point + tangent ---
         let pt = Helix.evaluate(parameterRange: 0...2 * .pi, pitch: 3, radius: 5, at: .pi)
-        let d1 = Helix.evaluateD1(parameterRange: 0...2 * .pi, pitch: 3, radius: 5, at: .pi)
+        let _ = Helix.evaluateD1(parameterRange: 0...2 * .pi, pitch: 3, radius: 5, at: .pi)
         bodies.append(makeMarker(at: SIMD3<Float>(Float(pt.x), Float(pt.y), Float(pt.z)),
             radius: 0.3, id: "helix-pt", color: SIMD4(1, 0.3, 0.1, 1)))
         descriptions.append("HelixEval: pt=(\(String(format: "%.1f", pt.x)),\(String(format: "%.1f", pt.y)),\(String(format: "%.1f", pt.z)))")
@@ -11364,7 +11364,7 @@ enum OCCT8Gallery {
         }
 
         // --- Kronrod integration ---
-        if let result = MathSolver.kronrodIntegrate(over: 0...(.pi)) { x in sin(x) } {
+        if let result = MathSolver.kronrodIntegrate(over: 0...(.pi), function: { x in sin(x) }) {
             descriptions.append("Kronrod ∫sin: \(String(format: "%.4f", result.value)) err=\(String(format: "%.1e", result.error))")
         }
 
@@ -11510,7 +11510,7 @@ enum OCCT8Gallery {
 
         // Shell to hollow
         if let shelled = current.shelled(thickness: -2.0) {
-            if var b = CADFileLoader.shapeToBodyAndMetadata(shelled, id: "bottle-shelled", color: SIMD4(0.3, 0.7, 0.95, 0.8)).0 {
+            if let b = CADFileLoader.shapeToBodyAndMetadata(shelled, id: "bottle-shelled", color: SIMD4(0.3, 0.7, 0.95, 0.8)).0 {
                 bodies.append(b)
             }
             let shelledVol = shelled.volume ?? 0
@@ -11605,7 +11605,7 @@ enum OCCT8Gallery {
         // Show interference zone
         if let interferingHousing = housing.translated(by: SIMD3(0.0, 0.0, 40.0)),
            let interference = shaft.intersection(with: interferingHousing) {
-            if var b = CADFileLoader.shapeToBodyAndMetadata(interference, id: "interference", color: SIMD4(1, 0.2, 0.2, 0.6)).0 {
+            if let b = CADFileLoader.shapeToBodyAndMetadata(interference, id: "interference", color: SIMD4(1, 0.2, 0.2, 0.6)).0 {
                 bodies.append(b)
             }
             let vol = interference.volume ?? 0
@@ -12160,7 +12160,7 @@ enum OCCT8Gallery {
 
         // --- Optimal bounding box ---
         if let cyl = Shape.cylinder(radius: 10, height: 30) {
-            if var b = CADFileLoader.shapeToBodyAndMetadata(cyl, id: "v118-cyl", color: SIMD4(0.5, 0.7, 0.85, 0.6)).0 {
+            if let b = CADFileLoader.shapeToBodyAndMetadata(cyl, id: "v118-cyl", color: SIMD4(0.5, 0.7, 0.85, 0.6)).0 {
                 bodies.append(b)
             }
 
@@ -12487,7 +12487,7 @@ enum OCCT8Gallery {
                 descriptions.append("Cyl face: closedU=\(closed.isClosedU) closedV=\(closed.isClosedV)")
             }
 
-            if var b = CADFileLoader.shapeToBodyAndMetadata(cyl, id: "v122-cyl", color: SIMD4(0.6, 0.7, 0.85, 0.7)).0 {
+            if let b = CADFileLoader.shapeToBodyAndMetadata(cyl, id: "v122-cyl", color: SIMD4(0.6, 0.7, 0.85, 0.7)).0 {
                 bodies.append(b)
             }
         }
@@ -12520,7 +12520,7 @@ enum OCCT8Gallery {
         if let box = Shape.box(width: 10, height: 10, depth: 10) {
             let edges = box.subShapes(ofType: .edge)
             let faces = box.subShapes(ofType: .face)
-            if let edge = edges.first, let face = faces.first {
+            if let edge = edges.first, let _ = faces.first {
                 let hasCurve = Shape.fixEdgeAddCurve3d(edge)
                 descriptions.append("FixEdge addCurve3d=\(hasCurve)")
             }
@@ -12571,10 +12571,10 @@ enum OCCT8Gallery {
         if let box = Shape.box(width: 30, height: 30, depth: 30),
            let sphere = Shape.sphere(radius: 20) {
             // Show both shapes as ghosts
-            if var b = CADFileLoader.shapeToBodyAndMetadata(box, id: "v123-sect-box", color: SIMD4(0.5, 0.6, 0.8, 0.25)).0 {
+            if let b = CADFileLoader.shapeToBodyAndMetadata(box, id: "v123-sect-box", color: SIMD4(0.5, 0.6, 0.8, 0.25)).0 {
                 bodies.append(b)
             }
-            if var b = CADFileLoader.shapeToBodyAndMetadata(sphere, id: "v123-sect-sphere", color: SIMD4(0.8, 0.5, 0.5, 0.25)).0 {
+            if let b = CADFileLoader.shapeToBodyAndMetadata(sphere, id: "v123-sect-sphere", color: SIMD4(0.8, 0.5, 0.5, 0.25)).0 {
                 bodies.append(b)
             }
 
@@ -12673,7 +12673,7 @@ enum OCCT8Gallery {
            let filleted = box.filleted(radius: 2.0) {
             let faces = filleted.subShapes(ofType: .face)
             let wires = filleted.subShapes(ofType: .wire)
-            if let face = faces.first, let wireShape = wires.first {
+            if let face = faces.first, let _ = wires.first {
                 // Get the wire as a Wire type via section
                 let sectionWires = filleted.sectionWiresAtZ(0.0)
                 if let wire = sectionWires.first,
@@ -12821,7 +12821,7 @@ enum OCCT8Gallery {
             SIMD3(0, 0, 0), SIMD3(3, 4, 0), SIMD3(8, 3, 0), SIMD3(12, 6, 0), SIMD3(15, 0, 0)
         ]) {
             let domain = bsp.domain
-            let startPt = bsp.point(at: domain.lowerBound)
+            let _ = bsp.point(at: domain.lowerBound)
             let endPt = bsp.point(at: domain.upperBound)
 
             // Reverse
@@ -12953,7 +12953,7 @@ enum OCCT8Gallery {
             return SIMD3(5 * cos(angle), 5 * sin(angle), Double.random(in: -0.5...0.5))
         }
         let props = PointSetLib.properties(points: points)
-        let bary = PointSetLib.barycentre(points: points)
+        let _ = PointSetLib.barycentre(points: points)
         descriptions.append("PointSet: centroid=(\(String(format: "%.1f", props.centroid.x)),\(String(format: "%.1f", props.centroid.y)),\(String(format: "%.1f", props.centroid.z)))")
 
         if let eq = PointSetLib.equation(points: points) {
@@ -13215,7 +13215,7 @@ enum OCCT8Gallery {
         if let origBody { bodies.append(origBody) }
 
         // Vertex positions — mark all vertices as small spheres
-        var vertexDesc = "Verts=\(graph.vertexCount)"
+        let vertexDesc = "Verts=\(graph.vertexCount)"
         for vi in 0..<min(graph.vertexCount, 30) {
             if graph.isRemoved(nodeKind: .vertex, nodeIndex: vi) { continue }
             let pt = graph.vertexPoint(vi)
