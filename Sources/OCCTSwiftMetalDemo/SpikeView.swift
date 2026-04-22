@@ -805,6 +805,10 @@ struct SpikeView: View {
         case v124WireAnalyzer, v125v126BSplineAndXDE
         case v130GeomEval, v131ApproxAndSurfaces
         case v132TopologyGraph, v133GraphGeometry, v134AssemblyRefs, v135GraphBuilder
+        case v137RevolutionAxes, v137DrawingDimensions, v137AutoCentrelines
+        case v138ThreadFeatures, v138DXFExport
+        case v139ThreadFormV2
+        case v140GDTWrite
     }
 
     // MARK: - OCCT 8 Sub-groups
@@ -962,6 +966,13 @@ struct SpikeView: View {
         Button("v0.133 Graph Geometry") { loadOCCT8Demo(.v133GraphGeometry) }
         Button("v0.134 Assembly & Refs") { loadOCCT8Demo(.v134AssemblyRefs) }
         Button("v0.135 Graph Builder") { loadOCCT8Demo(.v135GraphBuilder) }
+        Button("v0.137 Revolution Axes") { loadOCCT8Demo(.v137RevolutionAxes) }
+        Button("v0.137 Drawing Dimensions") { loadOCCT8Demo(.v137DrawingDimensions) }
+        Button("v0.137 Auto Centrelines") { loadOCCT8Demo(.v137AutoCentrelines) }
+        Button("v0.138 Thread Features") { loadOCCT8Demo(.v138ThreadFeatures) }
+        Button("v0.138 DXF Export") { loadOCCT8Demo(.v138DXFExport) }
+        Button("v0.139 Thread Form v2") { loadOCCT8Demo(.v139ThreadFormV2) }
+        Button("v0.140 GD&T Write") { loadOCCT8Demo(.v140GDTWrite) }
     }
 
     private func loadOCCT8Demo(_ demo: OCCT8Demo) {
@@ -1232,6 +1243,20 @@ struct SpikeView: View {
             result = OCCT8Gallery.v134AssemblyAndRefs()
         case .v135GraphBuilder:
             result = OCCT8Gallery.v135GraphBuilder()
+        case .v137RevolutionAxes:
+            result = OCCT8Gallery.v137RevolutionAxes()
+        case .v137DrawingDimensions:
+            result = OCCT8Gallery.v137DrawingDimensions()
+        case .v137AutoCentrelines:
+            result = OCCT8Gallery.v137AutoCentrelines()
+        case .v138ThreadFeatures:
+            result = OCCT8Gallery.v138ThreadFeatures()
+        case .v138DXFExport:
+            result = OCCT8Gallery.v138DXFExport()
+        case .v139ThreadFormV2:
+            result = OCCT8Gallery.v139ThreadFormV2()
+        case .v140GDTWrite:
+            result = OCCT8Gallery.v140GDTWrite()
         }
 
         bodies = result.bodies

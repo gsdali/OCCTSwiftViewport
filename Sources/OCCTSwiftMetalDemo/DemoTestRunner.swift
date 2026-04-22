@@ -219,6 +219,13 @@ enum DemoTestRunner {
             ("v133GraphGeometry", OCCT8Gallery.v133GraphGeometryAndHistory),
             ("v134AssemblyRefs", OCCT8Gallery.v134AssemblyAndRefs),
             ("v135GraphBuilder", OCCT8Gallery.v135GraphBuilder),
+            ("v137RevolutionAxes", OCCT8Gallery.v137RevolutionAxes),
+            ("v137DrawingDimensions", OCCT8Gallery.v137DrawingDimensions),
+            ("v137AutoCentrelines", OCCT8Gallery.v137AutoCentrelines),
+            ("v138ThreadFeatures", OCCT8Gallery.v138ThreadFeatures),
+            ("v138DXFExport", OCCT8Gallery.v138DXFExport),
+            ("v139ThreadFormV2", OCCT8Gallery.v139ThreadFormV2),
+            ("v140GDTWrite", OCCT8Gallery.v140GDTWrite),
         ]
         for (name, run) in occt8 {
             demos.append(DemoEntry(category: "OCCT8", name: name, run: run))
