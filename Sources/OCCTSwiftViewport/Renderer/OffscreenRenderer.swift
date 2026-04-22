@@ -10,6 +10,27 @@ import CoreGraphics
 import ImageIO
 import UniformTypeIdentifiers
 
+/// Explicit orthographic projection bounds in world units.
+///
+/// When supplied to `OffscreenRenderOptions.explicitOrthoBounds`, the renderer
+/// uses these exact bounds for the projection instead of fitting to scene extent
+/// or deriving from `CameraState.orthographicScale`. This is required when the
+/// output must be pixel-registered against an external reference (e.g. a drawing
+/// view for SSIM reprojection diff).
+public struct OrthoBounds: Sendable, Hashable, Codable {
+    public var left: Float
+    public var right: Float
+    public var bottom: Float
+    public var top: Float
+
+    public init(left: Float, right: Float, bottom: Float, top: Float) {
+        self.left = left
+        self.right = right
+        self.bottom = bottom
+        self.top = top
+    }
+}
+
 /// Configuration for an offscreen render.
 public struct OffscreenRenderOptions: Sendable {
     public var width: Int
@@ -22,6 +43,20 @@ public struct OffscreenRenderOptions: Sendable {
     public var showAxes: Bool
     public var msaaSampleCount: Int
 
+    /// Optional explicit orthographic projection bounds (world units).
+    ///
+    /// When set, overrides `cameraState.projectionMatrix(...)` and forces
+    /// orthographic projection with these exact bounds. Use for pixel-registered
+    /// renders where the output frame must match a specific world-space region.
+    public var explicitOrthoBounds: OrthoBounds?
+
+    /// Optional screen-space pan offset in pixels, applied after projection.
+    ///
+    /// Positive x pans the image right, positive y pans it down (screen-space
+    /// convention). Intended as a lightweight alternative to recomputing
+    /// `cameraState.pivot` or `explicitOrthoBounds` for small registration nudges.
+    public var pixelPan: SIMD2<Float>?
+
     public init(
         width: Int = 1024,
         height: Int = 768,
@@ -31,7 +66,9 @@ public struct OffscreenRenderOptions: Sendable {
         backgroundColor: SIMD4<Float> = SIMD4<Float>(0.95, 0.95, 0.95, 1.0),
         showGrid: Bool = false,
         showAxes: Bool = false,
-        msaaSampleCount: Int = 4
+        msaaSampleCount: Int = 4,
+        explicitOrthoBounds: OrthoBounds? = nil,
+        pixelPan: SIMD2<Float>? = nil
     ) {
         self.width = width
         self.height = height
@@ -42,6 +79,8 @@ public struct OffscreenRenderOptions: Sendable {
         self.showGrid = showGrid
         self.showAxes = showAxes
         self.msaaSampleCount = msaaSampleCount
+        self.explicitOrthoBounds = explicitOrthoBounds
+        self.pixelPan = pixelPan
     }
 }
 
@@ -274,12 +313,40 @@ public final class OffscreenRenderer: Sendable {
         let cameraState = options.cameraState
         let aspectRatio = Float(w) / Float(h)
         let viewMatrix = cameraState.viewMatrix
-        let projMatrix = cameraState.projectionMatrix(aspectRatio: aspectRatio, near: 0.01, far: 10000.0)
+        let nearClip: Float = 0.01
+        let farClip: Float = 10000.0
+
+        let baseProjMatrix: simd_float4x4
+        if let bounds = options.explicitOrthoBounds {
+            baseProjMatrix = simd_float4x4.orthographic(
+                left: bounds.left,
+                right: bounds.right,
+                bottom: bounds.bottom,
+                top: bounds.top,
+                near: nearClip,
+                far: farClip
+            )
+        } else {
+            baseProjMatrix = cameraState.projectionMatrix(aspectRatio: aspectRatio, near: nearClip, far: farClip)
+        }
+
+        let projMatrix: simd_float4x4
+        if let pan = options.pixelPan, pan != .zero, w > 0, h > 0 {
+            // Screen-space pixels → NDC translation. Screen y is down, NDC y is up.
+            let ndcX = (2.0 * pan.x) / Float(w)
+            let ndcY = (-2.0 * pan.y) / Float(h)
+            var panMatrix = matrix_identity_float4x4
+            panMatrix.columns.3 = SIMD4<Float>(ndcX, ndcY, 0, 1)
+            projMatrix = panMatrix * baseProjMatrix
+        } else {
+            projMatrix = baseProjMatrix
+        }
+
         let viewProjection = projMatrix * viewMatrix
 
         let lighting = options.lightingConfiguration
-        let nearPlane: Float = 0.01
-        let farPlane: Float = 10000.0
+        let nearPlane = nearClip
+        let farPlane = farClip
 
         let lightSources = [lighting.keyLight, lighting.fillLight, lighting.backLight]
         func packLight(_ ls: LightSettings) -> LightDataSwift {
