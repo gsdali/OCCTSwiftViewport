@@ -13878,6 +13878,18 @@ enum OCCT8Gallery {
                 [dim3D(a.vertex), dim3D(a.ray2)],
                 arc,
             ]
+
+        case .ordinate(let o):
+            // Origin cross + ticks at each feature
+            let crossSize = 3.0
+            var lines: [[SIMD3<Float>]] = [
+                [dim3D(o.origin - SIMD2(crossSize, 0)), dim3D(o.origin + SIMD2(crossSize, 0))],
+                [dim3D(o.origin - SIMD2(0, crossSize)), dim3D(o.origin + SIMD2(0, crossSize))],
+            ]
+            for f in o.features {
+                lines.append([dim3D(o.origin), dim3D(f.position)])
+            }
+            return lines
         }
     }
 
@@ -13898,6 +13910,35 @@ enum OCCT8Gallery {
                 [dim3D(t.position - SIMD2(h, h)), dim3D(t.position + SIMD2(h, h))],
                 [dim3D(t.position - SIMD2(-h, h)), dim3D(t.position + SIMD2(-h, h))],
             ]
+        case .hatch(let h):
+            // Render the hatch as its boundary polygon; islands dropped from
+            // this simplified preview.
+            let outline = (h.boundary + [h.boundary.first].compactMap { $0 }).map(dim3D)
+            return [outline]
+        case .cuttingPlaneLine(let cpl):
+            // Render trace + two short arrow stubs at each end.
+            let traceLen = simd_length(cpl.traceEnd - cpl.traceStart)
+            let arrowLen = min(8.0, traceLen * 0.2)
+            let startArrow = cpl.traceStart + cpl.arrowDirection * arrowLen
+            let endArrow = cpl.traceEnd + cpl.arrowDirection * arrowLen
+            return [
+                [dim3D(cpl.traceStart), dim3D(cpl.traceEnd)],
+                [dim3D(cpl.traceStart), dim3D(startArrow)],
+                [dim3D(cpl.traceEnd), dim3D(endArrow)],
+            ]
+        case .balloon(let b):
+            // Balloon rendered as a 16-segment polygon approximating the circle
+            // plus the optional leader.
+            var circle: [SIMD3<Float>] = []
+            for i in 0...16 {
+                let t = Double(i) * 2 * .pi / 16
+                circle.append(dim3D(b.centre + SIMD2(cos(t), sin(t)) * b.radius))
+            }
+            var lines: [[SIMD3<Float>]] = [circle]
+            if let leader = b.leaderTo {
+                lines.append([dim3D(b.centre), dim3D(leader)])
+            }
+            return lines
         }
     }
 
@@ -14318,5 +14359,2115 @@ enum OCCT8Gallery {
             bodies: bodies,
             description: descriptions.joined(separator: " | ")
         )
+    }
+
+    // MARK: - v0.141: TopologyRef + History Records
+
+    /// Demonstrates the v0.141 recipe-based topology API: BRepGraph history
+    /// readback (historyRecords, findOriginal, findDerived), manual
+    /// recordHistory, and TopologyRef resolution via .literal, .createdBy,
+    /// .containedIn, and an error case.
+    ///
+    /// The demo simulates a feature dispatcher that records a synthetic
+    /// "notch" operation against a box, then resolves recipe-based refs
+    /// — the same pattern agent-driven CAD uses to survive mutations.
+    static func v141TopologyRefsAndHistory() -> Curve2DGallery.GalleryResult {
+        var bodies: [ViewportBody] = []
+        var descriptions: [String] = []
+
+        guard let box = Shape.box(width: 6, height: 4, depth: 3) else {
+            return Curve2DGallery.GalleryResult(bodies: [], description: "Box creation failed")
+        }
+        guard let graph = TopologyGraph(shape: box) else {
+            return Curve2DGallery.GalleryResult(bodies: [], description: "TopologyGraph init failed")
+        }
+
+        graph.isHistoryEnabled = true
+        descriptions.append("History enabled=\(graph.isHistoryEnabled)")
+
+        // Show the source box, translucent
+        let (boxBody, _) = CADFileLoader.shapeToBodyAndMetadata(
+            box, id: "v141-box", color: SIMD4(0.7, 0.7, 0.8, 0.35)
+        )
+        if let boxBody { bodies.append(boxBody) }
+
+        // Record a synthetic "notch" operation: face 0 becomes face 2 and face 3
+        // (split); edge 1 becomes edge 4 (modified in place). These are made-up
+        // mappings — the point is to show the recipe API, not the split itself.
+        let face0 = TopologyGraph.NodeRef(kind: .face, index: 0)
+        let face2 = TopologyGraph.NodeRef(kind: .face, index: 2)
+        let face3 = TopologyGraph.NodeRef(kind: .face, index: 3)
+        let edge1 = TopologyGraph.NodeRef(kind: .edge, index: 1)
+        let edge4 = TopologyGraph.NodeRef(kind: .edge, index: 4)
+
+        graph.recordHistory(operationName: "notch",
+                            original: face0, replacements: [face2, face3])
+        graph.recordHistory(operationName: "notch",
+                            original: edge1, replacements: [edge4])
+
+        let records = graph.historyRecords
+        descriptions.append("Records: \(records.count)")
+        for record in records {
+            let mappingDesc = record.mapping.map { (orig, repls) in
+                "\(orig.kind)\(orig.index)→\(repls.map { "\($0.kind)\($0.index)" }.joined(separator: ","))"
+            }.sorted().joined(separator: " ")
+            descriptions.append("  [#\(record.sequenceNumber) \(record.operationName)] \(mappingDesc)")
+        }
+
+        // Walk forwards: what did face 0 become?
+        let derivedFromF0 = graph.findDerived(of: face0)
+        descriptions.append("findDerived(face0): \(derivedFromF0.count) nodes")
+
+        // Walk backwards: what is the original of edge 4?
+        let originalOfE4 = graph.findOriginal(of: edge4)
+        descriptions.append("findOriginal(edge4) = \(originalOfE4.kind)\(originalOfE4.index)")
+
+        // TopologyRef resolution — the money case for agent workflows.
+
+        // 1. Literal to a valid face
+        let litResult = graph.resolve(.literal(TopologyGraph.NodeRef(kind: .face, index: 1)))
+        descriptions.append("resolve(.literal face1): \(describe(litResult))")
+
+        // 2. .createdBy — first face produced by "notch"
+        let createdByResult = graph.resolve(.createdBy(operationName: "notch", kind: .face, occurrence: 0))
+        descriptions.append("resolve(.createdBy notch face[0]): \(describe(createdByResult))")
+
+        // 3. .createdBy — second occurrence
+        let createdBy1Result = graph.resolve(.createdBy(operationName: "notch", kind: .face, occurrence: 1))
+        descriptions.append("resolve(.createdBy notch face[1]): \(describe(createdBy1Result))")
+
+        // 4. .containedIn — second face of solid 0
+        let solidRef = TopologyRef.literal(TopologyGraph.NodeRef(kind: .solid, index: 0))
+        let containedResult = graph.resolve(.containedIn(parent: solidRef, kind: .face, occurrence: 1))
+        descriptions.append("resolve(.containedIn solid0 face[1]): \(describe(containedResult))")
+
+        // 5. Error case: operation not found
+        let notFoundResult = graph.resolve(.createdBy(operationName: "bogus", kind: .face, occurrence: 0))
+        descriptions.append("resolve(.createdBy bogus): \(describe(notFoundResult))")
+
+        // 6. Error case: occurrence out of range
+        let oobResult = graph.resolve(.createdBy(operationName: "notch", kind: .face, occurrence: 99))
+        descriptions.append("resolve(.createdBy notch face[99]): \(describe(oobResult))")
+
+        // Visualise the faces resolved by .createdBy — highlight each face body
+        let faces = box.subShapes(ofType: .face)
+        for occ in 0..<2 {
+            let result = graph.resolve(.createdBy(operationName: "notch", kind: .face, occurrence: occ))
+            if case .success(let nodeRef) = result,
+               nodeRef.index < faces.count {
+                let color: SIMD4<Float> = occ == 0
+                    ? SIMD4(0.9, 0.3, 0.3, 1.0) : SIMD4(0.3, 0.6, 1.0, 1.0)
+                let (body, _) = CADFileLoader.shapeToBodyAndMetadata(
+                    faces[nodeRef.index], id: "v141-resolved-\(occ)", color: color
+                )
+                if let body { bodies.append(body) }
+            }
+        }
+
+        return Curve2DGallery.GalleryResult(
+            bodies: bodies,
+            description: descriptions.joined(separator: " | ")
+        )
+    }
+
+    /// One-line formatter for a TopologyRef resolve result.
+    private static func describe<E: Error>(_ result: Result<TopologyGraph.NodeRef, E>) -> String {
+        switch result {
+        case .success(let n): return "\(n.kind)\(n.index)"
+        case .failure(let e): return "ERR(\(e))"
+        }
+    }
+
+    // MARK: - v0.142: Construction Geometry (planes / axes / points)
+
+    /// Demonstrates the v0.142 construction-entity recipes: ConstructionPlane,
+    /// ConstructionAxis, ConstructionPoint — each built from TopologyRefs and
+    /// resolved against a TopologyGraph to produce Placement / direction / SIMD3.
+    /// Registers them in a ConstructionContext and walks allBroken to show
+    /// broken-reference detection when the entity is evaluated against a
+    /// different graph (simulating a model edit).
+    static func v142ConstructionGeometry() -> Curve2DGallery.GalleryResult {
+        var bodies: [ViewportBody] = []
+        var descriptions: [String] = []
+
+        guard let box = Shape.box(width: 6, height: 4, depth: 3) else {
+            return Curve2DGallery.GalleryResult(bodies: [], description: "Box creation failed")
+        }
+        guard let graph = TopologyGraph(shape: box) else {
+            return Curve2DGallery.GalleryResult(bodies: [], description: "TopologyGraph init failed")
+        }
+
+        // Show the source box, translucent
+        let (boxBody, _) = CADFileLoader.shapeToBodyAndMetadata(
+            box, id: "v142-cg-box", color: SIMD4(0.7, 0.75, 0.8, 0.3)
+        )
+        if let boxBody { bodies.append(boxBody) }
+
+        let context = ConstructionContext()
+
+        // Reference a specific face / edge / vertex by literal index. In a real
+        // recipe these would come from .createdBy / .containedIn — .literal here
+        // keeps the demo self-contained.
+        let face0Ref = TopologyRef.literal(TopologyGraph.NodeRef(kind: .face, index: 0))
+        let edge0Ref = TopologyRef.literal(TopologyGraph.NodeRef(kind: .edge, index: 0))
+        let edge1Ref = TopologyRef.literal(TopologyGraph.NodeRef(kind: .edge, index: 1))
+
+        // Construction plane — offset 1.5 units along face 0's normal
+        let planeRecipe = ConstructionPlane.offsetFromFace(face: face0Ref, distance: 1.5)
+        let planeID = context.add(planeRecipe, name: "offset-1.5")
+
+        // Construction axis — along edge 0
+        let axisRecipe = ConstructionAxis.alongEdge(edge0Ref)
+        let axisID = context.add(axisRecipe, name: "edge0-axis")
+
+        // Construction point — midpoint of edge 1
+        let pointRecipe = ConstructionPoint.midpointOfEdge(edge1Ref)
+        let pointID = context.add(pointRecipe, name: "edge1-mid")
+
+        descriptions.append("Context: \(context.count.planes)P \(context.count.axes)A \(context.count.points)Pt")
+
+        // Resolve each entity via the context
+        if case .success(let placement) = context.resolve(planeID, in: graph) {
+            let origin = SIMD3<Float>(Float(placement.origin.x),
+                                       Float(placement.origin.y),
+                                       Float(placement.origin.z))
+            let normal = SIMD3<Float>(Float(placement.zAxis.x),
+                                       Float(placement.zAxis.y),
+                                       Float(placement.zAxis.z))
+            descriptions.append(String(format: "Plane origin=(%.2f,%.2f,%.2f) normal=(%.2f,%.2f,%.2f)",
+                                       placement.origin.x, placement.origin.y, placement.origin.z,
+                                       placement.zAxis.x, placement.zAxis.y, placement.zAxis.z))
+            // Plane marker (green) + normal indicator (green line)
+            bodies.append(makeMarker(at: origin, radius: 0.15,
+                                     id: "v142-plane-origin",
+                                     color: SIMD4(0.2, 1.0, 0.3, 1.0)))
+            bodies.append(ViewportBody(
+                id: "v142-plane-normal",
+                vertexData: [], indices: [],
+                edges: [[origin, origin + normal * 1.2]],
+                color: SIMD4(0.2, 1.0, 0.3, 1.0)
+            ))
+        } else {
+            descriptions.append("Plane resolve FAILED")
+        }
+
+        if case .success(let axis) = context.resolve(axisID, in: graph) {
+            let origin = SIMD3<Float>(Float(axis.origin.x),
+                                       Float(axis.origin.y),
+                                       Float(axis.origin.z))
+            let direction = SIMD3<Float>(Float(axis.direction.x),
+                                          Float(axis.direction.y),
+                                          Float(axis.direction.z))
+            descriptions.append(String(format: "Axis origin=(%.2f,%.2f,%.2f) dir=(%.2f,%.2f,%.2f)",
+                                       axis.origin.x, axis.origin.y, axis.origin.z,
+                                       axis.direction.x, axis.direction.y, axis.direction.z))
+            bodies.append(ViewportBody(
+                id: "v142-axis-line",
+                vertexData: [], indices: [],
+                edges: [[origin - direction * 3, origin + direction * 3]],
+                color: SIMD4(1.0, 0.6, 0.1, 1.0)
+            ))
+        } else {
+            descriptions.append("Axis resolve FAILED")
+        }
+
+        if case .success(let pt) = context.resolve(pointID, in: graph) {
+            descriptions.append(String(format: "Point=(%.2f,%.2f,%.2f)", pt.x, pt.y, pt.z))
+            bodies.append(makeMarker(
+                at: SIMD3<Float>(Float(pt.x), Float(pt.y), Float(pt.z)),
+                radius: 0.2,
+                id: "v142-point",
+                color: SIMD4(1.0, 0.2, 0.8, 1.0)
+            ))
+        } else {
+            descriptions.append("Point resolve FAILED")
+        }
+
+        // Broken-reference detection: evaluate the context against a different
+        // (smaller) graph where those literal indices may not exist.
+        if let smallBox = Shape.box(width: 1, height: 1, depth: 1),
+           let smallGraph = TopologyGraph(shape: smallBox) {
+            let broken = context.allBroken(in: smallGraph)
+            descriptions.append("allBroken(small graph): \(broken.totalCount) total (\(broken.planes.count)P \(broken.axes.count)A \(broken.points.count)Pt)")
+        }
+
+        return Curve2DGallery.GalleryResult(
+            bodies: bodies,
+            description: descriptions.joined(separator: " | ")
+        )
+    }
+
+    // MARK: - v0.142: Sketch + FeatureReconstructor
+
+    /// Demonstrates Sketch.buildProfile (construction-filtered profile assembly)
+    /// and FeatureReconstructor.build (declarative FeatureSpec → Shape dispatcher).
+    /// First lifts a 2D sketch with a construction line into a 3D wire on a
+    /// host plane, then feeds a mixed FeatureSpec sequence (extrude + hole +
+    /// fillet + boolean-union + thread) through the reconstructor and reports
+    /// fulfilled / skipped / annotation counts.
+    static func v142SketchAndReconstructor() -> Curve2DGallery.GalleryResult {
+        var bodies: [ViewportBody] = []
+        var descriptions: [String] = []
+
+        // --- Part 1: Sketch.buildProfile ---
+
+        let planeRecipe = ConstructionPlane.absolute(
+            origin: SIMD3(0, 0, 0),
+            normal: SIMD3(0, 0, 1)
+        )
+        let context = ConstructionContext()
+        let planeID = context.add(planeRecipe, name: "sketch-plane")
+
+        // A graph is required for resolution even though the plane is absolute.
+        guard let anchor = Shape.box(width: 1, height: 1, depth: 1),
+              let anchorGraph = TopologyGraph(shape: anchor) else {
+            return Curve2DGallery.GalleryResult(bodies: [], description: "Anchor shape/graph failed")
+        }
+
+        var sketch = Sketch(hostPlane: planeID, name: "L-bracket")
+        // Closed L-shaped polyline (profile) — 6 lines forming the outline
+        let profilePoints: [SIMD2<Double>] = [
+            SIMD2(0, 0), SIMD2(8, 0), SIMD2(8, 3), SIMD2(3, 3),
+            SIMD2(3, 6), SIMD2(0, 6), SIMD2(0, 0)
+        ]
+        sketch.add(SketchElement(curve: .polyline(profilePoints)))
+
+        // Diagonal construction line — should be filtered out of the profile
+        sketch.add(SketchElement(
+            curve: .line(from: SIMD2(0, 0), to: SIMD2(8, 6)),
+            isConstruction: true
+        ))
+
+        // A circle — currently skipped by buildProfile (tessellation deferred),
+        // but still part of the sketch's element set.
+        sketch.add(SketchElement(curve: .circle(center: SIMD2(6, 1.5), radius: 0.5)))
+
+        descriptions.append("Sketch: \(sketch.elements.count) elements, \(sketch.profileElementCount) profile")
+
+        if let profileWire = sketch.buildProfile(in: context, graph: anchorGraph) {
+            let polylines = profileWire.allEdgePolylines(deflection: 0.005)
+            for (e, pts) in polylines.enumerated() {
+                let floatPts = pts.map { SIMD3<Float>(Float($0.x), Float($0.y), Float($0.z)) }
+                bodies.append(ViewportBody(
+                    id: "v142-sketch-edge-\(e)",
+                    vertexData: [], indices: [],
+                    edges: [floatPts],
+                    color: SIMD4(0.2, 0.6, 1.0, 1.0)
+                ))
+            }
+            descriptions.append("Profile wire: \(polylines.count) edges")
+        } else {
+            descriptions.append("buildProfile FAILED")
+        }
+
+        // Show the construction line for reference (dotted-looking thin red line)
+        bodies.append(ViewportBody(
+            id: "v142-sketch-construction",
+            vertexData: [], indices: [],
+            edges: [[SIMD3<Float>(0, 0, 0), SIMD3<Float>(8, 6, 0)]],
+            color: SIMD4(0.9, 0.2, 0.2, 0.5)
+        ))
+
+        // --- Part 2: FeatureReconstructor ---
+
+        let specs: [FeatureSpec] = [
+            .extrude(.init(
+                profilePoints2D: [
+                    SIMD2(0, 0), SIMD2(10, 0), SIMD2(10, 5), SIMD2(0, 5)
+                ],
+                planeOrigin: SIMD3(0, -10, 0),
+                planeNormal: SIMD3(0, 0, 1),
+                length: 4,
+                id: "f-base"
+            )),
+            .hole(.init(
+                axisPoint: SIMD3(2.5, -7.5, 4.1),
+                axisDirection: SIMD3(0, 0, -1),
+                diameter: 1.2,
+                depth: 5,
+                id: "f-hole"
+            )),
+            .fillet(.init(edgeSelector: .all, radius: 0.4, id: "f-fillet")),
+            .thread(.init(holeRef: "f-hole", spec: "M6", id: "f-thread")),
+            // Boolean union without a named-shape registry is unsupported in v1;
+            // ends up in `skipped` to demonstrate the partial-reconstruction API.
+            .boolean(.init(op: .union, leftID: "f-base", rightID: "f-hole", id: "f-u"))
+        ]
+
+        let result = FeatureReconstructor.build(from: specs)
+        descriptions.append("Reconstruct: fulfilled=\(result.fulfilled.count) skipped=\(result.skipped.count) anns=\(result.annotations.count)")
+        for id in result.fulfilled {
+            descriptions.append("  OK: \(id)")
+        }
+        for s in result.skipped {
+            descriptions.append("  SKIP \(s.stage.rawValue): \(s.featureID) — \(s.reason)")
+        }
+        for a in result.annotations {
+            descriptions.append("  ann \(a.featureID): \(a.kind)")
+        }
+
+        if let finalShape = result.shape {
+            let (body, _) = CADFileLoader.shapeToBodyAndMetadata(
+                finalShape, id: "v142-reconstructed", color: SIMD4(0.65, 0.7, 0.6, 1.0)
+            )
+            if var body {
+                // Offset to sit below the sketch so both are visible
+                offsetBody(&body, dx: 0, dy: -10, dz: 0)
+                bodies.append(body)
+            }
+        }
+
+        return Curve2DGallery.GalleryResult(
+            bodies: bodies,
+            description: descriptions.joined(separator: " | ")
+        )
+    }
+
+    // MARK: - v0.143: Measurement Ergonomics
+
+    /// Exercises the v0.143 one-liner measurement layer: Shape.volume,
+    /// Shape.surfaceArea, Edge.circleProperties, Face.revolutionProperties,
+    /// Edge.isParallel/isPerpendicular, Face.isCoplanar, and the free
+    /// unsignedAngle(between:and:) helper.
+    static func v143Measurements() -> Curve2DGallery.GalleryResult {
+        var bodies: [ViewportBody] = []
+        var descriptions: [String] = []
+
+        // A plate with a round hole — simple but rich: planar faces, cylindrical
+        // face, circular edges, straight edges.
+        guard let plate = Shape.box(width: 10, height: 2, depth: 6),
+              let hole = Shape.cylinder(
+                at: SIMD3<Double>(5, -1, 3),
+                direction: SIMD3<Double>(0, 1, 0),
+                radius: 1.2, height: 4) else {
+            return Curve2DGallery.GalleryResult(bodies: [], description: "Shape creation failed")
+        }
+        let part = plate.subtracting(hole) ?? plate
+
+        let (partBody, _) = CADFileLoader.shapeToBodyAndMetadata(
+            part, id: "v143-part", color: SIMD4(0.6, 0.7, 0.75, 1.0)
+        )
+        if let partBody { bodies.append(partBody) }
+
+        if let v = part.volume, let a = part.surfaceArea {
+            descriptions.append(String(format: "Volume=%.3f mm³  SurfArea=%.3f mm²", v, a))
+        }
+
+        // Edge circle extraction — find the first circular edge
+        let partEdges = part.edges()
+        var foundCircle = false
+        for (ei, edge) in partEdges.enumerated() {
+            if let cp = edge.circleProperties {
+                descriptions.append(String(format: "Circle edge[%d]: r=%.3f full=%@ axis=(%.2f,%.2f,%.2f)",
+                                           ei, cp.radius, cp.isFullCircle ? "Y" : "N",
+                                           cp.axis.x, cp.axis.y, cp.axis.z))
+                // Visualise the circle axis as a short line
+                let c = SIMD3<Float>(Float(cp.center.x), Float(cp.center.y), Float(cp.center.z))
+                let axis = SIMD3<Float>(Float(cp.axis.x), Float(cp.axis.y), Float(cp.axis.z))
+                bodies.append(ViewportBody(
+                    id: "v143-circle-axis-\(ei)",
+                    vertexData: [], indices: [],
+                    edges: [[c - axis * 1.5, c + axis * 1.5]],
+                    color: SIMD4(1.0, 0.6, 0.1, 1.0)
+                ))
+                bodies.append(makeMarker(at: c, radius: 0.15,
+                                         id: "v143-circle-center-\(ei)",
+                                         color: SIMD4(1.0, 0.2, 0.1, 1.0)))
+                foundCircle = true
+                break
+            }
+        }
+        if !foundCircle { descriptions.append("No circular edge found") }
+
+        // Face revolution properties — find the cylindrical face
+        let partFaces = part.faces()
+        var foundRev = false
+        for (fi, face) in partFaces.enumerated() {
+            if let rp = face.revolutionProperties {
+                descriptions.append(String(format: "Rev face[%d] kind=%@ r=%.3f",
+                                           fi, "\(rp.axis.kind)", rp.radius))
+                foundRev = true
+                break
+            }
+        }
+        if !foundRev { descriptions.append("No revolution face found") }
+
+        // Parallel / perpendicular predicates on two edges — first straight + first straight
+        let straightEdges = partEdges.filter { $0.circleProperties == nil }
+        if straightEdges.count >= 3 {
+            let e0 = straightEdges[0]
+            let e1 = straightEdges[1]
+            let e2 = straightEdges[2]
+            let par = e0.isParallel(to: e1)
+            let perp = e0.isPerpendicular(to: e2)
+            let ang01 = e0.angle(to: e1)
+            let ang02 = e0.angle(to: e2)
+            descriptions.append("e0∥e1: \(par.map { $0 ? "Y" : "N" } ?? "nil") (ang=\(formatDeg(ang01)))")
+            descriptions.append("e0⊥e2: \(perp.map { $0 ? "Y" : "N" } ?? "nil") (ang=\(formatDeg(ang02)))")
+        }
+
+        // Face.isCoplanar — top face with bottom face should be parallel (angle π) but not coplanar
+        if partFaces.count >= 2 {
+            let f0 = partFaces[0]
+            let f1 = partFaces[1]
+            let fPar = f0.isParallel(to: f1)
+            let fCop = f0.isCoplanar(with: f1)
+            descriptions.append("f0∥f1: \(fPar.map { $0 ? "Y" : "N" } ?? "nil") coplanar: \(fCop.map { $0 ? "Y" : "N" } ?? "nil")")
+        }
+
+        // Free unsignedAngle helper
+        let angle = unsignedAngle(between: SIMD3<Double>(1, 0, 0), and: SIMD3<Double>(0, 1, 0))
+        descriptions.append("unsignedAngle(x, y)=\(formatDeg(angle))")
+
+        return Curve2DGallery.GalleryResult(
+            bodies: bodies,
+            description: descriptions.joined(separator: " | ")
+        )
+    }
+
+    private static func formatDeg(_ rad: Double?) -> String {
+        guard let rad else { return "nil" }
+        return String(format: "%.1f°", rad * 180 / .pi)
+    }
+
+    // MARK: - v0.143: Deferrals Cleared (Sketch arcs, Boolean registry, fillet selectors)
+
+    /// Exercises the three v0.142 deferrals cleared in v0.143:
+    ///   D2: Sketch.buildProfile now tessellates .arc and .circle
+    ///   D3: FeatureSpec.Boolean uses a named-shape registry by id
+    ///   D5: FeatureSpec.Fillet supports EdgeSelector.nearPoint / .onFeature
+    static func v143DeferralsCleared() -> Curve2DGallery.GalleryResult {
+        var bodies: [ViewportBody] = []
+        var descriptions: [String] = []
+
+        // --- D2: Sketch with a circular arc in the profile ---
+
+        let context = ConstructionContext()
+        let planeID = context.add(.absolute(origin: SIMD3(0, 0, 0), normal: SIMD3(0, 0, 1)))
+        guard let anchor = Shape.box(width: 1, height: 1, depth: 1),
+              let anchorGraph = TopologyGraph(shape: anchor) else {
+            return Curve2DGallery.GalleryResult(bodies: [], description: "Anchor failed")
+        }
+
+        var sketch = Sketch(hostPlane: planeID, name: "D-shape")
+        // D-shape: flat bottom + half-circle top
+        sketch.add(SketchElement(curve: .line(from: SIMD2(-2, 0), to: SIMD2(2, 0))))
+        sketch.add(SketchElement(curve: .arc(
+            center: SIMD2(0, 0), radius: 2,
+            startAngle: 0, endAngle: .pi
+        )))
+        descriptions.append("Sketch elements: \(sketch.elements.count)")
+
+        if let wire = sketch.buildProfile(in: context, graph: anchorGraph) {
+            let polys = wire.allEdgePolylines(deflection: 0.02)
+            descriptions.append("Profile: \(polys.count) edges (arc now tessellated)")
+            for (i, pts) in polys.enumerated() {
+                let floatPts = pts.map { SIMD3<Float>(Float($0.x), Float($0.y), Float($0.z)) }
+                bodies.append(ViewportBody(
+                    id: "v143-d2-edge-\(i)",
+                    vertexData: [], indices: [],
+                    edges: [floatPts],
+                    color: SIMD4(0.2, 0.6, 1.0, 1.0)
+                ))
+            }
+        } else {
+            descriptions.append("buildProfile FAILED (arc tessellate?)")
+        }
+
+        // --- D3: Boolean.union with named-shape registry ---
+
+        let d3Specs: [FeatureSpec] = [
+            .extrude(.init(
+                profilePoints2D: [SIMD2(0, 0), SIMD2(4, 0), SIMD2(4, 4), SIMD2(0, 4)],
+                planeOrigin: SIMD3(0, 0, -6),
+                planeNormal: SIMD3(0, 0, 1),
+                length: 2,
+                id: "left"
+            )),
+            .extrude(.init(
+                profilePoints2D: [SIMD2(3, 0), SIMD2(7, 0), SIMD2(7, 4), SIMD2(3, 4)],
+                planeOrigin: SIMD3(0, 0, -6),
+                planeNormal: SIMD3(0, 0, 1),
+                length: 2,
+                id: "right"
+            )),
+            // This now succeeds — v0.142 would have skipped it
+            .boolean(.init(op: .union, leftID: "left", rightID: "right", id: "fused"))
+        ]
+        let d3Result = FeatureReconstructor.build(from: d3Specs)
+        descriptions.append("D3 union: fulfilled=\(d3Result.fulfilled.count) skipped=\(d3Result.skipped.count)")
+        for id in d3Result.fulfilled { descriptions.append("  OK: \(id)") }
+        for s in d3Result.skipped { descriptions.append("  SKIP: \(s.featureID) — \(s.reason)") }
+        if let shape = d3Result.shape {
+            let (body, _) = CADFileLoader.shapeToBodyAndMetadata(
+                shape, id: "v143-d3-fused", color: SIMD4(0.4, 0.8, 0.6, 1.0)
+            )
+            if var body {
+                offsetBody(&body, dx: -4, dy: 0, dz: -6)
+                bodies.append(body)
+            }
+        }
+
+        // --- D5: Fillet with EdgeSelector.nearPoint ---
+
+        let d5Specs: [FeatureSpec] = [
+            .extrude(.init(
+                profilePoints2D: [SIMD2(0, 0), SIMD2(5, 0), SIMD2(5, 5), SIMD2(0, 5)],
+                planeOrigin: SIMD3(10, 0, -6),
+                planeNormal: SIMD3(0, 0, 1),
+                length: 3,
+                id: "block"
+            )),
+            // Fillet only the edges near (15, 5, -3) — the top-right vertical edge region
+            .fillet(.init(
+                edgeSelector: .nearPoint(SIMD3(15, 5, -3), tolerance: 2.5),
+                radius: 0.8,
+                id: "selective-fillet"
+            ))
+        ]
+        let d5Result = FeatureReconstructor.build(from: d5Specs)
+        descriptions.append("D5 selective fillet: fulfilled=\(d5Result.fulfilled.count) skipped=\(d5Result.skipped.count)")
+        for id in d5Result.fulfilled { descriptions.append("  OK: \(id)") }
+        for s in d5Result.skipped { descriptions.append("  SKIP: \(s.featureID) — \(s.reason)") }
+        if let shape = d5Result.shape {
+            let (body, _) = CADFileLoader.shapeToBodyAndMetadata(
+                shape, id: "v143-d5-filleted", color: SIMD4(0.9, 0.6, 0.3, 1.0)
+            )
+            if var body {
+                offsetBody(&body, dx: 0, dy: 0, dz: -6)
+                bodies.append(body)
+            }
+        }
+
+        return Curve2DGallery.GalleryResult(
+            bodies: bodies,
+            description: descriptions.joined(separator: " | ")
+        )
+    }
+
+    // MARK: - v0.144: Section2D + Hatch + TransformedDrawing
+
+    /// Demonstrates Shape.section2D, Drawing.addHatch, Drawing.transformed, and
+    /// Drawing.bounds, plus the new style enums (DrawingScale / DrawingLineWidth /
+    /// DrawingTextHeight). Builds a bracket, cuts two section views, composes
+    /// them side-by-side, and exports DXF.
+    static func v144SectionAndHatch() -> Curve2DGallery.GalleryResult {
+        var bodies: [ViewportBody] = []
+        var descriptions: [String] = []
+
+        guard let plate = Shape.box(width: 16, height: 4, depth: 8),
+              let hole = Shape.cylinder(
+                at: SIMD3<Double>(4, -1, 4),
+                direction: SIMD3<Double>(0, 1, 0),
+                radius: 1.0, height: 6),
+              let slot = Shape.box(origin: SIMD3(10, 1, 2), width: 4, height: 2, depth: 4) else {
+            return Curve2DGallery.GalleryResult(bodies: [], description: "Shape creation failed")
+        }
+        var part = plate.subtracting(hole) ?? plate
+        part = part.subtracting(slot) ?? part
+
+        let (partBody, _) = CADFileLoader.shapeToBodyAndMetadata(
+            part, id: "v144-part", color: SIMD4(0.65, 0.7, 0.8, 0.5)
+        )
+        if let partBody { bodies.append(partBody) }
+
+        // Section A-A (XZ plane at y=2 — through the hole)
+        let sectionA = part.section2DView(
+            planeOrigin: SIMD3(0, 2, 0),
+            planeNormal: SIMD3(0, 1, 0),
+            label: "A-A",
+            hatchAngle: .pi / 4,
+            hatchSpacing: 1.0,
+            deflection: 0.05
+        )
+
+        // Section B-B (YZ plane at x=8 — through the slot)
+        let sectionB = part.section2DView(
+            planeOrigin: SIMD3(8, 0, 0),
+            planeNormal: SIMD3(1, 0, 0),
+            label: "B-B",
+            hatchAngle: .pi / 3,
+            hatchSpacing: 1.0,
+            deflection: 0.05
+        )
+
+        if let a = sectionA {
+            let dims = a.drawing.bounds()
+            descriptions.append("Section A-A: anns=\(a.drawing.annotations.count) dims=\(a.drawing.dimensions.count) bounds=\(dims.map { "\($0.min.x),\($0.min.y) → \($0.max.x),\($0.max.y)" } ?? "nil")")
+            // Render the section contour above the part in world space
+            if let visible = a.drawing.visibleEdges {
+                for i in 0..<visible.edgeCount {
+                    if let pts = visible.edgePolyline(at: i, deflection: 0.02) {
+                        let floatPts = pts.map { SIMD3<Float>(Float($0.x) + 20, 0, Float($0.y)) }
+                        bodies.append(ViewportBody(
+                            id: "v144-secA-\(i)",
+                            vertexData: [], indices: [],
+                            edges: [floatPts],
+                            color: SIMD4(0.9, 0.2, 0.2, 1.0)
+                        ))
+                    }
+                }
+            }
+        }
+
+        if let b = sectionB {
+            descriptions.append("Section B-B: anns=\(b.drawing.annotations.count) dims=\(b.drawing.dimensions.count)")
+            if let visible = b.drawing.visibleEdges {
+                for i in 0..<visible.edgeCount {
+                    if let pts = visible.edgePolyline(at: i, deflection: 0.02) {
+                        let floatPts = pts.map { SIMD3<Float>(Float($0.x) + 20, 0, Float($0.y) + 12) }
+                        bodies.append(ViewportBody(
+                            id: "v144-secB-\(i)",
+                            vertexData: [], indices: [],
+                            edges: [floatPts],
+                            color: SIMD4(0.2, 0.2, 0.9, 1.0)
+                        ))
+                    }
+                }
+            }
+        }
+
+        // TransformedDrawing composition — two views on one DXF, at 1:1 and 1:2
+        let scale11 = DrawingScale.one
+        let scale12 = DrawingScale.reduction(2)
+        descriptions.append("Scales: \(scale11.label) factor=\(scale11.factor), \(scale12.label) factor=\(scale12.factor)")
+        descriptions.append("Thin=\(DrawingLineWidth.thin.rawValue)mm Thick=\(DrawingLineWidth.thick.rawValue)mm")
+        descriptions.append("TextH recommended for A3: \(DrawingTextHeight.recommended(forPaper: "A3").rawValue)mm")
+
+        let tmpDir = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("occtswift-v144", isDirectory: true)
+        try? FileManager.default.createDirectory(at: tmpDir, withIntermediateDirectories: true)
+        let dxfURL = tmpDir.appendingPathComponent("sections.dxf")
+
+        do {
+            let writer = DXFWriter(deflection: 0.05)
+            if let a = sectionA {
+                writer.collectFromDrawing(a.drawing.transformed(translate: SIMD2(0, 0), scale: scale11.factor))
+            }
+            if let b = sectionB {
+                writer.collectFromDrawing(b.drawing.transformed(translate: SIMD2(30, 0), scale: scale12.factor))
+            }
+            try writer.write(to: dxfURL)
+            let size = ((try? FileManager.default.attributesOfItem(atPath: dxfURL.path))?[.size] as? Int) ?? 0
+            descriptions.append("DXF: \(size)B → \(dxfURL.lastPathComponent)")
+        } catch {
+            descriptions.append("DXF export FAILED: \(error)")
+        }
+
+        return Curve2DGallery.GalleryResult(
+            bodies: bodies,
+            description: descriptions.joined(separator: " | ")
+        )
+    }
+
+    // MARK: - v0.145: Sheet + TitleBlock + ProjectionSymbol
+
+    /// Demonstrates the v0.145 sheet scaffolding: PaperSize + Orientation +
+    /// ProjectionAngle, a populated TitleBlock, and Sheet.render emitting
+    /// the border, inner frame, centring marks, title block, and ISO 5456-2
+    /// projection symbol into a DXFWriter.
+    static func v145SheetLayout() -> Curve2DGallery.GalleryResult {
+        var bodies: [ViewportBody] = []
+        var descriptions: [String] = []
+
+        let title = TitleBlock(
+            title: "DEMO BRACKET",
+            drawingNumber: "OSV-145-001",
+            owner: "OCCTSwiftViewport",
+            creator: "gsdali",
+            approver: "nil",
+            documentType: "PART",
+            dateOfIssue: "2026-04-22",
+            revision: "A",
+            sheetNumber: "1/1",
+            material: "Al 6061-T6",
+            scale: "1:1"
+        )
+        let sheet = Sheet(
+            size: .A3,
+            orientation: .landscape,
+            projection: .first,
+            title: title,
+            scale: "1:1"
+        )
+        let inner = sheet.innerFrame
+        descriptions.append(String(format: "Sheet %@ %@ %.0f×%.0fmm",
+                                   "\(sheet.size)", "\(sheet.orientation)",
+                                   sheet.dimensions.x, sheet.dimensions.y))
+        descriptions.append(String(format: "Inner frame: (%.0f,%.0f)→(%.0f,%.0f)",
+                                   inner.min.x, inner.min.y, inner.max.x, inner.max.y))
+        descriptions.append("Projection: \(sheet.projection)")
+
+        // Build a simple shape and project it, place it on the sheet
+        guard let block = Shape.box(width: 80, height: 20, depth: 60),
+              let hole = Shape.cylinder(at: SIMD3(20, -1, 30),
+                                         direction: SIMD3(0, 1, 0),
+                                         radius: 6, height: 22) else {
+            return Curve2DGallery.GalleryResult(bodies: [], description: "Shape creation failed")
+        }
+        let part = block.subtracting(hole) ?? block
+        let (partBody, _) = CADFileLoader.shapeToBodyAndMetadata(
+            part, id: "v145-part", color: SIMD4(0.65, 0.7, 0.8, 0.7)
+        )
+        if let partBody { bodies.append(partBody) }
+
+        let topView = Drawing.project(part, direction: SIMD3<Double>(0, 1, 0))
+        let frontView = Drawing.project(part, direction: SIMD3<Double>(0, 0, 1))
+
+        let tmpDir = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("occtswift-v145", isDirectory: true)
+        try? FileManager.default.createDirectory(at: tmpDir, withIntermediateDirectories: true)
+        let dxfURL = tmpDir.appendingPathComponent("sheet.dxf")
+
+        do {
+            let writer = DXFWriter(deflection: 0.1)
+            sheet.render(into: writer)
+            // Place two views in the drawable area
+            if let topView {
+                writer.collectFromDrawing(topView.transformed(
+                    translate: SIMD2(inner.min.x + 20, inner.max.y - 80), scale: 1.0))
+            }
+            if let frontView {
+                writer.collectFromDrawing(frontView.transformed(
+                    translate: SIMD2(inner.min.x + 20, inner.min.y + 40), scale: 1.0))
+            }
+            try writer.write(to: dxfURL)
+            let size = ((try? FileManager.default.attributesOfItem(atPath: dxfURL.path))?[.size] as? Int) ?? 0
+            descriptions.append("DXF: \(size)B → \(dxfURL.lastPathComponent)")
+        } catch {
+            descriptions.append("DXF export FAILED: \(error)")
+        }
+
+        // Render the sheet outline + inner frame in the 3D viewport for visualisation
+        let sx = Float(sheet.dimensions.x), sy = Float(sheet.dimensions.y)
+        let z: Float = 25
+        let outer: [SIMD3<Float>] = [
+            SIMD3(0, z, 0), SIMD3(sx, z, 0),
+            SIMD3(sx, z, sy), SIMD3(0, z, sy), SIMD3(0, z, 0)
+        ]
+        bodies.append(ViewportBody(id: "v145-sheet-outer",
+                                   vertexData: [], indices: [],
+                                   edges: [outer],
+                                   color: SIMD4(0.2, 0.2, 0.2, 1.0)))
+        let fi = inner.min, fa = inner.max
+        let innerPts: [SIMD3<Float>] = [
+            SIMD3(Float(fi.x), z, Float(fi.y)), SIMD3(Float(fa.x), z, Float(fi.y)),
+            SIMD3(Float(fa.x), z, Float(fa.y)), SIMD3(Float(fi.x), z, Float(fa.y)),
+            SIMD3(Float(fi.x), z, Float(fi.y))
+        ]
+        bodies.append(ViewportBody(id: "v145-sheet-inner",
+                                   vertexData: [], indices: [],
+                                   edges: [innerPts],
+                                   color: SIMD4(0.5, 0.5, 0.5, 1.0)))
+
+        return Curve2DGallery.GalleryResult(
+            bodies: bodies,
+            description: descriptions.joined(separator: " | ")
+        )
+    }
+
+    // MARK: - v0.146: Drawing Annotations Catalog
+
+    /// Demonstrates the v0.146 ISO annotation additions: cosmetic threads
+    /// (side + end view), surface finish, GD&T feature control frame, datum
+    /// feature, break lines, and detail views. Builds a small reference drawing
+    /// and exports DXF.
+    static func v146AnnotationCatalog() -> Curve2DGallery.GalleryResult {
+        var bodies: [ViewportBody] = []
+        var descriptions: [String] = []
+
+        // Build an empty drawing — we're showcasing annotations here, not
+        // projected edges. Project a trivial shape to get a Drawing handle.
+        guard let stub = Shape.box(width: 1, height: 1, depth: 1),
+              let drawing = Drawing.project(stub, direction: SIMD3<Double>(0, 0, 1)) else {
+            return Curve2DGallery.GalleryResult(bodies: [], description: "Drawing stub failed")
+        }
+
+        // 1. Cosmetic thread — side view + callout
+        let coThread = drawing.addCosmeticThreadSide(
+            axisStart: SIMD2(0, 0),
+            axisEnd: SIMD2(20, 0),
+            majorDiameter: 8,
+            pitch: 1.25,
+            callout: "M8×1.25"
+        )
+        descriptions.append("Cosmetic thread side: \(coThread.count) anns")
+
+        // 2. Surface finish — ISO 1302
+        let surfaceFinishAnns = DrawingAnnotation.surfaceFinish(
+            at: SIMD2(40, 0),
+            leaderTo: SIMD2(50, -8),
+            ra: 1.6,
+            symbol: .machiningRequired,
+            method: "milled"
+        )
+        for a in surfaceFinishAnns { drawing.annotationStoreAppend(a) }
+        descriptions.append("Surface finish: \(surfaceFinishAnns.count) anns")
+
+        // 3. GD&T feature control frame — position tolerance at MMC
+        let fcf = DrawingAnnotation.featureControlFrame(
+            at: SIMD2(70, 0),
+            symbol: .position,
+            tolerance: "0.1 M",
+            datums: ["A", "B", "C"],
+            leaderTo: SIMD2(70, -10)
+        )
+        for a in fcf { drawing.annotationStoreAppend(a) }
+        descriptions.append("Feature control frame (position): \(fcf.count) anns")
+
+        // 4. Datum feature A
+        let datumAnns = DrawingAnnotation.datumFeature(
+            label: "A",
+            at: SIMD2(70, 20),
+            pointingTo: SIMD2(82, 20)
+        )
+        for a in datumAnns { drawing.annotationStoreAppend(a) }
+        descriptions.append("Datum feature: \(datumAnns.count) anns")
+
+        // 5. Break line (ISO 128-30 compressed length)
+        let breakLineAnns = DrawingAnnotation.breakLine(
+            from: SIMD2(0, 30), to: SIMD2(40, 30), amplitude: 2.5
+        )
+        for a in breakLineAnns { drawing.annotationStoreAppend(a) }
+        descriptions.append("Break line: \(breakLineAnns.count) anns")
+
+        // 6. Detail view — reference
+        let detail = drawing.detailView(at: SIMD2(100, 0), scale: 2.0)
+        descriptions.append("Detail view: scale=\(detail.scale) translate=(\(detail.translate.x),\(detail.translate.y))")
+
+        // 7. Showcase GDTSymbol glyphs
+        for sym: GDTSymbol in [.position, .flatness, .perpendicularity, .circularRunout] {
+            descriptions.append("  GDT \(sym.rawValue): \(sym.glyph)")
+        }
+
+        // 8. DXF export — includes cosmeticThreadEndView as actual ARC entities
+        let tmpDir = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("occtswift-v146", isDirectory: true)
+        try? FileManager.default.createDirectory(at: tmpDir, withIntermediateDirectories: true)
+        let dxfURL = tmpDir.appendingPathComponent("annotations.dxf")
+
+        do {
+            let writer = DXFWriter(deflection: 0.1)
+            writer.collectFromDrawing(drawing)
+            // End-view cosmetic thread — drawn as three arcs via the DXFWriter convenience
+            writer.addCosmeticThreadEndView(centre: SIMD2(130, 0), majorDiameter: 8, pitch: 1.25)
+            try writer.write(to: dxfURL)
+            let size = ((try? FileManager.default.attributesOfItem(atPath: dxfURL.path))?[.size] as? Int) ?? 0
+            descriptions.append("DXF: \(size)B → \(dxfURL.lastPathComponent) (\(drawing.annotations.count) anns)")
+        } catch {
+            descriptions.append("DXF export FAILED: \(error)")
+        }
+
+        // Render cosmetic thread + break line + FCF outline in the viewport
+        for ann in drawing.annotations {
+            if case .centreline(let c) = ann {
+                let p1 = SIMD3<Float>(Float(c.from.x), 0, Float(c.from.y))
+                let p2 = SIMD3<Float>(Float(c.to.x), 0, Float(c.to.y))
+                bodies.append(ViewportBody(
+                    id: "v146-\(c.id ?? UUID().uuidString)",
+                    vertexData: [], indices: [],
+                    edges: [[p1, p2]],
+                    color: SIMD4(0.2, 0.3, 0.5, 1.0)
+                ))
+            }
+        }
+
+        return Curve2DGallery.GalleryResult(
+            bodies: bodies,
+            description: descriptions.joined(separator: " | ")
+        )
+    }
+
+    // MARK: - v0.147: Drawing + FeatureSpec consumer polish
+
+    /// Exercises v0.147's four polish additions:
+    ///   #80 Edge.curve3D — raw Curve3D accessor for circleProperties etc.
+    ///   #79 Drawing.addAutoCentermarks — companion to addAutoCentrelines
+    ///   #81 Drawing.addCuttingPlaneLine — typed section-cut annotation
+    ///   #82 FeatureSpec Codable — JSON round-trip through the reconstructor
+    static func v147ConsumerPolish() -> Curve2DGallery.GalleryResult {
+        var bodies: [ViewportBody] = []
+        var descriptions: [String] = []
+
+        // Plate with three holes of different radii — ideal for auto-centermarks
+        guard let plate = Shape.box(width: 30, height: 3, depth: 15),
+              let hole1 = Shape.cylinder(at: SIMD3<Double>(6, -1, 7.5),
+                                          direction: SIMD3(0, 1, 0),
+                                          radius: 1.2, height: 5),
+              let hole2 = Shape.cylinder(at: SIMD3<Double>(15, -1, 7.5),
+                                          direction: SIMD3(0, 1, 0),
+                                          radius: 2.0, height: 5),
+              let hole3 = Shape.cylinder(at: SIMD3<Double>(24, -1, 7.5),
+                                          direction: SIMD3(0, 1, 0),
+                                          radius: 0.8, height: 5) else {
+            return Curve2DGallery.GalleryResult(bodies: [], description: "Shape creation failed")
+        }
+        var part = plate.subtracting(hole1) ?? plate
+        part = part.subtracting(hole2) ?? part
+        part = part.subtracting(hole3) ?? part
+
+        let (partBody, _) = CADFileLoader.shapeToBodyAndMetadata(
+            part, id: "v147-plate", color: SIMD4(0.65, 0.7, 0.8, 0.5)
+        )
+        if let partBody { bodies.append(partBody) }
+
+        // #80 — Edge.curve3D → raw curve → circleProperties
+        var circleEdgeCount = 0
+        for edge in part.edges() where edge.curveType == .circle {
+            guard let curve = edge.curve3D else { continue }
+            let props = curve.circleProperties
+            circleEdgeCount += 1
+            if circleEdgeCount <= 3 {
+                descriptions.append(String(format: "curve3D circle: r=%.3f center=(%.2f,%.2f,%.2f)",
+                                           props.radius, props.center.x, props.center.y, props.center.z))
+            }
+        }
+        descriptions.append("curve3D circles found: \(circleEdgeCount)")
+
+        // Project top view → Drawing
+        let viewDir = SIMD3<Double>(0, 1, 0)
+        guard let drawing = Drawing.project(part, direction: viewDir) else {
+            return Curve2DGallery.GalleryResult(bodies: bodies, description: "Drawing.project failed")
+        }
+
+        // Render projected visible edges
+        if let visible = drawing.visibleEdges {
+            for i in 0..<visible.edgeCount {
+                if let pts = visible.edgePolyline(at: i, deflection: 0.005) {
+                    let floatPts = pts.map { SIMD3<Float>(Float($0.x), Float($0.y), Float($0.z)) }
+                    bodies.append(ViewportBody(
+                        id: "v147-edge-\(i)",
+                        vertexData: [], indices: [],
+                        edges: [floatPts],
+                        color: SIMD4(0.1, 0.1, 0.1, 1.0)
+                    ))
+                }
+            }
+        }
+
+        // #79 — addAutoCentermarks on the three circular holes
+        let cmResult = drawing.addAutoCentermarks(
+            from: part,
+            viewDirection: viewDir,
+            extent: 2.0,
+            minRadius: 0.5,
+            bounds: (min: SIMD2(-1, -1), max: SIMD2(31, 16))
+        )
+        descriptions.append("addAutoCentermarks: added=\(cmResult.added.count) skipped=\(cmResult.skipped.count)")
+
+        // #81 — addCuttingPlaneLine along A-A (cutting plane y=1.5, section view looking +Y)
+        let cplResult = drawing.addCuttingPlaneLine(
+            label: "A",
+            cuttingPlaneOrigin: SIMD3<Double>(0, 1.5, 0),
+            cuttingPlaneNormal: SIMD3<Double>(0, 1, 0),
+            sectionViewDirection: SIMD3<Double>(0, -1, 0),
+            viewDirection: SIMD3<Double>(0, 0, 1),   // front view — so the plane shows as a line
+            traceLength: 40
+        )
+        // Alternative: if the top view was chosen (viewDir 0,1,0), the cutting
+        // plane y=const is parallel to the view plane and addCuttingPlaneLine
+        // would return nil. We want a proper line, so pass the front view.
+        descriptions.append("addCuttingPlaneLine: \(cplResult.map { _ in "ok" } ?? "nil (plane ∥ view)")")
+
+        // Render centermarks + cutting-plane line in the viewport
+        for ann in drawing.annotations {
+            switch ann {
+            case .centermark(let m):
+                let p = SIMD3<Float>(Float(m.centre.x), 0, Float(m.centre.y))
+                let h = Float(m.extent) / 2
+                bodies.append(ViewportBody(
+                    id: "v147-cm-\(m.id ?? UUID().uuidString)",
+                    vertexData: [], indices: [],
+                    edges: [
+                        [p - SIMD3(h, 0, 0), p + SIMD3(h, 0, 0)],
+                        [p - SIMD3(0, 0, h), p + SIMD3(0, 0, h)],
+                    ],
+                    color: SIMD4(0.8, 0.2, 0.8, 1.0)
+                ))
+            case .cuttingPlaneLine(let cpl):
+                // Offset to a floating Y above the plate so it doesn't clash
+                let y: Float = 8
+                let p1 = SIMD3<Float>(Float(cpl.traceStart.x), y, Float(cpl.traceStart.y))
+                let p2 = SIMD3<Float>(Float(cpl.traceEnd.x), y, Float(cpl.traceEnd.y))
+                bodies.append(ViewportBody(
+                    id: "v147-cpl",
+                    vertexData: [], indices: [],
+                    edges: [[p1, p2]],
+                    color: SIMD4(1.0, 0.1, 0.1, 1.0)
+                ))
+            default: break
+            }
+        }
+
+        // #82 — FeatureSpec Codable: encode → decode → reconstruct
+        let specs: [FeatureSpec] = [
+            .extrude(.init(
+                profilePoints2D: [SIMD2(0, 0), SIMD2(8, 0), SIMD2(8, 4), SIMD2(0, 4)],
+                planeOrigin: SIMD3(0, -12, 0),
+                planeNormal: SIMD3(0, 0, 1),
+                length: 3,
+                id: "json-extrude"
+            )),
+            .hole(.init(
+                axisPoint: SIMD3(4, -10, 3.1),
+                axisDirection: SIMD3(0, 0, -1),
+                diameter: 1.0, depth: 4,
+                id: "json-hole"
+            )),
+            .fillet(.init(edgeSelector: .all, radius: 0.3, id: "json-fillet"))
+        ]
+        do {
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = .prettyPrinted
+            let data = try encoder.encode(specs)
+            descriptions.append("FeatureSpec encoded: \(data.count)B")
+            let decoded = try JSONDecoder().decode([FeatureSpec].self, from: data)
+            descriptions.append("Decoded: \(decoded.count) specs")
+            let result = FeatureReconstructor.build(from: decoded)
+            descriptions.append("Rebuild from JSON: fulfilled=\(result.fulfilled.count) skipped=\(result.skipped.count)")
+            if let shape = result.shape {
+                let (body, _) = CADFileLoader.shapeToBodyAndMetadata(
+                    shape, id: "v147-json-shape", color: SIMD4(0.4, 0.8, 0.5, 1.0)
+                )
+                if var body {
+                    offsetBody(&body, dx: 0, dy: 0, dz: 0)
+                    bodies.append(body)
+                }
+            }
+        } catch {
+            descriptions.append("FeatureSpec Codable FAILED: \(error)")
+        }
+
+        return Curve2DGallery.GalleryResult(
+            bodies: bodies,
+            description: descriptions.joined(separator: " | ")
+        )
+    }
+
+    // MARK: - v0.148: Drawing.append unified dispatcher
+
+    /// Demonstrates the v0.148 unified `Drawing.append(_:)` dispatcher — one
+    /// call replaces per-case switching in consumer code. Exercises the
+    /// annotation overload with every current case (centreline, centermark,
+    /// textLabel, hatch, balloon) plus the dimension overload, and shows the
+    /// `contentsOf:` array variants that drop factory arrays
+    /// (surfaceFinish / featureControlFrame) in with a single line.
+    static func v148DrawingAppend() -> Curve2DGallery.GalleryResult {
+        var bodies: [ViewportBody] = []
+        var descriptions: [String] = []
+
+        guard let stub = Shape.box(width: 1, height: 1, depth: 1),
+              let drawing = Drawing.project(stub, direction: SIMD3<Double>(0, 0, 1)) else {
+            return Curve2DGallery.GalleryResult(bodies: [], description: "Drawing stub failed")
+        }
+
+        // Individual annotations via .append(_:)
+        drawing.append(.centreline(.init(from: SIMD2(-10, 0), to: SIMD2(10, 0))))
+        drawing.append(.centermark(.init(centre: SIMD2(0, 10), extent: 4)))
+        drawing.append(.textLabel(.init(position: SIMD2(0, 20), text: "v148.append()",
+                                         height: 3)))
+        drawing.append(.hatch(.init(
+            boundary: [SIMD2(15, 15), SIMD2(25, 15), SIMD2(25, 25), SIMD2(15, 25)],
+            angle: .pi / 4, spacing: 1.0, islands: [], layer: "HATCH")))
+        drawing.append(.balloon(.init(itemNumber: 1, centre: SIMD2(-15, 15),
+                                       radius: 3, leaderTo: SIMD2(-8, 8))))
+
+        // Factory arrays drop in with contentsOf — matches v0.148's selling point
+        let fcf = DrawingAnnotation.featureControlFrame(
+            at: SIMD2(30, 0),
+            symbol: .flatness,
+            tolerance: "0.05",
+            datums: ["A"],
+            leaderTo: SIMD2(30, -5)
+        )
+        drawing.append(contentsOf: fcf)
+
+        let surf = DrawingAnnotation.surfaceFinish(
+            at: SIMD2(45, 0),
+            leaderTo: SIMD2(55, -8),
+            ra: 0.8,
+            symbol: .machiningRequired
+        )
+        drawing.append(contentsOf: surf)
+
+        // Dimension overload — single call + contentsOf for many
+        drawing.append(.linear(.init(from: SIMD2(-10, -10), to: SIMD2(10, -10),
+                                      offset: -3, label: "20")))
+        drawing.append(contentsOf: [
+            .linear(.init(from: SIMD2(-10, -10), to: SIMD2(-10, 10), offset: -3, label: "20")),
+            .linear(.init(from: SIMD2(10, -10), to: SIMD2(10, 10), offset: 3, label: "20")),
+        ])
+
+        descriptions.append("Annotations: \(drawing.annotations.count)")
+        descriptions.append("Dimensions: \(drawing.dimensions.count)")
+
+        // Render all lines-like annotations in the XZ plane
+        for ann in drawing.annotations {
+            for line in polylinesForAnnotation(ann) {
+                bodies.append(ViewportBody(
+                    id: "v148-ann-\(UUID().uuidString)",
+                    vertexData: [], indices: [],
+                    edges: [line],
+                    color: SIMD4(0.2, 0.5, 0.8, 1.0)
+                ))
+            }
+        }
+        for dim in drawing.dimensions {
+            for line in polylinesForDimension(dim) {
+                bodies.append(ViewportBody(
+                    id: "v148-dim-\(UUID().uuidString)",
+                    vertexData: [], indices: [],
+                    edges: [line],
+                    color: SIMD4(0.8, 0.3, 0.2, 1.0)
+                ))
+            }
+        }
+
+        return Curve2DGallery.GalleryResult(
+            bodies: bodies,
+            description: descriptions.joined(separator: " | ")
+        )
+    }
+
+    // MARK: - v0.149: Sheet.standardLayout + addAutoDimensions + tolerance + ordinate
+
+    /// Exercises v0.149's drawing-automation additions: Sheet.standardLayout
+    /// builds a 4-view 2×2 grid, Drawing.addAutoDimensions heuristically
+    /// dimensions each view, DrawingTolerance attaches ±/bilateral/limits data
+    /// to dimensions, and DrawingDimension.ordinate drives shared-origin CNC
+    /// reference-datum dimensions.
+    static func v149AutomationTolerance() -> Curve2DGallery.GalleryResult {
+        var bodies: [ViewportBody] = []
+        var descriptions: [String] = []
+
+        // Part: plate with two holes + a rebate — enough features to dimension
+        guard let plate = Shape.box(width: 40, height: 6, depth: 30),
+              let bigHole = Shape.cylinder(at: SIMD3<Double>(10, -1, 10),
+                                            direction: SIMD3(0, 1, 0),
+                                            radius: 2.5, height: 8),
+              let smallHole = Shape.cylinder(at: SIMD3<Double>(30, -1, 20),
+                                              direction: SIMD3(0, 1, 0),
+                                              radius: 1.2, height: 8),
+              let rebate = Shape.box(origin: SIMD3(0, 3, 25), width: 40, height: 3, depth: 5) else {
+            return Curve2DGallery.GalleryResult(bodies: [], description: "Shape creation failed")
+        }
+        var part = plate.subtracting(bigHole) ?? plate
+        part = part.subtracting(smallHole) ?? part
+        part = part.subtracting(rebate) ?? part
+
+        let (partBody, _) = CADFileLoader.shapeToBodyAndMetadata(
+            part, id: "v149-part", color: SIMD4(0.65, 0.7, 0.8, 0.6)
+        )
+        if let partBody { bodies.append(partBody) }
+
+        // --- Sheet.standardLayout: 4-view 2×2 composition ---
+        let sheet = Sheet(
+            size: .A3,
+            orientation: .landscape,
+            projection: .first,
+            title: TitleBlock(title: "v0.149 AUTO", drawingNumber: "OSV-149"),
+            scale: "1:2"
+        )
+        guard let layout = sheet.standardLayout(of: part, scale: .reduction(2)) else {
+            descriptions.append("standardLayout FAILED")
+            return Curve2DGallery.GalleryResult(
+                bodies: bodies, description: descriptions.joined(separator: " | "))
+        }
+        descriptions.append("Sheet standardLayout: front+top+side\(layout.iso != nil ? "+iso" : "") @ \(layout.front.scale)")
+
+        // Auto-dim the front view
+        let autoDimResult = layout.front.drawing.addAutoDimensions(
+            from: part,
+            viewDirection: SIMD3<Double>(0, 0, 1),
+            minRadius: 0.5,
+            dimensionOffset: 8
+        )
+        descriptions.append("addAutoDimensions: added=\(autoDimResult.added.count) skipped=\(autoDimResult.skipped.count)")
+
+        // --- DrawingTolerance variants ---
+        let tolSpecs: [(String, DrawingTolerance)] = [
+            ("symmetric", .symmetric(0.1)),
+            ("bilateral", .bilateral(plus: 0.05, minus: 0.02)),
+            ("unilateral", .unilateral(0.08)),
+            ("fitClass H7", .fitClass("H7")),
+            ("limits", .limits(lower: 19.95, upper: 20.05)),
+        ]
+        for (desc, tol) in tolSpecs {
+            descriptions.append("  tol \(desc): \(tol)")
+        }
+
+        // Attach a toleranced linear dim on the top view
+        layout.top.drawing.append(.linear(.init(
+            from: SIMD2(0, 0), to: SIMD2(40, 0),
+            offset: -5, label: "40",
+            id: "toleranced",
+            tolerance: .bilateral(plus: 0.05, minus: 0.02)
+        )))
+
+        // --- Ordinate dimensioning: shared origin + two hole positions ---
+        let ordinate = DrawingDimension.Ordinate(
+            origin: SIMD2(0, 0),
+            features: [
+                .init(position: SIMD2(10, 10), label: "H1"),
+                .init(position: SIMD2(30, 20), label: "H2"),
+            ],
+            tolerance: .symmetric(0.1),
+            id: "ord"
+        )
+        layout.top.drawing.append(.ordinate(ordinate))
+        descriptions.append("Ordinate: origin=(0,0) features=\(ordinate.features.count) tol=\(ordinate.tolerance)")
+
+        // --- DXF: render the sheet + layout ---
+        let tmpDir = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("occtswift-v149", isDirectory: true)
+        try? FileManager.default.createDirectory(at: tmpDir, withIntermediateDirectories: true)
+        let dxfURL = tmpDir.appendingPathComponent("sheet-auto.dxf")
+        do {
+            let writer = DXFWriter(deflection: 0.05)
+            sheet.render(into: writer)
+            layout.render(into: writer)
+            try writer.write(to: dxfURL)
+            let size = ((try? FileManager.default.attributesOfItem(atPath: dxfURL.path))?[.size] as? Int) ?? 0
+            descriptions.append("DXF: \(size)B → \(dxfURL.lastPathComponent)")
+        } catch {
+            descriptions.append("DXF export FAILED: \(error)")
+        }
+
+        // Render the front view's auto-dimensions in the viewport for a visual
+        // sanity check — offset into -X so it doesn't overlap the 3D part.
+        for dim in layout.front.drawing.dimensions {
+            for line in polylinesForDimension(dim) {
+                let offset = line.map { $0 + SIMD3<Float>(-50, 0, 0) }
+                bodies.append(ViewportBody(
+                    id: "v149-front-dim-\(UUID().uuidString)",
+                    vertexData: [], indices: [],
+                    edges: [offset],
+                    color: SIMD4(0.9, 0.3, 0.2, 1.0)
+                ))
+            }
+        }
+        // And the ordinate dim from the top view
+        for dim in layout.top.drawing.dimensions {
+            guard case .ordinate = dim else { continue }
+            for line in polylinesForDimension(dim) {
+                let offset = line.map { $0 + SIMD3<Float>(-50, 0, 20) }
+                bodies.append(ViewportBody(
+                    id: "v149-ord-\(UUID().uuidString)",
+                    vertexData: [], indices: [],
+                    edges: [offset],
+                    color: SIMD4(0.3, 0.7, 1.0, 1.0)
+                ))
+            }
+        }
+
+        return Curve2DGallery.GalleryResult(
+            bodies: bodies,
+            description: descriptions.joined(separator: " | ")
+        )
+    }
+
+    // MARK: - v0.150: PDF + SVG + BOM + balloons
+
+    /// Exercises v0.150's multi-format export: Exporter.writePDF and writeSVG
+    /// write pure-Swift PDF 1.4 / SVG 1.1 without any AppKit/UIKit/CG linkage.
+    /// Also demonstrates assembly-drawing primitives: DrawingAnnotation.balloon
+    /// + BillOfMaterials rendered onto a sheet.
+    static func v150MultiFormatExport() -> Curve2DGallery.GalleryResult {
+        var bodies: [ViewportBody] = []
+        var descriptions: [String] = []
+
+        guard let body = Shape.box(width: 50, height: 4, depth: 30),
+              let hole1 = Shape.cylinder(at: SIMD3<Double>(12, -1, 15),
+                                          direction: SIMD3(0, 1, 0),
+                                          radius: 2.0, height: 6),
+              let hole2 = Shape.cylinder(at: SIMD3<Double>(38, -1, 15),
+                                          direction: SIMD3(0, 1, 0),
+                                          radius: 2.0, height: 6) else {
+            return Curve2DGallery.GalleryResult(bodies: [], description: "Shape creation failed")
+        }
+        var part = body.subtracting(hole1) ?? body
+        part = part.subtracting(hole2) ?? part
+
+        let (partBody, _) = CADFileLoader.shapeToBodyAndMetadata(
+            part, id: "v150-part", color: SIMD4(0.65, 0.7, 0.8, 0.6)
+        )
+        if let partBody { bodies.append(partBody) }
+
+        // Drawing with balloons pointing at items
+        guard let drawing = Drawing.project(part, direction: SIMD3<Double>(0, 1, 0)) else {
+            return Curve2DGallery.GalleryResult(bodies: bodies, description: "project failed")
+        }
+        drawing.append(.balloon(.init(itemNumber: 1, centre: SIMD2(-5, 15),
+                                       leaderTo: SIMD2(12, 15))))
+        drawing.append(.balloon(.init(itemNumber: 2, centre: SIMD2(55, 15),
+                                       leaderTo: SIMD2(38, 15))))
+        drawing.append(.balloon(.init(itemNumber: 3, centre: SIMD2(25, -6),
+                                       leaderTo: SIMD2(25, 3))))
+        descriptions.append("Balloons: \(drawing.annotations.filter { if case .balloon = $0 { return true } else { return false } }.count)")
+
+        // BillOfMaterials
+        let bom = BillOfMaterials(items: [
+            .init(number: 1, partNumber: "OSV-150-001",
+                  description: "PLATE 50×30×4", quantity: 1,
+                  material: "Al 6061-T6", mass: 16.2, notes: ""),
+            .init(number: 2, partNumber: "ISO-4762-M4",
+                  description: "SHCS M4×12", quantity: 2,
+                  material: "SS304", mass: 1.8, notes: "LH + RH"),
+            .init(number: 3, partNumber: "OSV-150-002",
+                  description: "LABEL PLATE", quantity: 1,
+                  material: "PVC", mass: 0.5, notes: "engraved"),
+        ], title: "BOM")
+        descriptions.append("BOM rows: \(bom.items.count)")
+
+        let sheet = Sheet(
+            size: .A4,
+            orientation: .landscape,
+            projection: .first,
+            title: TitleBlock(title: "BOM DEMO", drawingNumber: "OSV-150"),
+            scale: "1:1"
+        )
+
+        let tmpDir = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("occtswift-v150", isDirectory: true)
+        try? FileManager.default.createDirectory(at: tmpDir, withIntermediateDirectories: true)
+
+        // --- DXF (baseline) with sheet + drawing + BOM + balloons ---
+        let dxfURL = tmpDir.appendingPathComponent("assembly.dxf")
+        do {
+            let writer = DXFWriter(deflection: 0.05)
+            sheet.render(into: writer)
+            writer.collectFromDrawing(drawing.transformed(
+                translate: SIMD2(sheet.innerFrame.min.x + 30, sheet.innerFrame.min.y + 100),
+                scale: 1.0))
+            sheet.renderBOM(bom, into: writer)
+            try writer.write(to: dxfURL)
+            let size = ((try? FileManager.default.attributesOfItem(atPath: dxfURL.path))?[.size] as? Int) ?? 0
+            descriptions.append("DXF: \(size)B")
+        } catch {
+            descriptions.append("DXF FAILED: \(error)")
+        }
+
+        // --- PDF via Exporter.writePDF(drawing:to:) ---
+        let pdfURL = tmpDir.appendingPathComponent("assembly.pdf")
+        do {
+            try Exporter.writePDF(drawing: drawing, to: pdfURL,
+                                   pageSize: Exporter.pdfA4Landscape)
+            let size = ((try? FileManager.default.attributesOfItem(atPath: pdfURL.path))?[.size] as? Int) ?? 0
+            descriptions.append("PDF (drawing): \(size)B")
+        } catch {
+            descriptions.append("PDF (drawing) FAILED: \(error)")
+        }
+
+        // --- PDF via Exporter.writePDF(sheet:body:) — stamps the sheet frame,
+        //     adds the drawing + BOM inside the body closure ---
+        let pdfSheetURL = tmpDir.appendingPathComponent("assembly-sheet.pdf")
+        do {
+            try Exporter.writePDF(sheet: sheet, body: { writer in
+                // Sheet frame rendering on a PDFWriter uses its own addLine/addText API
+                // (PDFWriter doesn't accept Sheet.render which only knows DXFWriter).
+                // Rendering the drawing itself works via collectFromDrawing.
+                writer.collectFromDrawing(drawing.transformed(
+                    translate: SIMD2(sheet.innerFrame.min.x + 30, sheet.innerFrame.min.y + 100),
+                    scale: 1.0))
+            }, to: pdfSheetURL)
+            let size = ((try? FileManager.default.attributesOfItem(atPath: pdfSheetURL.path))?[.size] as? Int) ?? 0
+            descriptions.append("PDF (sheet): \(size)B")
+        } catch {
+            descriptions.append("PDF (sheet) FAILED: \(error)")
+        }
+
+        // --- SVG ---
+        let svgURL = tmpDir.appendingPathComponent("assembly.svg")
+        do {
+            try Exporter.writeSVG(drawing: drawing, to: svgURL)
+            let size = ((try? FileManager.default.attributesOfItem(atPath: svgURL.path))?[.size] as? Int) ?? 0
+            descriptions.append("SVG: \(size)B")
+        } catch {
+            descriptions.append("SVG FAILED: \(error)")
+        }
+
+        // Render projected visible edges + balloons in the viewport
+        if let visible = drawing.visibleEdges {
+            for i in 0..<visible.edgeCount {
+                if let pts = visible.edgePolyline(at: i, deflection: 0.005) {
+                    let floatPts = pts.map { SIMD3<Float>(Float($0.x), 0, Float($0.y)) }
+                    bodies.append(ViewportBody(
+                        id: "v150-edge-\(i)",
+                        vertexData: [], indices: [],
+                        edges: [floatPts],
+                        color: SIMD4(0.1, 0.1, 0.1, 1.0)
+                    ))
+                }
+            }
+        }
+        for ann in drawing.annotations {
+            for line in polylinesForAnnotation(ann) {
+                bodies.append(ViewportBody(
+                    id: "v150-ann-\(UUID().uuidString)",
+                    vertexData: [], indices: [],
+                    edges: [line],
+                    color: SIMD4(0.9, 0.3, 0.2, 1.0)
+                ))
+            }
+        }
+
+        return Curve2DGallery.GalleryResult(
+            bodies: bodies,
+            description: descriptions.joined(separator: " | ")
+        )
+    }
+
+    // MARK: - v0.151: SheetMetal Composition — Flanges + Bends
+
+    /// Demonstrates the v0.151 SheetMetal composition API: declarative
+    /// `SheetMetal.Flange` profiles fused via `SheetMetal.Builder.build` with
+    /// `SheetMetal.Bend` filleting the seams. Builds an L-bracket, a U-channel
+    /// and a flat plate (single-flange / no-bend path), then probes the error
+    /// surface (parallel-flange rejection).
+    static func v151SheetMetalCompose() -> Curve2DGallery.GalleryResult {
+        var bodies: [ViewportBody] = []
+        var descriptions: [String] = []
+
+        // L-bracket — base + upright, single bend
+        let lBase = SheetMetal.Flange(
+            id: "l-base",
+            profile: [SIMD2(0, 0), SIMD2(65, 0), SIMD2(65, 28), SIMD2(0, 28)],
+            origin: SIMD3<Double>(0, 0, 0),
+            normal: SIMD3<Double>(0, 0, 1),
+            uAxis: SIMD3<Double>(1, 0, 0),
+            vAxis: SIMD3<Double>(0, 1, 0))
+        let lUpright = SheetMetal.Flange(
+            id: "l-upright",
+            profile: [SIMD2(0, 0), SIMD2(65, 0), SIMD2(65, 40), SIMD2(0, 40)],
+            origin: SIMD3<Double>(0, 28, 0),
+            normal: SIMD3<Double>(0, 1, 0),
+            uAxis: SIMD3<Double>(1, 0, 0),
+            vAxis: SIMD3<Double>(0, 0, 1))
+        do {
+            let bracket = try SheetMetal.Builder(thickness: 3).build(
+                flanges: [lBase, lUpright],
+                bends: [SheetMetal.Bend(from: "l-base", to: "l-upright", radius: 2.0)])
+            let (body, _) = CADFileLoader.shapeToBodyAndMetadata(
+                bracket, id: "v151-l-bracket", color: SIMD4(0.75, 0.78, 0.82, 1.0))
+            if let body { bodies.append(body) }
+            let v = bracket.volume.map { String(format: "%.1f", $0) } ?? "?"
+            descriptions.append("L-bracket: vol=\(v)")
+        } catch {
+            descriptions.append("L-bracket FAILED: \(error)")
+        }
+
+        // U-channel — bottom + two uprights, two bends; offset along +X
+        let uBottom = SheetMetal.Flange(
+            id: "u-bottom",
+            profile: [SIMD2(0, 0), SIMD2(40, 0), SIMD2(40, 20), SIMD2(0, 20)],
+            origin: SIMD3<Double>(80, 0, 0),
+            normal: SIMD3<Double>(0, 0, 1),
+            uAxis: SIMD3<Double>(1, 0, 0),
+            vAxis: SIMD3<Double>(0, 1, 0))
+        let uLeft = SheetMetal.Flange(
+            id: "u-left",
+            profile: [SIMD2(0, 0), SIMD2(20, 0), SIMD2(20, 15), SIMD2(0, 15)],
+            origin: SIMD3<Double>(80, 0, 0),
+            normal: SIMD3<Double>(-1, 0, 0),
+            uAxis: SIMD3<Double>(0, 1, 0),
+            vAxis: SIMD3<Double>(0, 0, 1))
+        let uRight = SheetMetal.Flange(
+            id: "u-right",
+            profile: [SIMD2(0, 0), SIMD2(20, 0), SIMD2(20, 15), SIMD2(0, 15)],
+            origin: SIMD3<Double>(120, 0, 0),
+            normal: SIMD3<Double>(1, 0, 0),
+            uAxis: SIMD3<Double>(0, 1, 0),
+            vAxis: SIMD3<Double>(0, 0, 1))
+        do {
+            let channel = try SheetMetal.Builder(thickness: 2).build(
+                flanges: [uBottom, uLeft, uRight],
+                bends: [
+                    SheetMetal.Bend(from: "u-bottom", to: "u-left", radius: 1.5),
+                    SheetMetal.Bend(from: "u-bottom", to: "u-right", radius: 1.5)
+                ])
+            let (body, _) = CADFileLoader.shapeToBodyAndMetadata(
+                channel, id: "v151-u-channel", color: SIMD4(0.8, 0.65, 0.4, 1.0))
+            if let body { bodies.append(body) }
+            let v = channel.volume.map { String(format: "%.1f", $0) } ?? "?"
+            descriptions.append("U-channel: vol=\(v)")
+        } catch {
+            descriptions.append("U-channel FAILED: \(error)")
+        }
+
+        // Flat plate — single flange, no bends; offset along -X
+        let plate = SheetMetal.Flange(
+            id: "plate",
+            profile: [SIMD2(0, 0), SIMD2(50, 0), SIMD2(50, 25), SIMD2(0, 25)],
+            origin: SIMD3<Double>(-70, 0, 0),
+            normal: SIMD3<Double>(0, 0, 1),
+            uAxis: SIMD3<Double>(1, 0, 0),
+            vAxis: SIMD3<Double>(0, 1, 0))
+        do {
+            let flat = try SheetMetal.Builder(thickness: 2.5).build(flanges: [plate])
+            let (body, _) = CADFileLoader.shapeToBodyAndMetadata(
+                flat, id: "v151-flat-plate", color: SIMD4(0.55, 0.7, 0.85, 1.0))
+            if let body { bodies.append(body) }
+            descriptions.append("Plate: 50×25×2.5")
+        } catch {
+            descriptions.append("Plate FAILED: \(error)")
+        }
+
+        // Error surface — parallel flanges have no seam; expect throw
+        let parallelA = SheetMetal.Flange(
+            id: "pa", profile: [SIMD2(0, 0), SIMD2(10, 0), SIMD2(10, 10), SIMD2(0, 10)],
+            origin: SIMD3<Double>(0, 0, 0),
+            normal: SIMD3<Double>(0, 0, 1),
+            uAxis: SIMD3<Double>(1, 0, 0),
+            vAxis: SIMD3<Double>(0, 1, 0))
+        let parallelB = SheetMetal.Flange(
+            id: "pb", profile: [SIMD2(0, 0), SIMD2(10, 0), SIMD2(10, 10), SIMD2(0, 10)],
+            origin: SIMD3<Double>(0, 0, 20),
+            normal: SIMD3<Double>(0, 0, 1),
+            uAxis: SIMD3<Double>(1, 0, 0),
+            vAxis: SIMD3<Double>(0, 1, 0))
+        do {
+            _ = try SheetMetal.Builder(thickness: 2).build(
+                flanges: [parallelA, parallelB],
+                bends: [SheetMetal.Bend(from: "pa", to: "pb", radius: 1.0)])
+            descriptions.append("parallel: unexpected success")
+        } catch let err as SheetMetal.BuildError {
+            descriptions.append("parallel rejected: \(err)")
+        } catch {
+            descriptions.append("parallel: \(error)")
+        }
+
+        return Curve2DGallery.GalleryResult(
+            bodies: bodies,
+            description: descriptions.joined(separator: " | ")
+        )
+    }
+
+    // MARK: - v0.152: FeatureReconstructor.inputBody chained composition
+
+    /// Demonstrates the v0.152 `inputBody:` parameter on
+    /// `FeatureReconstructor.build(from:inputBody:)`. The reconstructor seeds
+    /// `BuildContext.current` with the input and registers it under the
+    /// sentinel id `@input`, so a feature list with no additive seed can
+    /// still subtract / boolean against the supplied body — and the sentinel
+    /// resolves like any other named shape in `boolean.leftID`.
+    ///
+    /// The demo shows the three cases that v0.151 could not express in one
+    /// pass: (a) input + hole-only specs, (b) `@input` referenced in a
+    /// boolean leftID, (c) baseline parity when `inputBody == nil`.
+    static func v152InputBodyChain() -> Curve2DGallery.GalleryResult {
+        var bodies: [ViewportBody] = []
+        var descriptions: [String] = []
+
+        // Input body: a 30×20×10 plate that the reconstructor will drill.
+        guard let plate = Shape.box(width: 30, height: 20, depth: 10) else {
+            return Curve2DGallery.GalleryResult(bodies: [], description: "Plate creation failed")
+        }
+
+        // Case A: hole-only specs against the input body. Pre-v0.152 this
+        // skipped with `unresolvedRef` because no additive feature seeded
+        // BuildContext.current; v0.152's input registration fixes it.
+        let holeOnly: [FeatureSpec] = [
+            .hole(.init(
+                axisPoint: SIMD3(7.5, 5, 10.5),
+                axisDirection: SIMD3(0, 0, -1),
+                diameter: 3, depth: 12, id: "h1")),
+            .hole(.init(
+                axisPoint: SIMD3(22.5, 5, 10.5),
+                axisDirection: SIMD3(0, 0, -1),
+                diameter: 3, depth: 12, id: "h2")),
+            .hole(.init(
+                axisPoint: SIMD3(7.5, 15, 10.5),
+                axisDirection: SIMD3(0, 0, -1),
+                diameter: 3, depth: 12, id: "h3")),
+            .hole(.init(
+                axisPoint: SIMD3(22.5, 15, 10.5),
+                axisDirection: SIMD3(0, 0, -1),
+                diameter: 3, depth: 12, id: "h4")),
+        ]
+        let drilled = FeatureReconstructor.build(from: holeOnly, inputBody: plate)
+        descriptions.append("hole-only on input: fulfilled=\(drilled.fulfilled.count) skipped=\(drilled.skipped.count)")
+        if let s = drilled.shape {
+            let (body, _) = CADFileLoader.shapeToBodyAndMetadata(
+                s, id: "v152-drilled", color: SIMD4(0.55, 0.7, 0.85, 1.0))
+            if var body { offsetBody(&body, dx: 0, dy: 0, dz: 0); bodies.append(body) }
+            if let v = s.volume {
+                descriptions.append(String(format: "drilled vol=%.1f", v))
+            }
+        }
+
+        // Case B: @input referenced as boolean.leftID. We define a small cutter
+        // via .extrude (registered as 'cutter'), then subtract it from @input.
+        let booleanWithSentinel: [FeatureSpec] = [
+            .extrude(.init(
+                profilePoints2D: [
+                    SIMD2(0, 0), SIMD2(6, 0), SIMD2(6, 6), SIMD2(0, 6)
+                ],
+                planeOrigin: SIMD3(12, 7, 0),
+                planeNormal: SIMD3(0, 0, 1),
+                length: 12,
+                id: "cutter")),
+            .boolean(.init(
+                op: .subtract,
+                leftID: FeatureReconstructor.inputBodySentinel,
+                rightID: "cutter",
+                id: "punch"))
+        ]
+        let punched = FeatureReconstructor.build(from: booleanWithSentinel, inputBody: plate)
+        descriptions.append("@input boolean: fulfilled=\(punched.fulfilled.joined(separator: ","))")
+        if let s = punched.shape {
+            let (body, _) = CADFileLoader.shapeToBodyAndMetadata(
+                s, id: "v152-punched", color: SIMD4(0.85, 0.55, 0.4, 1.0))
+            if var body { offsetBody(&body, dx: 40, dy: 0, dz: 0); bodies.append(body) }
+        }
+
+        // Case C: baseline — no inputBody, hole-only specs are skipped (no
+        // base shape to subtract from). Confirms the input parameter is what
+        // unlocks the chained-composition pattern.
+        let baseline = FeatureReconstructor.build(from: holeOnly, inputBody: nil)
+        descriptions.append("nil-input baseline: fulfilled=\(baseline.fulfilled.count) skipped=\(baseline.skipped.count) shape=\(baseline.shape == nil ? "nil" : "set")")
+        for s in baseline.skipped.prefix(2) {
+            descriptions.append("  baseline skip \(s.featureID): \(s.reason)")
+        }
+
+        // Show the pristine input alongside, translucent, for reference.
+        let (refBody, _) = CADFileLoader.shapeToBodyAndMetadata(
+            plate, id: "v152-input-ref", color: SIMD4(0.6, 0.6, 0.6, 0.25))
+        if var refBody { offsetBody(&refBody, dx: 80, dy: 0, dz: 0); bodies.append(refBody) }
+
+        descriptions.append("sentinel='\(FeatureReconstructor.inputBodySentinel)'")
+
+        return Curve2DGallery.GalleryResult(
+            bodies: bodies,
+            description: descriptions.joined(separator: " | ")
+        )
+    }
+
+    // MARK: - v0.152.1: buildJSON decodes "kind":"boolean"
+
+    /// Demonstrates v0.152.1's bug-fix: `FeatureReconstructor.buildJSON`
+    /// now decodes JSON entries with `"kind": "boolean"`. Pre-v0.152.1 the
+    /// decoder fell into the `default:` branch and silently dropped boolean
+    /// entries — which made the v0.152 inputBody → boolean(@input, …) chain
+    /// silently no-op when driven from JSON. This demo encodes a hole + a
+    /// boolean-subtract-from-@input pipeline, parses it via `buildJSON`, and
+    /// confirms the resulting shape is the punched plate, not the bare input.
+    static func v152JSONBoolean() -> Curve2DGallery.GalleryResult {
+        var bodies: [ViewportBody] = []
+        var descriptions: [String] = []
+
+        guard let plate = Shape.box(width: 30, height: 20, depth: 10) else {
+            return Curve2DGallery.GalleryResult(bodies: [], description: "Plate creation failed")
+        }
+
+        // Hand-rolled JSON envelope — matches what an external orchestrator
+        // (CLI, agent, web UI) would send. Mixes a known-good extrude (cutter)
+        // with the boolean entry that was dropped pre-v0.152.1, and a
+        // deliberately bogus `op` to exercise the recordable-skip path.
+        let json = """
+        {
+          "features": [
+            {
+              "kind": "extrude",
+              "id": "cutter",
+              "profile_points_2d": [[6,4],[24,4],[24,16],[6,16]],
+              "plane_origin": [0,0,0],
+              "plane_normal": [0,0,1],
+              "length": 11
+            },
+            {
+              "kind": "boolean",
+              "id": "punch",
+              "op": "subtract",
+              "left": "@input",
+              "right": "cutter"
+            },
+            {
+              "kind": "boolean",
+              "id": "bad-op",
+              "op": "smush",
+              "left": "@input",
+              "right": "cutter"
+            }
+          ]
+        }
+        """.data(using: .utf8)!
+
+        do {
+            let result = try FeatureReconstructor.buildJSON(json, inputBody: plate)
+            descriptions.append("buildJSON: fulfilled=\(result.fulfilled.joined(separator: ","))")
+            descriptions.append("skipped=\(result.skipped.count)")
+            for s in result.skipped {
+                descriptions.append("  skip \(s.featureID) [\(s.stage.rawValue)]: \(s.reason)")
+            }
+            if let s = result.shape {
+                let (body, _) = CADFileLoader.shapeToBodyAndMetadata(
+                    s, id: "v152-1-json-punched", color: SIMD4(0.4, 0.75, 0.55, 1.0))
+                if var body { offsetBody(&body, dx: 0, dy: 0, dz: 0); bodies.append(body) }
+                if let v = s.volume, let inputV = plate.volume {
+                    descriptions.append(String(format: "punched vol=%.1f vs input vol=%.1f (diff confirms the boolean ran)", v, inputV))
+                }
+            } else {
+                descriptions.append("buildJSON returned nil shape — boolean was dropped")
+            }
+        } catch {
+            descriptions.append("buildJSON THREW: \(error)")
+        }
+
+        // Bare input alongside for visual diff.
+        let (refBody, _) = CADFileLoader.shapeToBodyAndMetadata(
+            plate, id: "v152-1-json-input-ref", color: SIMD4(0.6, 0.6, 0.6, 0.25))
+        if var refBody { offsetBody(&refBody, dx: 40, dy: 0, dz: 0); bodies.append(refBody) }
+
+        return Curve2DGallery.GalleryResult(
+            bodies: bodies,
+            description: descriptions.joined(separator: " | ")
+        )
+    }
+
+    // MARK: - v0.153: SheetMetal step-aware bends
+
+    /// Demonstrates v0.153's stepped-seam handling: the builder splits the
+    /// wider flange at the seam-intersection endpoints before extruding, so
+    /// the fillet runs on a matched-extent middle piece while flat extensions
+    /// stay un-bent. Each fixture below threw `BuildError.filletFailed` under
+    /// v0.151 and now produces a clean solid.
+    ///
+    /// Fixtures are the issue #86 trio:
+    ///   • L-bracket: 80×40 base, 20×30 centred mounting tab (one stepped bend)
+    ///   • Z-bracket: full base→mid seam, stepped mid→top tab (two bends, one stepped)
+    ///   • U-channel: 100×40 spine, 80×15 stepped side flanges (two stepped bends)
+    static func v153StepAwareBends() -> Curve2DGallery.GalleryResult {
+        var bodies: [ViewportBody] = []
+        var descriptions: [String] = []
+
+        // L-bracket: 80×40 base, 20×30 centred mounting tab.
+        let lBase = SheetMetal.Flange(
+            id: "l-base",
+            profile: [SIMD2(0, 0), SIMD2(80, 0), SIMD2(80, 40), SIMD2(0, 40)],
+            origin: SIMD3<Double>(0, 0, 0),
+            normal: SIMD3<Double>(0, 0, 1),
+            uAxis: SIMD3<Double>(1, 0, 0),
+            vAxis: SIMD3<Double>(0, 1, 0))
+        let lTab = SheetMetal.Flange(
+            id: "l-tab",
+            profile: [SIMD2(0, 0), SIMD2(20, 0), SIMD2(20, 30), SIMD2(0, 30)],
+            origin: SIMD3<Double>(30, 40, 0),
+            normal: SIMD3<Double>(0, 1, 0),
+            uAxis: SIMD3<Double>(1, 0, 0),
+            vAxis: SIMD3<Double>(0, 0, 1))
+        do {
+            let bracket = try SheetMetal.Builder(thickness: 2).build(
+                flanges: [lBase, lTab],
+                bends: [SheetMetal.Bend(from: "l-base", to: "l-tab", radius: 1.5)])
+            let (body, _) = CADFileLoader.shapeToBodyAndMetadata(
+                bracket, id: "v153-l-stepped", color: SIMD4(0.75, 0.78, 0.82, 1.0))
+            if let body { bodies.append(body) }
+            let v = bracket.volume.map { String(format: "%.1f", $0) } ?? "?"
+            descriptions.append("L-stepped(80×40 / 20×30 tab): vol=\(v)")
+        } catch {
+            descriptions.append("L-stepped FAILED: \(error)")
+        }
+
+        // Z-bracket: 50×30 base, full-width mid riser, 20×30 stepped top tab.
+        let zBase = SheetMetal.Flange(
+            id: "z-base",
+            profile: [SIMD2(0, 0), SIMD2(50, 0), SIMD2(50, 30), SIMD2(0, 30)],
+            origin: SIMD3<Double>(120, 0, 0),
+            normal: SIMD3<Double>(0, 0, 1),
+            uAxis: SIMD3<Double>(1, 0, 0),
+            vAxis: SIMD3<Double>(0, 1, 0))
+        let zMid = SheetMetal.Flange(
+            id: "z-mid",
+            profile: [SIMD2(0, 0), SIMD2(50, 0), SIMD2(50, 20), SIMD2(0, 20)],
+            origin: SIMD3<Double>(120, 30, 0),
+            normal: SIMD3<Double>(0, 1, 0),
+            uAxis: SIMD3<Double>(1, 0, 0),
+            vAxis: SIMD3<Double>(0, 0, 1))
+        let zTop = SheetMetal.Flange(
+            id: "z-top",
+            profile: [SIMD2(0, 0), SIMD2(20, 0), SIMD2(20, 30), SIMD2(0, 30)],
+            origin: SIMD3<Double>(135, 30, 20),
+            normal: SIMD3<Double>(0, 0, 1),
+            uAxis: SIMD3<Double>(1, 0, 0),
+            vAxis: SIMD3<Double>(0, 1, 0))
+        do {
+            let zb = try SheetMetal.Builder(thickness: 2).build(
+                flanges: [zBase, zMid, zTop],
+                bends: [
+                    SheetMetal.Bend(from: "z-base", to: "z-mid", radius: 1.5),
+                    SheetMetal.Bend(from: "z-mid", to: "z-top", radius: 1.5)
+                ])
+            let (body, _) = CADFileLoader.shapeToBodyAndMetadata(
+                zb, id: "v153-z-bracket", color: SIMD4(0.85, 0.7, 0.5, 1.0))
+            if let body { bodies.append(body) }
+            let v = zb.volume.map { String(format: "%.1f", $0) } ?? "?"
+            descriptions.append("Z-bracket(full+stepped): vol=\(v)")
+        } catch {
+            descriptions.append("Z-bracket FAILED: \(error)")
+        }
+
+        // U-channel: 40×100 spine, two 80×15 stepped sides.
+        let uSpine = SheetMetal.Flange(
+            id: "u-spine",
+            profile: [SIMD2(0, 0), SIMD2(40, 0), SIMD2(40, 100), SIMD2(0, 100)],
+            origin: SIMD3<Double>(220, 0, 0),
+            normal: SIMD3<Double>(0, 0, 1),
+            uAxis: SIMD3<Double>(1, 0, 0),
+            vAxis: SIMD3<Double>(0, 1, 0))
+        let uLeft = SheetMetal.Flange(
+            id: "u-left",
+            profile: [SIMD2(0, 0), SIMD2(80, 0), SIMD2(80, 15), SIMD2(0, 15)],
+            origin: SIMD3<Double>(220, 10, 0),
+            normal: SIMD3<Double>(-1, 0, 0),
+            uAxis: SIMD3<Double>(0, 1, 0),
+            vAxis: SIMD3<Double>(0, 0, 1))
+        let uRight = SheetMetal.Flange(
+            id: "u-right",
+            profile: [SIMD2(0, 0), SIMD2(80, 0), SIMD2(80, 15), SIMD2(0, 15)],
+            origin: SIMD3<Double>(260, 10, 0),
+            normal: SIMD3<Double>(1, 0, 0),
+            uAxis: SIMD3<Double>(0, 1, 0),
+            vAxis: SIMD3<Double>(0, 0, 1))
+        do {
+            let chan = try SheetMetal.Builder(thickness: 2).build(
+                flanges: [uSpine, uLeft, uRight],
+                bends: [
+                    SheetMetal.Bend(from: "u-spine", to: "u-left", radius: 1.5),
+                    SheetMetal.Bend(from: "u-spine", to: "u-right", radius: 1.5)
+                ])
+            let (body, _) = CADFileLoader.shapeToBodyAndMetadata(
+                chan, id: "v153-u-stepped", color: SIMD4(0.55, 0.7, 0.85, 1.0))
+            if let body { bodies.append(body) }
+            let v = chan.volume.map { String(format: "%.1f", $0) } ?? "?"
+            descriptions.append("U-stepped(100×40 / 80×15 sides): vol=\(v)")
+        } catch {
+            descriptions.append("U-stepped FAILED: \(error)")
+        }
+
+        return Curve2DGallery.GalleryResult(
+            bodies: bodies,
+            description: descriptions.joined(separator: " | ")
+        )
+    }
+
+    // MARK: - v0.154: Face / Edge convenience initializers
+
+    /// Demonstrates the v0.154 `Face(_:Shape)` and `Edge(_:Shape)` convenience
+    /// initializers. These recover a typed wrapper from a generic `Shape`
+    /// returned by methods like `subShapes(ofType:)`, returning nil on type
+    /// mismatch. Once typed, the face/edge can be queried via `area()`,
+    /// `length()`, `outerWire`, etc. without needing kernel-internal access.
+    ///
+    /// Demo walks every face of a box and reports area; every edge and
+    /// reports length. Shows the nil round-trip for a type mismatch and
+    /// renders one face highlighted.
+    static func v154FaceEdgeInits() -> Curve2DGallery.GalleryResult {
+        var bodies: [ViewportBody] = []
+        var descriptions: [String] = []
+
+        guard let box = Shape.box(width: 10, height: 6, depth: 4) else {
+            return Curve2DGallery.GalleryResult(bodies: [], description: "Box creation failed")
+        }
+
+        let (boxBody, _) = CADFileLoader.shapeToBodyAndMetadata(
+            box, id: "v154-box", color: SIMD4(0.65, 0.7, 0.8, 0.4))
+        if let boxBody { bodies.append(boxBody) }
+
+        // Walk faces: each subShape comes back as Shape; lift to Face.
+        let faceShapes = box.subShapes(ofType: .face)
+        var totalArea = 0.0
+        var faceAreas: [String] = []
+        for (i, fs) in faceShapes.enumerated() {
+            guard let face = Face(fs) else {
+                faceAreas.append("F\(i)=nil")
+                continue
+            }
+            let a = face.area()
+            totalArea += a
+            faceAreas.append(String(format: "F%d=%.1f", i, a))
+        }
+        descriptions.append("Faces (\(faceShapes.count)): \(faceAreas.joined(separator: " "))")
+        descriptions.append(String(format: "ΣArea=%.1f (expect 248)", totalArea))
+
+        // Walk edges: same lift. Box has duplicated edges per face → 24 entries.
+        let edgeShapes = box.subShapes(ofType: .edge)
+        var totalLen = 0.0
+        var sample: [String] = []
+        for (i, es) in edgeShapes.enumerated() {
+            guard let edge = Edge(es) else { continue }
+            let l = edge.length
+            totalLen += l
+            if i < 4 { sample.append(String(format: "E%d=%.1f", i, l)) }
+        }
+        descriptions.append("Edges (\(edgeShapes.count)) sample: \(sample.joined(separator: " "))")
+        descriptions.append(String(format: "ΣLen=%.1f", totalLen))
+
+        // Type-mismatch round-trip: the box itself is a TopoDS_Solid, not a
+        // face or edge. Both inits should return nil rather than crash.
+        let faceFromSolid = Face(box)
+        let edgeFromSolid = Edge(box)
+        descriptions.append("Face(box solid)=\(faceFromSolid == nil ? "nil ✓" : "leaked")")
+        descriptions.append("Edge(box solid)=\(edgeFromSolid == nil ? "nil ✓" : "leaked")")
+
+        // Highlight face[0] in red so we can see which one we typed-up.
+        if let first = faceShapes.first {
+            let (hi, _) = CADFileLoader.shapeToBodyAndMetadata(
+                first, id: "v154-face0", color: SIMD4(1.0, 0.3, 0.3, 1.0))
+            if let hi { bodies.append(hi) }
+        }
+
+        return Curve2DGallery.GalleryResult(
+            bodies: bodies,
+            description: descriptions.joined(separator: " | ")
+        )
+    }
+
+    // MARK: - v0.155: SheetMetal convex bends (Z-section)
+
+    /// Demonstrates v0.155's convex-bend support: the v0.153 builder threw
+    /// `filletFailed` on the second (convex) bend of a Z-section because
+    /// convex bends produce kissing-line geometry rather than a fillet-able
+    /// seam edge. v0.155 adds a curved-triangle-prism `bendMaterial` for
+    /// convex bends, applied around the kissing line.
+    ///
+    /// Three issue #89 fixtures, all with two opposite-direction 90° bends:
+    ///   • Z-section (18 / 25 / 45): the issue's exact repro.
+    ///   • Symmetric Z (30 / 20 / 30, R=3): matched widths.
+    ///   • Offset L with very short web (50 / 5 / 50): radius-vs-web stress.
+    static func v155ConvexBends() -> Curve2DGallery.GalleryResult {
+        var bodies: [ViewportBody] = []
+        var descriptions: [String] = []
+
+        // Z-section repro (issue #89).
+        let zTop = SheetMetal.Flange(
+            id: "z-top",
+            profile: [SIMD2(0, 0), SIMD2(18, 0), SIMD2(18, 45), SIMD2(0, 45)],
+            origin: SIMD3<Double>(0, 0, 0),
+            normal: SIMD3<Double>(0, 0, 1),
+            uAxis: SIMD3<Double>(1, 0, 0),
+            vAxis: SIMD3<Double>(0, 1, 0))
+        let zWeb = SheetMetal.Flange(
+            id: "z-web",
+            profile: [SIMD2(0, 0), SIMD2(25, 0), SIMD2(25, 45), SIMD2(0, 45)],
+            origin: SIMD3<Double>(18, 0, 0),
+            normal: SIMD3<Double>(-1, 0, 0),
+            uAxis: SIMD3<Double>(0, 0, 1),
+            vAxis: SIMD3<Double>(0, 1, 0))
+        let zBot = SheetMetal.Flange(
+            id: "z-bot",
+            profile: [SIMD2(0, 0), SIMD2(45, 0), SIMD2(45, 45), SIMD2(0, 45)],
+            origin: SIMD3<Double>(18, 0, 25),
+            normal: SIMD3<Double>(0, 0, 1),
+            uAxis: SIMD3<Double>(1, 0, 0),
+            vAxis: SIMD3<Double>(0, 1, 0))
+        do {
+            let z = try SheetMetal.Builder(thickness: 3.2).build(
+                flanges: [zTop, zWeb, zBot],
+                bends: [
+                    SheetMetal.Bend(from: "z-top", to: "z-web", radius: 3.2),
+                    SheetMetal.Bend(from: "z-web", to: "z-bot", radius: 3.2)
+                ])
+            let (body, _) = CADFileLoader.shapeToBodyAndMetadata(
+                z, id: "v155-z-section", color: SIMD4(0.78, 0.78, 0.82, 1.0))
+            if let body { bodies.append(body) }
+            let solidCount = z.subShapes(ofType: .solid).count
+            let v = z.volume.map { String(format: "%.1f", $0) } ?? "?"
+            descriptions.append("Z-section(18/25/45 R=3.2): vol=\(v) solids=\(solidCount)")
+        } catch {
+            descriptions.append("Z-section FAILED: \(error)")
+        }
+
+        // Symmetric Z, offset along +X.
+        let symTop = SheetMetal.Flange(
+            id: "sym-top",
+            profile: [SIMD2(0, 0), SIMD2(30, 0), SIMD2(30, 45), SIMD2(0, 45)],
+            origin: SIMD3<Double>(80, 0, 0),
+            normal: SIMD3<Double>(0, 0, 1),
+            uAxis: SIMD3<Double>(1, 0, 0),
+            vAxis: SIMD3<Double>(0, 1, 0))
+        let symWeb = SheetMetal.Flange(
+            id: "sym-web",
+            profile: [SIMD2(0, 0), SIMD2(20, 0), SIMD2(20, 45), SIMD2(0, 45)],
+            origin: SIMD3<Double>(110, 0, 0),
+            normal: SIMD3<Double>(-1, 0, 0),
+            uAxis: SIMD3<Double>(0, 0, 1),
+            vAxis: SIMD3<Double>(0, 1, 0))
+        let symBot = SheetMetal.Flange(
+            id: "sym-bot",
+            profile: [SIMD2(0, 0), SIMD2(30, 0), SIMD2(30, 45), SIMD2(0, 45)],
+            origin: SIMD3<Double>(110, 0, 20),
+            normal: SIMD3<Double>(0, 0, 1),
+            uAxis: SIMD3<Double>(1, 0, 0),
+            vAxis: SIMD3<Double>(0, 1, 0))
+        do {
+            let s = try SheetMetal.Builder(thickness: 2).build(
+                flanges: [symTop, symWeb, symBot],
+                bends: [
+                    SheetMetal.Bend(from: "sym-top", to: "sym-web", radius: 3),
+                    SheetMetal.Bend(from: "sym-web", to: "sym-bot", radius: 3)
+                ])
+            let (body, _) = CADFileLoader.shapeToBodyAndMetadata(
+                s, id: "v155-symmetric-z", color: SIMD4(0.85, 0.7, 0.5, 1.0))
+            if let body { bodies.append(body) }
+            let v = s.volume.map { String(format: "%.1f", $0) } ?? "?"
+            descriptions.append("Symmetric Z(30/20/30 R=3): vol=\(v)")
+        } catch {
+            descriptions.append("Symmetric Z FAILED: \(error)")
+        }
+
+        // Offset L with a very short (5mm) web — stresses the radius-vs-web
+        // corner case for convex bends.
+        let osTop = SheetMetal.Flange(
+            id: "os-top",
+            profile: [SIMD2(0, 0), SIMD2(50, 0), SIMD2(50, 60), SIMD2(0, 60)],
+            origin: SIMD3<Double>(180, 0, 0),
+            normal: SIMD3<Double>(0, 0, 1),
+            uAxis: SIMD3<Double>(1, 0, 0),
+            vAxis: SIMD3<Double>(0, 1, 0))
+        let osWeb = SheetMetal.Flange(
+            id: "os-web",
+            profile: [SIMD2(0, 0), SIMD2(5, 0), SIMD2(5, 60), SIMD2(0, 60)],
+            origin: SIMD3<Double>(230, 0, 0),
+            normal: SIMD3<Double>(-1, 0, 0),
+            uAxis: SIMD3<Double>(0, 0, 1),
+            vAxis: SIMD3<Double>(0, 1, 0))
+        let osBot = SheetMetal.Flange(
+            id: "os-bot",
+            profile: [SIMD2(0, 0), SIMD2(50, 0), SIMD2(50, 60), SIMD2(0, 60)],
+            origin: SIMD3<Double>(230, 0, 5),
+            normal: SIMD3<Double>(0, 0, 1),
+            uAxis: SIMD3<Double>(1, 0, 0),
+            vAxis: SIMD3<Double>(0, 1, 0))
+        do {
+            let o = try SheetMetal.Builder(thickness: 2).build(
+                flanges: [osTop, osWeb, osBot],
+                bends: [
+                    SheetMetal.Bend(from: "os-top", to: "os-web", radius: 1.5),
+                    SheetMetal.Bend(from: "os-web", to: "os-bot", radius: 1.5)
+                ])
+            let (body, _) = CADFileLoader.shapeToBodyAndMetadata(
+                o, id: "v155-offset-l-short-web", color: SIMD4(0.55, 0.7, 0.85, 1.0))
+            if let body { bodies.append(body) }
+            let v = o.volume.map { String(format: "%.1f", $0) } ?? "?"
+            descriptions.append("Offset-L short web(5mm R=1.5): vol=\(v)")
+        } catch {
+            descriptions.append("Offset-L FAILED: \(error)")
+        }
+
+        return Curve2DGallery.GalleryResult(
+            bodies: bodies,
+            description: descriptions.joined(separator: " | ")
+        )
+    }
+}
+
+// MARK: - Drawing annotation-store helper (bridge)
+//
+// Thin wrapper over OCCTSwift v0.148's `Drawing.append(_:)` unified dispatcher.
+// Prior versions needed a hand-rolled switch here; the bridge is kept as a thin
+// alias so older demo callsites don't have to be rewritten.
+extension Drawing {
+    fileprivate func annotationStoreAppend(_ ann: DrawingAnnotation) {
+        append(ann)
     }
 }

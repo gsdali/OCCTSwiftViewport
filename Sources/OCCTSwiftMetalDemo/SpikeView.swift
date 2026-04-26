@@ -809,6 +809,14 @@ struct SpikeView: View {
         case v138ThreadFeatures, v138DXFExport
         case v139ThreadFormV2
         case v140GDTWrite
+        case v141TopologyRefs, v142ConstructionGeometry, v142SketchAndReconstructor
+        case v143Measurements, v143DeferralsCleared
+        case v144SectionAndHatch, v145SheetLayout, v146AnnotationCatalog
+        case v147ConsumerPolish
+        case v148DrawingAppend, v149AutomationTolerance, v150MultiFormatExport
+        case v151SheetMetalCompose
+        case v152InputBodyChain, v152JSONBoolean
+        case v153StepAwareBends, v154FaceEdgeInits, v155ConvexBends
     }
 
     // MARK: - OCCT 8 Sub-groups
@@ -973,6 +981,24 @@ struct SpikeView: View {
         Button("v0.138 DXF Export") { loadOCCT8Demo(.v138DXFExport) }
         Button("v0.139 Thread Form v2") { loadOCCT8Demo(.v139ThreadFormV2) }
         Button("v0.140 GD&T Write") { loadOCCT8Demo(.v140GDTWrite) }
+        Button("v0.141 Topology Refs") { loadOCCT8Demo(.v141TopologyRefs) }
+        Button("v0.142 Construction Geometry") { loadOCCT8Demo(.v142ConstructionGeometry) }
+        Button("v0.142 Sketch + Reconstructor") { loadOCCT8Demo(.v142SketchAndReconstructor) }
+        Button("v0.143 Measurements") { loadOCCT8Demo(.v143Measurements) }
+        Button("v0.143 Deferrals Cleared") { loadOCCT8Demo(.v143DeferralsCleared) }
+        Button("v0.144 Section + Hatch") { loadOCCT8Demo(.v144SectionAndHatch) }
+        Button("v0.145 Sheet Layout") { loadOCCT8Demo(.v145SheetLayout) }
+        Button("v0.146 Annotations") { loadOCCT8Demo(.v146AnnotationCatalog) }
+        Button("v0.147 Consumer Polish") { loadOCCT8Demo(.v147ConsumerPolish) }
+        Button("v0.148 Drawing.append") { loadOCCT8Demo(.v148DrawingAppend) }
+        Button("v0.149 Automation + Tolerance") { loadOCCT8Demo(.v149AutomationTolerance) }
+        Button("v0.150 PDF/SVG/BOM") { loadOCCT8Demo(.v150MultiFormatExport) }
+        Button("v0.151 SheetMetal Compose") { loadOCCT8Demo(.v151SheetMetalCompose) }
+        Button("v0.152 inputBody Chain") { loadOCCT8Demo(.v152InputBodyChain) }
+        Button("v0.152.1 JSON Boolean") { loadOCCT8Demo(.v152JSONBoolean) }
+        Button("v0.153 Step-Aware Bends") { loadOCCT8Demo(.v153StepAwareBends) }
+        Button("v0.154 Face/Edge Inits") { loadOCCT8Demo(.v154FaceEdgeInits) }
+        Button("v0.155 Convex Bends") { loadOCCT8Demo(.v155ConvexBends) }
     }
 
     private func loadOCCT8Demo(_ demo: OCCT8Demo) {
@@ -1257,6 +1283,42 @@ struct SpikeView: View {
             result = OCCT8Gallery.v139ThreadFormV2()
         case .v140GDTWrite:
             result = OCCT8Gallery.v140GDTWrite()
+        case .v141TopologyRefs:
+            result = OCCT8Gallery.v141TopologyRefsAndHistory()
+        case .v142ConstructionGeometry:
+            result = OCCT8Gallery.v142ConstructionGeometry()
+        case .v142SketchAndReconstructor:
+            result = OCCT8Gallery.v142SketchAndReconstructor()
+        case .v143Measurements:
+            result = OCCT8Gallery.v143Measurements()
+        case .v143DeferralsCleared:
+            result = OCCT8Gallery.v143DeferralsCleared()
+        case .v144SectionAndHatch:
+            result = OCCT8Gallery.v144SectionAndHatch()
+        case .v145SheetLayout:
+            result = OCCT8Gallery.v145SheetLayout()
+        case .v146AnnotationCatalog:
+            result = OCCT8Gallery.v146AnnotationCatalog()
+        case .v147ConsumerPolish:
+            result = OCCT8Gallery.v147ConsumerPolish()
+        case .v148DrawingAppend:
+            result = OCCT8Gallery.v148DrawingAppend()
+        case .v149AutomationTolerance:
+            result = OCCT8Gallery.v149AutomationTolerance()
+        case .v150MultiFormatExport:
+            result = OCCT8Gallery.v150MultiFormatExport()
+        case .v151SheetMetalCompose:
+            result = OCCT8Gallery.v151SheetMetalCompose()
+        case .v152InputBodyChain:
+            result = OCCT8Gallery.v152InputBodyChain()
+        case .v152JSONBoolean:
+            result = OCCT8Gallery.v152JSONBoolean()
+        case .v153StepAwareBends:
+            result = OCCT8Gallery.v153StepAwareBends()
+        case .v154FaceEdgeInits:
+            result = OCCT8Gallery.v154FaceEdgeInits()
+        case .v155ConvexBends:
+            result = OCCT8Gallery.v155ConvexBends()
         }
 
         bodies = result.bodies
