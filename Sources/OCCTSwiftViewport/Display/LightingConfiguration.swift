@@ -87,10 +87,28 @@ public struct LightingConfiguration: Sendable {
     public var shadowSearchRadius: Float
 
     /// Environment map HDR data (equirectangular), or nil for procedural sky.
+    /// Legacy raw-bytes path: `Int32 width | Int32 height | RGBA32Float pixels`.
+    /// Prefer `environmentMapURL` for `.hdr` files.
     public var environmentMapData: Data?
 
-    /// Environment map intensity multiplier.
+    /// File URL for an HDR environment map. Loaded via `HDRLoader` (Radiance `.hdr`).
+    /// Takes precedence over `environmentMapData` when set.
+    public var environmentMapURL: URL?
+
+    /// Environment map intensity multiplier — scales IBL contribution to lighting.
     public var environmentIntensity: Float
+
+    /// Y-axis rotation of the environment in radians. Rotates reflection/lighting only,
+    /// not scene geometry. Range typically 0…2π.
+    public var environmentRotationY: Float
+
+    /// Exposure for the visible background (sky). Independent of `environmentIntensity`
+    /// so the background can be darkened to a black product-shot while lighting persists.
+    public var backgroundExposure: Float
+
+    /// Whether to draw the environment as a skybox background.
+    /// Off: use solid clear colour. On: cubemap is rendered as the background.
+    public var drawBackground: Bool
 
     // MARK: - Initialization
 
@@ -120,7 +138,11 @@ public struct LightingConfiguration: Sendable {
         shadowLightSize: Float = 0.02,
         shadowSearchRadius: Float = 0.01,
         environmentMapData: Data? = nil,
-        environmentIntensity: Float = 1.0
+        environmentMapURL: URL? = nil,
+        environmentIntensity: Float = 1.0,
+        environmentRotationY: Float = 0,
+        backgroundExposure: Float = 1.0,
+        drawBackground: Bool = false
     ) {
         self.keyLight = keyLight
         self.fillLight = fillLight
@@ -147,7 +169,11 @@ public struct LightingConfiguration: Sendable {
         self.shadowLightSize = shadowLightSize
         self.shadowSearchRadius = shadowSearchRadius
         self.environmentMapData = environmentMapData
+        self.environmentMapURL = environmentMapURL
         self.environmentIntensity = environmentIntensity
+        self.environmentRotationY = environmentRotationY
+        self.backgroundExposure = backgroundExposure
+        self.drawBackground = drawBackground
     }
 
     // MARK: - Presets

@@ -481,7 +481,7 @@ public final class OffscreenRenderer: Sendable {
             guard let buffers = bodyBufferCache[body.id] else { continue }
 
             var uniforms = makeUniforms()
-            var bodyUniforms = BodyUniforms(color: body.color, objectIndex: 0, roughness: body.roughness, metallic: body.metallic, isSelected: 0)
+            var bodyUniforms = BodyUniforms(body: body, objectIndex: 0, isSelected: 0)
 
             let hasMesh = buffers.vertexBuffer != nil && buffers.indexBuffer != nil && buffers.indexCount > 0
             let hasEdges = buffers.edgeVertexBuffer != nil && buffers.edgeVertexCount > 0

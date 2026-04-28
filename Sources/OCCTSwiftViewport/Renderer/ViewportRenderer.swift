@@ -30,18 +30,46 @@ struct Uniforms {
     var lightViewProjectionMatrix: simd_float4x4  // for shadow mapping
     var shadowParams: SIMD4<Float>            // x = bias, y = intensity, z = enabled (1/0), w = edgeIntensity
     var shadowParams2: SIMD4<Float> = .zero   // x = lightSize, y = searchRadius, z/w = unused (PCSS)
-    var iblParams: SIMD4<Float> = .zero       // x = intensity, y/z = unused, w = hasEnvMap
+    var iblParams: SIMD4<Float> = .zero       // x = intensity, y = rotationY (radians),
+                                              // z = backgroundExposure, w = hasEnvMap
     var clipPlanes: (SIMD4<Float>, SIMD4<Float>, SIMD4<Float>, SIMD4<Float>) = (.zero, .zero, .zero, .zero)
     var clipPlaneCount: UInt32 = 0
     var _clipPad: SIMD3<Float> = .zero
 }
 
+// Per-body shader uniforms.
+//
+// IMPORTANT — Swift↔Metal sync:
+// The matching `struct BodyUniforms` lives in Renderer/Shaders.metal.
+// Field order, types, and 16-byte alignment must stay identical.
+// Total stride is 64 bytes (4 × float4-equivalent slots).
 struct BodyUniforms {
-    var color: SIMD4<Float>
-    var objectIndex: UInt32 = 0
-    var roughness: Float = 0.5
-    var metallic: Float = 0.0
-    var isSelected: UInt32 = 0  // 1 = selected, 2 = hovered
+    var color: SIMD4<Float>             // offset  0  (16) — base colour rgb, opacity in a
+    var objectIndex: UInt32 = 0          // offset 16
+    var roughness: Float = 0.5           // offset 20
+    var metallic: Float = 0.0            // offset 24
+    var isSelected: UInt32 = 0           // offset 28  (1 = selected, 2 = hovered)
+    var clearcoat: Float = 0             // offset 32
+    var clearcoatRoughness: Float = 0.03 // offset 36
+    var ior: Float = 1.5                 // offset 40
+    var _pad0: Float = 0                 // offset 44
+    var emissiveAndStrength: SIMD4<Float> = .zero  // offset 48 — xyz = emissive linear RGB, w = strength
+}
+
+extension BodyUniforms {
+    /// Build per-body uniforms from a `ViewportBody`'s effective material.
+    init(body: ViewportBody, objectIndex: UInt32 = 0, isSelected: UInt32 = 0) {
+        let m = body.effectiveMaterial
+        self.color = SIMD4<Float>(m.baseColor.x, m.baseColor.y, m.baseColor.z, m.opacity)
+        self.objectIndex = objectIndex
+        self.roughness = m.roughness
+        self.metallic = m.metallic
+        self.isSelected = isSelected
+        self.clearcoat = m.clearcoat
+        self.clearcoatRoughness = m.clearcoatRoughness
+        self.ior = m.ior
+        self.emissiveAndStrength = SIMD4<Float>(m.emissive.x, m.emissive.y, m.emissive.z, m.emissiveStrength)
+    }
 }
 
 struct GridUniforms {
@@ -85,11 +113,18 @@ struct SSAOParamsSwift {
     var dofEnabled: Float
 }
 
+// IMPORTANT — Swift↔Metal sync (see Renderer/Shaders.metal `struct TAAParams`).
 struct TAAParamsSwift {
     var blendFactor: Float
-    var _pad0: Float = 0
+    var disableClamp: Float = 0       // 1.0 = skip neighborhood AABB clamp (use for static scenes)
     var jitterOffset: SIMD2<Float>
     var texelSize: SIMD2<Float>
+}
+
+// IMPORTANT — Swift↔Metal sync (see Renderer/Shaders.metal `struct SkyboxUniforms`).
+struct SkyboxUniformsSwift {
+    var inverseViewProjection: simd_float4x4
+    var params: SIMD4<Float>  // x = rotationY, y = backgroundExposure, z = mipLevel, w = unused
 }
 
 // MARK: - Cached Body Buffers
@@ -135,6 +170,9 @@ public final class ViewportRenderer: NSObject, MTKViewDelegate, Sendable {
     private let depthState: MTLDepthStencilState
     private let matcapTexture: MTLTexture
     private let msaaSampleCount: Int
+    // Skybox (HDR background draw — IBL cubemap as fullscreen background)
+    private let skyboxPipeline: MTLRenderPipelineState?
+    private let skyboxDepthState: MTLDepthStencilState?
 
     // Hardware tessellation (PN triangles)
     private let tessellationManager: TessellationManager?
@@ -316,6 +354,26 @@ public final class ViewportRenderer: NSObject, MTKViewDelegate, Sendable {
             return nil
         }
         self.axisPipeline = axisPipeline
+
+        // Skybox pipeline (MSAA, no vertex buffer — fullscreen triangle from vertex_id)
+        let skyboxDesc = MTLRenderPipelineDescriptor()
+        skyboxDesc.label = "skybox"
+        skyboxDesc.vertexFunction = library.makeFunction(name: "skybox_vertex")
+        skyboxDesc.fragmentFunction = library.makeFunction(name: "skybox_fragment")
+        skyboxDesc.colorAttachments[0].pixelFormat = .bgra8Unorm
+        skyboxDesc.colorAttachments[1].pixelFormat = .invalid
+        skyboxDesc.depthAttachmentPixelFormat = depthFormat
+        skyboxDesc.stencilAttachmentPixelFormat = depthFormat
+        skyboxDesc.rasterSampleCount = sampleCount
+        // No vertexDescriptor — vertex shader uses [[vertex_id]] only
+        self.skyboxPipeline = try? device.makeRenderPipelineState(descriptor: skyboxDesc)
+
+        // Skybox depth state: depth test always, no depth write.
+        // Drawn first; subsequent geometry overwrites via normal depth test.
+        let skyboxDepthDesc = MTLDepthStencilDescriptor()
+        skyboxDepthDesc.depthCompareFunction = .always
+        skyboxDepthDesc.isDepthWriteEnabled = false
+        self.skyboxDepthState = device.makeDepthStencilState(descriptor: skyboxDepthDesc)
 
         // --- 1x pick-only pipeline (R32Uint, no MSAA) ---
 
@@ -737,8 +795,20 @@ public final class ViewportRenderer: NSObject, MTKViewDelegate, Sendable {
     public var metalDevice: MTLDevice { device }
 
     /// Loads an equirectangular HDR image as the environment map for IBL.
+    /// Legacy path; expects raw bytes with `Int32 width | Int32 height | RGBA32Float pixels`.
     public func loadEnvironmentMap(data: Data) {
         environmentMapManager?.loadEquirectangular(data: data, commandQueue: commandQueue)
+    }
+
+    /// Loads an HDR environment map from a file URL (Radiance `.hdr`).
+    /// Throws on parse failure; on success, generates the prefiltered/irradiance/cube maps.
+    public func loadEnvironmentMap(url: URL) throws {
+        try environmentMapManager?.loadHDR(url: url, commandQueue: commandQueue)
+    }
+
+    /// Loads pre-decoded equirectangular RGBA32Float pixels into the IBL pipeline.
+    public func loadEnvironmentMap(width: Int, height: Int, pixels: [Float]) {
+        environmentMapManager?.loadEquirectangular(width: width, height: height, pixels: pixels, commandQueue: commandQueue)
     }
 
     /// Clears the current environment map.
@@ -859,7 +929,30 @@ public final class ViewportRenderer: NSObject, MTKViewDelegate, Sendable {
         let aspectRatio = Float(drawableSize.width / drawableSize.height)
 
         let viewMatrix = cameraState.viewMatrix
-        let projMatrix = cameraState.projectionMatrix(aspectRatio: aspectRatio, near: 0.01, far: 10000.0)
+        var projMatrix = cameraState.projectionMatrix(aspectRatio: aspectRatio, near: 0.01, far: 10000.0)
+
+        // TAA / progressive accumulation: apply Halton(2,3) sub-pixel jitter to the
+        // projection matrix so each frame rasterizes at a different sub-pixel offset.
+        // Without this, the existing TAA resolve only softens — it doesn't supersample.
+        // We must compute the jitter here (pre-draw) to use the same value in the
+        // TAA resolve pass below.
+        let taaWillRun = controller.enableTAA && taaPipeline != nil
+        let jitterPx: SIMD2<Float>
+        if taaWillRun {
+            let jx = halton(index: taaFrameIndex + 1, base: 2) - 0.5
+            let jy = halton(index: taaFrameIndex + 1, base: 3) - 0.5
+            jitterPx = SIMD2<Float>(jx, jy)
+            // Convert pixel offset to NDC and bake into the projection matrix's column 2.
+            // For both perspective and orthographic, this shifts the rasterized image
+            // by (jx, jy) pixels post-projection.
+            let w = Float(drawableSize.width)
+            let h = Float(drawableSize.height)
+            projMatrix.columns.2[0] += 2.0 * jx / w
+            projMatrix.columns.2[1] += 2.0 * jy / h
+        } else {
+            jitterPx = .zero
+        }
+
         let viewProjection = projMatrix * viewMatrix
 
         let lighting = controller.lightingConfiguration
@@ -927,7 +1020,8 @@ public final class ViewportRenderer: NSObject, MTKViewDelegate, Sendable {
         let hasEnvMap: Float = (environmentMapManager?.hasEnvironmentMap ?? false) ? 1.0 : 0.0
         let iblParams = SIMD4<Float>(
             lighting.environmentIntensity,
-            0, 0,
+            lighting.environmentRotationY,
+            lighting.backgroundExposure,
             hasEnvMap
         )
 
@@ -1112,6 +1206,30 @@ public final class ViewportRenderer: NSObject, MTKViewDelegate, Sendable {
         guard let mainEncoder = commandBuffer.makeRenderCommandEncoder(descriptor: renderPassDescriptor) else { return }
         mainEncoder.setDepthStencilState(depthState)
 
+        // 0. Draw skybox background (HDR cubemap), if enabled.
+        if lighting.drawBackground,
+           let envMgr = environmentMapManager,
+           let cubeMap = envMgr.cubeMap,
+           let skyPipeline = skyboxPipeline,
+           let skyDepth = skyboxDepthState {
+            mainEncoder.setRenderPipelineState(skyPipeline)
+            mainEncoder.setDepthStencilState(skyDepth)
+            var skyUniforms = SkyboxUniformsSwift(
+                inverseViewProjection: simd_inverse(viewProjection),
+                params: SIMD4<Float>(
+                    lighting.environmentRotationY,
+                    lighting.backgroundExposure,
+                    0, // mip level — sharp background
+                    0
+                )
+            )
+            mainEncoder.setVertexBytes(&skyUniforms, length: MemoryLayout<SkyboxUniformsSwift>.size, index: 0)
+            mainEncoder.setFragmentBytes(&skyUniforms, length: MemoryLayout<SkyboxUniformsSwift>.size, index: 0)
+            mainEncoder.setFragmentTexture(cubeMap, index: 0)
+            mainEncoder.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 3)
+            mainEncoder.setDepthStencilState(depthState)
+        }
+
         // 1. Draw grid
         if controller.showGrid {
             drawGrid(encoder: mainEncoder, viewProjection: viewProjection, cameraState: cameraState, config: controller.configuration)
@@ -1136,7 +1254,7 @@ public final class ViewportRenderer: NSObject, MTKViewDelegate, Sendable {
             var uniforms = makeUniforms()
 
             let selState: UInt32 = selectedIDs.contains(body.id) ? 1 : (hoveredID == body.id ? 2 : 0)
-            var bodyUniforms = BodyUniforms(color: body.color, objectIndex: objectIndex, roughness: body.roughness, metallic: body.metallic, isSelected: selState)
+            var bodyUniforms = BodyUniforms(body: body, objectIndex: objectIndex, isSelected: selState)
 
             let hasMesh = buffers.vertexBuffer != nil && buffers.indexBuffer != nil && buffers.indexCount > 0
             let hasEdges = buffers.edgeVertexBuffer != nil && buffers.edgeVertexCount > 0
@@ -1305,7 +1423,7 @@ public final class ViewportRenderer: NSObject, MTKViewDelegate, Sendable {
 
                         if hasMesh, let vb = buffers.vertexBuffer, let ib = buffers.indexBuffer {
                             var uniforms = makeUniforms()
-                            var bodyUniforms = BodyUniforms(color: body.color, objectIndex: objectIndex, roughness: body.roughness, metallic: body.metallic)
+                            var bodyUniforms = BodyUniforms(body: body, objectIndex: objectIndex)
 
                             if useMeshShaders, let ml = buffers.meshlets, let msPipeline = meshShaderPickPipeline {
                                 pickEncoder.setRenderPipelineState(msPipeline)
@@ -1368,11 +1486,23 @@ public final class ViewportRenderer: NSObject, MTKViewDelegate, Sendable {
            let taaOutput = taaOutputTexture,
            let taaHistory = taaHistoryTexture {
 
-            // Check if camera moved
+            // Reset accumulation when the scene changes (camera move or animation).
             let cameraChanged = (lastCameraState == nil || lastCameraState! != cameraState)
-            if cameraChanged {
+            let isAnimating = controller.isAnimating
+            if cameraChanged || isAnimating {
                 taaFrameIndex = 0
             }
+
+            let progressive = controller.enableProgressiveAccumulation && !isAnimating
+            // Progressive mode: history weight = N/(N+1), unbounded N up to 256, no clamp.
+            // Standard TAA mode: history weight = taaBlendFactor (0.9), 16-frame jitter cycle.
+            let blendFactor: Float
+            if progressive {
+                blendFactor = taaFrameIndex == 0 ? 0 : Float(taaFrameIndex) / Float(taaFrameIndex + 1)
+            } else {
+                blendFactor = taaFrameIndex > 0 ? controller.taaBlendFactor : 0
+            }
+            let disableClamp: Float = progressive ? 1 : 0
 
             let taaPass = MTLRenderPassDescriptor()
             taaPass.colorAttachments[0].texture = taaOutput
@@ -1382,13 +1512,14 @@ public final class ViewportRenderer: NSObject, MTKViewDelegate, Sendable {
             if let taaEncoder = commandBuffer.makeRenderCommandEncoder(descriptor: taaPass) {
                 taaEncoder.setRenderPipelineState(taaPipeline)
 
-                let blendFactor = taaFrameIndex > 0 ? controller.taaBlendFactor : Float(0.0)
-                let jitterX = halton(index: taaFrameIndex, base: 2) - 0.5
-                let jitterY = halton(index: taaFrameIndex, base: 3) - 0.5
-
+                // In progressive mode, sample history at the same UV as current — each frame's
+                // sub-pixel-jittered rasterization contributes to averaged supersampling.
+                // In standard TAA, the unjitter step compensates so current and history align.
+                let resolveJitter: SIMD2<Float> = progressive ? .zero : jitterPx
                 var taaParams = TAAParamsSwift(
                     blendFactor: blendFactor,
-                    jitterOffset: SIMD2<Float>(jitterX, jitterY),
+                    disableClamp: disableClamp,
+                    jitterOffset: resolveJitter,
                     texelSize: SIMD2<Float>(1.0 / Float(w), 1.0 / Float(h))
                 )
                 taaEncoder.setFragmentTexture(resolvedColor, index: 0)
@@ -1405,7 +1536,9 @@ public final class ViewportRenderer: NSObject, MTKViewDelegate, Sendable {
             }
 
             lastCameraState = cameraState
-            taaFrameIndex = (taaFrameIndex + 1) % 16
+            // Standard TAA cycles a 16-sample Halton sequence; progressive accumulates up to 256.
+            let frameCap: UInt32 = progressive ? 256 : 16
+            taaFrameIndex = min(taaFrameIndex + 1, frameCap)
         }
 
         // Determine which color texture to feed into SSAO

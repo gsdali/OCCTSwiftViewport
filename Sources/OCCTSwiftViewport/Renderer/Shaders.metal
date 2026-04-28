@@ -28,18 +28,26 @@ struct Uniforms {
     float4x4 lightViewProjectionMatrix; // for shadow mapping
     float4   shadowParams;             // x = bias, y = intensity, z = enabled, w = edgeIntensity
     float4   shadowParams2;            // x = lightSize, y = searchRadius, z/w = unused (PCSS)
-    float4   iblParams;                // x = intensity, y/z = unused, w = hasEnvMap (>0.5)
+    float4   iblParams;                // x = intensity, y = rotationY (radians),
+                                       // z = backgroundExposure, w = hasEnvMap (>0.5)
     float4   clipPlanes[4];            // xyz = normal, w = distance (dot(N,P)+w < 0 → clip)
     uint     clipPlaneCount;           // number of active clip planes (0–4)
     float3   _clipPad;                 // padding to 16-byte alignment
 };
 
+// IMPORTANT — Swift↔Metal sync (see Renderer/ViewportRenderer.swift `struct BodyUniforms`).
+// Field order, types, and 16-byte alignment must stay identical. Total stride = 64 bytes.
 struct BodyUniforms {
-    float4 color;
-    uint   objectIndex;
-    float  roughness;
-    float  metallic;
-    uint   isSelected;  // 1 = selected, 2 = hovered
+    float4 color;                  // offset  0 — base colour rgb, opacity in a
+    uint   objectIndex;            // offset 16
+    float  roughness;              // offset 20
+    float  metallic;               // offset 24
+    uint   isSelected;             // offset 28 (1 = selected, 2 = hovered)
+    float  clearcoat;              // offset 32
+    float  clearcoatRoughness;     // offset 36
+    float  ior;                    // offset 40
+    float  _pad0;                  // offset 44
+    float4 emissiveAndStrength;    // offset 48 — xyz = emissive linear RGB, w = strength
 };
 
 // MARK: - Fragment Output (color-only for MSAA pass)
@@ -109,6 +117,41 @@ inline float geometrySmith(float NdotV, float NdotL, float roughness) {
 // Schlick Fresnel approximation
 inline float3 fresnelSchlick(float cosTheta, float3 F0) {
     return F0 + (1.0 - F0) * pow(saturate(1.0 - cosTheta), 5.0);
+}
+
+// Scalar Schlick — used for clearcoat layer where F0 is a single value.
+inline float fresnelSchlickScalar(float cosTheta, float F0) {
+    return F0 + (1.0 - F0) * pow(saturate(1.0 - cosTheta), 5.0);
+}
+
+// Dielectric F0 from index of refraction. Air→medium boundary: F0 = ((ior-1)/(ior+1))².
+// Default ior=1.5 → F0=0.04, water 1.33 → 0.02, sapphire 1.77 → 0.077.
+inline float F0FromIOR(float ior) {
+    float r = (ior - 1.0) / (ior + 1.0);
+    return r * r;
+}
+
+// Evaluates the clearcoat specular lobe (Filament §4.8.4).
+// Returns the coat specular contribution and writes Fc out for base attenuation.
+// Coat F0 is fixed at 0.04 (polyurethane, ior≈1.5).
+inline float3 evaluateClearcoat(
+    float NdotH, float NdotV, float NdotL, float HdotV,
+    float coatRoughness,
+    thread float &Fc
+) {
+    float D = distributionGGX(NdotH, coatRoughness);
+    float G = geometrySmith(NdotV, NdotL, coatRoughness);
+    Fc = fresnelSchlickScalar(HdotV, 0.04);
+    float spec = (D * G * Fc) / (4.0 * NdotV * NdotL + 0.0001);
+    return float3(spec);
+}
+
+// Y-axis rotation of a sampling direction. Rotates the *environment* —
+// pass a positive angle to rotate the sky clockwise as viewed from +Y.
+inline float3 rotateY(float3 v, float angle) {
+    float c = cos(angle);
+    float s = sin(angle);
+    return float3(v.x * c - v.z * s, v.y, v.x * s + v.z * c);
 }
 
 // Procedural environment reflection: sky-ground gradient
@@ -250,9 +293,13 @@ fragment ShadedFragmentOut shaded_fragment(
     float roughness = clamp(bodyUniforms.roughness, 0.04, 1.0);
     float metallic = saturate(bodyUniforms.metallic);
     float3 bodyColor = bodyUniforms.color.rgb;
+    float clearcoat = saturate(bodyUniforms.clearcoat);
+    float coatRoughness = clamp(bodyUniforms.clearcoatRoughness, 0.04, 1.0);
 
-    // PBR base reflectance (dielectric = 0.04, metal = body color)
-    float3 F0 = mix(float3(0.04), bodyColor, metallic);
+    // PBR base reflectance: dielectric F0 from IOR, metal F0 = body colour.
+    // For metallic > 0 the IOR term is irrelevant — `mix` resolves to bodyColor.
+    float dielectricF0 = F0FromIOR(max(bodyUniforms.ior, 1.0));
+    float3 F0 = mix(float3(dielectricF0), bodyColor, metallic);
 
     // Accumulate lighting from up to 3 lights
     float3 Lo = float3(0.0); // Outgoing radiance
@@ -288,20 +335,30 @@ fragment ShadedFragmentOut shaded_fragment(
         float NdotH = max(dot(N, H), 0.0);
         float HdotV = max(dot(H, V), 0.0);
 
-        // Cook-Torrance BRDF
+        // Base lobe — Cook-Torrance with GGX/Smith/Schlick
         float D = distributionGGX(NdotH, roughness);
         float G = geometrySmith(NdotV, NdotL, roughness);
         float3 F = fresnelSchlick(HdotV, F0);
 
-        float3 numerator = D * G * F;
-        float denominator = 4.0 * NdotV * NdotL + 0.0001;
-        float3 specular = numerator / denominator;
+        float3 specular = (D * G * F) / (4.0 * NdotV * NdotL + 0.0001);
 
         // Energy conservation: diffuse only for non-reflected light
         float3 kD = (1.0 - F) * (1.0 - metallic);
         float3 diffuse = kD * bodyColor / M_PI_F;
+        float3 baseLobe = diffuse + specular;
 
-        Lo += (diffuse + specular) * lightColor * intensity * NdotL;
+        // Clearcoat lobe — sits on top of base, attenuates everything below by (1 - Fc·c).
+        float3 contribution;
+        if (clearcoat > 0.0) {
+            float Fc;
+            float3 coatSpec = evaluateClearcoat(NdotH, NdotV, NdotL, HdotV, coatRoughness, Fc);
+            float attenuation = 1.0 - Fc * clearcoat;
+            contribution = baseLobe * attenuation + coatSpec * clearcoat;
+        } else {
+            contribution = baseLobe;
+        }
+
+        Lo += contribution * lightColor * intensity * NdotL;
     }
 
     // Shadow mapping: darken key light contribution (PCSS soft shadows)
@@ -332,21 +389,39 @@ fragment ShadedFragmentOut shaded_fragment(
         constexpr sampler iblSampler(filter::linear, mip_filter::linear, address::repeat);
         constexpr sampler brdfSampler(filter::linear, address::clamp_to_edge);
         float iblIntensity = uniforms.iblParams.x;
-        float mipLevel = roughness * 7.0; // assume 8 mip levels
-        float3 prefilteredColor = iblSpecular.sample(iblSampler, R, level(mipLevel)).rgb;
-        float3 irradiance = iblDiffuse.sample(iblSampler, N).rgb;
-        float2 brdf = brdfLUT.sample(brdfSampler, float2(NdotV, roughness)).rg;
+        float envRotation = uniforms.iblParams.y;
+        // Apply environment rotation to sample directions only — geometry stays put.
+        float3 R_env = rotateY(R, envRotation);
+        float3 N_env = rotateY(N, envRotation);
+        // Base lobe IBL — sample at body roughness mip
+        float baseMip = roughness * 7.0;            // 8 mip levels
+        float3 prefilteredBase = iblSpecular.sample(iblSampler, R_env, level(baseMip)).rgb;
+        float3 irradiance = iblDiffuse.sample(iblSampler, N_env).rgb;
+        float2 brdfBase = brdfLUT.sample(brdfSampler, float2(NdotV, roughness)).rg;
         float3 F_ibl = fresnelSchlick(NdotV, F0);
-        float3 specularIBL = prefilteredColor * (F_ibl * brdf.x + brdf.y);
+        float3 specularBaseIBL = prefilteredBase * (F_ibl * brdfBase.x + brdfBase.y);
         float3 kD_ibl = (1.0 - F_ibl) * (1.0 - metallic);
         float3 diffuseIBL = irradiance * bodyColor;
-        envContribution = (kD_ibl * diffuseIBL + specularIBL) * iblIntensity;
+        float3 baseIBL = kD_ibl * diffuseIBL + specularBaseIBL;
+
+        if (clearcoat > 0.0) {
+            // Clearcoat IBL — sample at coat roughness mip with fixed coat F0 = 0.04
+            float coatMip = coatRoughness * 7.0;
+            float3 prefilteredCoat = iblSpecular.sample(iblSampler, R_env, level(coatMip)).rgb;
+            float2 brdfCoat = brdfLUT.sample(brdfSampler, float2(NdotV, coatRoughness)).rg;
+            float Fc_ibl = fresnelSchlickScalar(NdotV, 0.04);
+            float3 specularCoatIBL = prefilteredCoat * (Fc_ibl * brdfCoat.x + brdfCoat.y);
+            float attenuation = 1.0 - Fc_ibl * clearcoat;
+            envContribution = (baseIBL * attenuation + specularCoatIBL * clearcoat) * iblIntensity;
+        } else {
+            envContribution = baseIBL * iblIntensity;
+        }
     } else {
         // Procedural environment fallback
         float3 envColor = sampleEnvironment(R);
         float envFresnel = pow(1.0 - NdotV, 5.0);
         float envStrength = mix(0.04, 1.0, metallic) * mix(0.3, 1.0, envFresnel) * (1.0 - roughness * 0.7);
-        envContribution = envColor * mix(float3(0.04), bodyColor, metallic) * envStrength;
+        envContribution = envColor * mix(float3(dielectricF0), bodyColor, metallic) * envStrength;
     }
 
     // Fresnel rim (reduced for metallic surfaces)
@@ -355,6 +430,11 @@ fragment ShadedFragmentOut shaded_fragment(
 
     // Combine lighting
     float3 litColor = Lo + ambient + envContribution + rimColor;
+
+    // Emissive — additive, ignores all lighting/shadow contributions.
+    // Strength > 1 produces true HDR output that the tonemapper will compress.
+    float3 emissive = bodyUniforms.emissiveAndStrength.rgb * bodyUniforms.emissiveAndStrength.a;
+    litColor += emissive;
 
     // Screen-space curvature: brightens convex edges, darkens concave creases
     // Uses fragment derivatives of the world normal to detect surface curvature.
@@ -869,9 +949,9 @@ fragment float4 ssao_fragment(
 // MARK: - Temporal Anti-Aliasing Resolve
 
 struct TAAParams {
-    float  blendFactor;   // history weight (0.9 typical)
-    float  _pad0;
-    float2 jitterOffset;  // sub-pixel jitter applied this frame
+    float  blendFactor;   // history weight (e.g. 0.9 for moving, N/(N+1) for progressive)
+    float  disableClamp;  // 1.0 = skip neighborhood AABB clamp (use for static scenes)
+    float2 jitterOffset;  // sub-pixel jitter applied this frame, in pixels
     float2 texelSize;
 };
 
@@ -886,27 +966,29 @@ fragment float4 taa_resolve_fragment(
 
     float4 current = currentTexture.sample(pointSampler, in.texCoord);
 
-    // 3x3 neighborhood clamp to reduce ghosting
-    float3 nearMin = current.rgb;
-    float3 nearMax = current.rgb;
-    const float2 offsets[8] = {
-        float2(-1, -1), float2(0, -1), float2(1, -1),
-        float2(-1,  0),                float2(1,  0),
-        float2(-1,  1), float2(0,  1), float2(1,  1)
-    };
-    for (int i = 0; i < 8; i++) {
-        float3 s = currentTexture.sample(pointSampler,
-            in.texCoord + offsets[i] * params.texelSize).rgb;
-        nearMin = min(nearMin, s);
-        nearMax = max(nearMax, s);
-    }
-
     // Sample history (unjitter by subtracting this frame's jitter)
     float2 historyUV = in.texCoord - params.jitterOffset * params.texelSize;
     float4 history = historyTexture.sample(texSampler, historyUV);
 
-    // Clamp history to neighborhood AABB
-    history.rgb = clamp(history.rgb, nearMin, nearMax);
+    // 3x3 neighborhood clamp reduces ghosting from rapid motion. Skip when
+    // the scene is known static (progressive accumulation mode), since clamping
+    // throws away valid super-sampled detail.
+    if (params.disableClamp < 0.5) {
+        float3 nearMin = current.rgb;
+        float3 nearMax = current.rgb;
+        const float2 offsets[8] = {
+            float2(-1, -1), float2(0, -1), float2(1, -1),
+            float2(-1,  0),                float2(1,  0),
+            float2(-1,  1), float2(0,  1), float2(1,  1)
+        };
+        for (int i = 0; i < 8; i++) {
+            float3 s = currentTexture.sample(pointSampler,
+                in.texCoord + offsets[i] * params.texelSize).rgb;
+            nearMin = min(nearMin, s);
+            nearMax = max(nearMax, s);
+        }
+        history.rgb = clamp(history.rgb, nearMin, nearMax);
+    }
 
     // Blend
     float4 result = mix(current, history, params.blendFactor);
@@ -1681,3 +1763,53 @@ void meshlet_pick_mesh(
 }
 
 #endif // __METAL_VERSION__ >= 310
+
+// MARK: - Skybox Pipeline
+
+// Renders the IBL cubemap as the scene background using a fullscreen triangle.
+// Drawn before geometry with depth = 1 in NDC; depth test must be `lessEqual`
+// so any geometry overwrites the sky.
+
+struct SkyboxUniforms {
+    float4x4 inverseViewProjection;  // for reconstructing world-space view rays
+    float4   params;                 // x = rotationY, y = backgroundExposure,
+                                     // z = mipLevel (0 = sharp, 7 = blurred), w = unused
+};
+
+struct SkyboxVertexOut {
+    float4 clipPosition [[position]];
+    float3 viewDirection;
+};
+
+vertex SkyboxVertexOut skybox_vertex(
+    uint vertexID [[vertex_id]],
+    constant SkyboxUniforms &u [[buffer(0)]]
+) {
+    // Fullscreen triangle covering [-1,1]² in NDC (3 verts, no buffer needed).
+    float2 ndc = float2((vertexID == 1) ? 3.0 : -1.0,
+                        (vertexID == 2) ? 3.0 : -1.0);
+    SkyboxVertexOut out;
+    out.clipPosition = float4(ndc, 1.0, 1.0); // depth = 1 in NDC
+
+    // Reconstruct world-space view direction by inverse-projecting near and far points.
+    float4 worldNear = u.inverseViewProjection * float4(ndc, 0.0, 1.0);
+    float4 worldFar  = u.inverseViewProjection * float4(ndc, 1.0, 1.0);
+    out.viewDirection = normalize(worldFar.xyz / worldFar.w - worldNear.xyz / worldNear.w);
+    return out;
+}
+
+fragment float4 skybox_fragment(
+    SkyboxVertexOut in [[stage_in]],
+    texturecube<float> sky [[texture(0)]],
+    constant SkyboxUniforms &u [[buffer(0)]]
+) {
+    // Apply environment rotation
+    float c = cos(u.params.x);
+    float s = sin(u.params.x);
+    float3 dir = normalize(in.viewDirection);
+    float3 rotDir = float3(dir.x * c - dir.z * s, dir.y, dir.x * s + dir.z * c);
+
+    constexpr sampler skySampler(filter::linear, mip_filter::linear);
+    float3 color = sky.sample(skySampler, rotDir, level(u.params.z)).rgb;
+    return float4(color * u.params.y, 1.0);
+}

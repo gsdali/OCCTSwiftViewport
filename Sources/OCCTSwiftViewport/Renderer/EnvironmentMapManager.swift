@@ -47,19 +47,17 @@ final class EnvironmentMapManager {
     }
 
     /// Loads equirectangular HDR data and generates all IBL textures.
+    /// Expects `Int32 width | Int32 height | RGBA32Float pixels` byte layout.
     func loadEquirectangular(data: Data, commandQueue: MTLCommandQueue) {
-        // Parse as raw RGBA float data or simple HDR
-        // For simplicity, expect RGBA32Float raw data with dimensions encoded in first 8 bytes
         guard data.count > 8 else { return }
 
         let width = data.withUnsafeBytes { $0.load(fromByteOffset: 0, as: Int32.self) }
         let height = data.withUnsafeBytes { $0.load(fromByteOffset: 4, as: Int32.self) }
         let pixelDataOffset = 8
-        let expectedSize = pixelDataOffset + Int(width) * Int(height) * 16 // 4 floats * 4 bytes
+        let expectedSize = pixelDataOffset + Int(width) * Int(height) * 16
 
         guard data.count >= expectedSize, width > 0, height > 0 else { return }
 
-        // Create equirectangular texture
         let eqDesc = MTLTextureDescriptor.texture2DDescriptor(
             pixelFormat: .rgba32Float,
             width: Int(width),
@@ -79,7 +77,46 @@ final class EnvironmentMapManager {
             )
         }
 
-        // Generate cubemap from equirectangular
+        let cubeSize = 256
+        generateCubeMap(from: eqTexture, size: cubeSize, commandQueue: commandQueue)
+    }
+
+    /// Loads an HDR file from disk. Currently supports Radiance `.hdr` (RGBE).
+    /// Throws on parse failure; on success, populates cubeMap, prefilteredSpecularMap,
+    /// and irradianceMap.
+    func loadHDR(url: URL, commandQueue: MTLCommandQueue) throws {
+        let (width, height, pixels) = try HDRLoader.loadFromURL(url)
+        loadEquirectangular(width: width, height: height, pixels: pixels, commandQueue: commandQueue)
+    }
+
+    /// Loads pre-decoded equirectangular RGBA32Float pixels into the IBL pipeline.
+    /// `pixels` length must be `width * height * 4`.
+    func loadEquirectangular(
+        width: Int,
+        height: Int,
+        pixels: [Float],
+        commandQueue: MTLCommandQueue
+    ) {
+        guard pixels.count == width * height * 4, width > 0, height > 0 else { return }
+
+        let eqDesc = MTLTextureDescriptor.texture2DDescriptor(
+            pixelFormat: .rgba32Float,
+            width: width,
+            height: height,
+            mipmapped: false
+        )
+        eqDesc.usage = [.shaderRead]
+        guard let eqTexture = device.makeTexture(descriptor: eqDesc) else { return }
+
+        pixels.withUnsafeBufferPointer { ptr in
+            eqTexture.replace(
+                region: MTLRegionMake2D(0, 0, width, height),
+                mipmapLevel: 0,
+                withBytes: ptr.baseAddress!,
+                bytesPerRow: width * 16
+            )
+        }
+
         let cubeSize = 256
         generateCubeMap(from: eqTexture, size: cubeSize, commandQueue: commandQueue)
     }

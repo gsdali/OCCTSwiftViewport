@@ -34,14 +34,20 @@ public struct ViewportBody: Identifiable, Sendable {
     /// Maps each triangle back to its B-Rep face for sub-body selection. Empty if not applicable.
     public var faceIndices: [Int32]
 
-    /// Body colour (RGBA).
+    /// Body colour (RGBA). Used as the base colour fallback when `material` is nil.
     public var color: SIMD4<Float>
 
     /// Surface roughness (0 = mirror, 1 = fully rough). Default 0.5.
+    /// Ignored when `material` is set.
     public var roughness: Float
 
     /// Metallic factor (0 = dielectric, 1 = metal). Default 0.0.
+    /// Ignored when `material` is set.
     public var metallic: Float
+
+    /// Optional full PBR material. When set, overrides `color`/`roughness`/`metallic`
+    /// and enables clearcoat, IOR-driven F0, and emission.
+    public var material: PBRMaterial?
 
     /// Whether this body should be rendered.
     public var isVisible: Bool
@@ -55,6 +61,7 @@ public struct ViewportBody: Identifiable, Sendable {
         color: SIMD4<Float>,
         roughness: Float = 0.5,
         metallic: Float = 0.0,
+        material: PBRMaterial? = nil,
         isVisible: Bool = true
     ) {
         ViewportBody._nextGeneration += 1
@@ -67,7 +74,26 @@ public struct ViewportBody: Identifiable, Sendable {
         self.color = color
         self.roughness = roughness
         self.metallic = metallic
+        self.material = material
         self.isVisible = isVisible
+    }
+}
+
+// MARK: - Effective material
+
+extension ViewportBody {
+
+    /// Returns `material` if set, otherwise a `PBRMaterial` derived from the
+    /// legacy `color`/`roughness`/`metallic` fields. The renderer should call
+    /// this rather than reading either source directly.
+    public var effectiveMaterial: PBRMaterial {
+        if let material { return material }
+        return PBRMaterial(
+            baseColor: SIMD3<Float>(color.x, color.y, color.z),
+            metallic: metallic,
+            roughness: roughness,
+            opacity: color.w
+        )
     }
 }
 

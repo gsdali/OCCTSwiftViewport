@@ -104,6 +104,11 @@ public final class ViewportController: ObservableObject {
     /// TAA blend factor (0 = no history, 1 = full history).
     @Published public var taaBlendFactor: Float = 0.9
 
+    /// Whether progressive idle accumulation is enabled. Requires `enableTAA`.
+    /// When the camera is still, history weight grows as `N/(N+1)` rather than
+    /// the fixed `taaBlendFactor`, giving unbounded supersampling. Disabled by default.
+    @Published public var enableProgressiveAccumulation: Bool = false
+
     // MARK: - Configuration
 
     /// Viewport configuration.

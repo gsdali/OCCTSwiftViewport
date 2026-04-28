@@ -92,6 +92,8 @@ struct SpikeView: View {
 
     @StateObject private var scriptWatcher = ScriptWatcher()
 
+    @StateObject private var materialLibrary = MaterialLibrary()
+
     var body: some View {
         viewportLayout
         .onAppear {
@@ -215,6 +217,14 @@ struct SpikeView: View {
                 healingSection
                 analysisSection
                 scriptWatcherSection
+            }
+
+            DisclosureGroup("Materials") {
+                MaterialEditorPanel(
+                    bodies: $bodies,
+                    controller: controller,
+                    library: materialLibrary
+                )
             }
 
             DisclosureGroup("Geometry Demos") {
@@ -1684,6 +1694,8 @@ struct SpikeView: View {
                     Text("Blend Factor: \(controller.taaBlendFactor, specifier: "%.2f")")
                     Slider(value: $controller.taaBlendFactor, in: 0.5...0.98)
                 }
+                Toggle("Progressive accumulation (idle)", isOn: $controller.enableProgressiveAccumulation)
+                    .help("Unbounded sub-pixel supersampling while the camera is still")
             }
         }
     }

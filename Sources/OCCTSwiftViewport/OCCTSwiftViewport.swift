@@ -101,6 +101,10 @@ public typealias _RenderingQuality = RenderingQuality
 public typealias _DisplayMode = DisplayMode
 public typealias _LightingConfiguration = LightingConfiguration
 public typealias _LightSettings = LightSettings
+public typealias _PBRMaterial = PBRMaterial
+public typealias _HDRLoader = HDRLoader
+public typealias _MaterialLibrary = MaterialLibrary
+public typealias _NamedMaterial = NamedMaterial
 
 // Math / Raycasting
 public typealias _BoundingBox = BoundingBox
