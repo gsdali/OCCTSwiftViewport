@@ -37,6 +37,51 @@ struct CameraStateTests {
         #expect(abs(position.z - 10.0) < 0.001)
     }
 
+    @Test("Fit perspective to symmetric box")
+    func testFitPerspectiveSymmetric() {
+        // Unit cube at origin, square viewport, default 45° FoV.
+        let bounds = BoundingBox(min: SIMD3<Float>(-1, -1, -1), max: SIMD3<Float>(1, 1, 1))
+        let fitted = CameraState().fit(to: bounds, aspectRatio: 1.0, padding: 1.0)
+        // Bounding sphere radius = sqrt(3); halfFov = 22.5°.
+        // d = r / sin(22.5°) ≈ √3 / 0.3827 ≈ 4.527
+        #expect(abs(fitted.distance - 4.527) < 0.05)
+        #expect(fitted.pivot == bounds.center)
+    }
+
+    @Test("Fit centres pivot on bounding box")
+    func testFitCentresPivot() {
+        let bounds = BoundingBox(min: SIMD3<Float>(2, 4, -1), max: SIMD3<Float>(6, 8, 3))
+        let fitted = CameraState().fit(to: bounds, aspectRatio: 1.5, padding: 1.0)
+        #expect(fitted.pivot == bounds.center)        // (4, 6, 1)
+        #expect(fitted.panOffset == .zero)
+    }
+
+    @Test("Fit orthographic uses scale, not distance")
+    func testFitOrthographic() {
+        let bounds = BoundingBox(min: SIMD3<Float>(-1, -1, -1), max: SIMD3<Float>(1, 1, 1))
+        var ortho = CameraState()
+        ortho.isOrthographic = true
+        ortho.distance = 7   // sentinel — should be left untouched
+        let fitted = ortho.fit(to: bounds, aspectRatio: 1.0, padding: 1.0)
+        // 2 · radius = 2√3 ≈ 3.464
+        #expect(abs(fitted.orthographicScale - 3.464) < 0.05)
+        #expect(fitted.distance == 7)
+    }
+
+    @Test("Fit padding scales distance proportionally")
+    func testFitPadding() {
+        let bounds = BoundingBox(min: SIMD3<Float>(-1, -1, -1), max: SIMD3<Float>(1, 1, 1))
+        let tight = CameraState().fit(to: bounds, aspectRatio: 1.0, padding: 1.0)
+        let padded = CameraState().fit(to: bounds, aspectRatio: 1.0, padding: 1.5)
+        #expect(abs(padded.distance / tight.distance - 1.5) < 0.001)
+    }
+
+    @Test("Fit to bodies returns nil on empty input")
+    func testFitBodiesEmpty() {
+        let result = CameraState().fit(to: [ViewportBody](), aspectRatio: 1.0)
+        #expect(result == nil)
+    }
+
     @Test("Interpolation")
     func testInterpolation() {
         let start = CameraState(distance: 10.0)

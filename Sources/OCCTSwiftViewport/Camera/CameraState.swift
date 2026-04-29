@@ -135,6 +135,50 @@ public struct CameraState: Hashable, Codable, Sendable {
         self.panOffset = panOffset
     }
 
+    /// Returns a copy fitted to enclose `bounds` from the current viewing direction.
+    ///
+    /// Pivots on the bounding box centre and chooses a distance (perspective) or
+    /// `orthographicScale` (orthographic) such that the bounding sphere of `bounds`
+    /// fits inside the view frustum on its narrower axis. `padding` is a
+    /// multiplicative margin: `1.0` = tight fit, `1.1` = 10 % breathing room.
+    public func fit(to bounds: BoundingBox, aspectRatio: Float, padding: Float = 1.1) -> CameraState {
+        let center = bounds.center
+        // Bounding sphere radius — tight enough for typical CAD scenes.
+        let radius = max(bounds.diagonalLength * 0.5, 0.0001)
+        let paddedRadius = radius * max(padding, 0.001)
+
+        var copy = self
+        copy.pivot = center
+        copy.panOffset = .zero
+
+        if isOrthographic {
+            // Vertical extent must cover 2·radius; horizontally that equals 2·radius·aspect.
+            // If aspect < 1 (portrait), horizontal is the constraint.
+            let verticalScale = paddedRadius * 2
+            let horizontalScale = aspectRatio < 1 ? verticalScale / max(aspectRatio, 0.001) : verticalScale
+            copy.orthographicScale = horizontalScale
+        } else {
+            // d = r / sin(halfFovMin). FoV is vertical; horizontal halfFov derives from aspect.
+            let halfFovY = (fieldOfView * .pi / 180.0) * 0.5
+            let halfFovX = atan(aspectRatio * tan(halfFovY))
+            let halfFovMin = min(halfFovX, halfFovY)
+            copy.distance = paddedRadius / max(sin(halfFovMin), 0.001)
+        }
+        return copy
+    }
+
+    /// Convenience: fits to the union of all visible bodies' bounding boxes.
+    /// Returns `nil` if no body has geometry.
+    public func fit(to bodies: [ViewportBody], aspectRatio: Float, padding: Float = 1.1) -> CameraState? {
+        var union: BoundingBox?
+        for body in bodies where body.isVisible {
+            guard let bb = body.boundingBox else { continue }
+            union = union?.union(bb) ?? bb
+        }
+        guard let bounds = union else { return nil }
+        return fit(to: bounds, aspectRatio: aspectRatio, padding: padding)
+    }
+
     /// Creates a camera state looking at a target from a position.
     public static func lookAt(
         target: SIMD3<Float>,

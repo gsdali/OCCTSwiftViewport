@@ -36,6 +36,11 @@ targets:
         SWIFT_STRICT_CONCURRENCY: complete
         OTHER_LDFLAGS: ["-weak_framework", "AVKit"]
         DEVELOPMENT_TEAM: 6D6BN844NR
+        # iOS Info.plist keys — ignored on macOS. Support all orientations
+        # (CAD viewport is useful in any), and auto-generate a launch screen.
+        INFOPLIST_KEY_UILaunchScreen_Generation: YES
+        INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone: "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
+        INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad: "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
       configs:
         debug:
           SWIFT_OPTIMIZATION_LEVEL: "-Onone"
