@@ -827,6 +827,7 @@ struct SpikeView: View {
         case v151SheetMetalCompose
         case v152InputBodyChain, v152JSONBoolean
         case v153StepAwareBends, v154FaceEdgeInits, v155ConvexBends
+        case v1551WireFromShape, v1561DocumentNodeAt, v1562MeshFromArrays
     }
 
     // MARK: - OCCT 8 Sub-groups
@@ -1009,6 +1010,9 @@ struct SpikeView: View {
         Button("v0.153 Step-Aware Bends") { loadOCCT8Demo(.v153StepAwareBends) }
         Button("v0.154 Face/Edge Inits") { loadOCCT8Demo(.v154FaceEdgeInits) }
         Button("v0.155 Convex Bends") { loadOCCT8Demo(.v155ConvexBends) }
+        Button("v0.155.1 Wire(Shape)") { loadOCCT8Demo(.v1551WireFromShape) }
+        Button("v0.156.1 Document.node(at:)") { loadOCCT8Demo(.v1561DocumentNodeAt) }
+        Button("v0.156.2 Mesh from arrays") { loadOCCT8Demo(.v1562MeshFromArrays) }
     }
 
     private func loadOCCT8Demo(_ demo: OCCT8Demo) {
@@ -1329,6 +1333,12 @@ struct SpikeView: View {
             result = OCCT8Gallery.v154FaceEdgeInits()
         case .v155ConvexBends:
             result = OCCT8Gallery.v155ConvexBends()
+        case .v1551WireFromShape:
+            result = OCCT8Gallery.v155WireFromShape()
+        case .v1561DocumentNodeAt:
+            result = OCCT8Gallery.v1561DocumentNodeAt()
+        case .v1562MeshFromArrays:
+            result = OCCT8Gallery.v1562MeshFromArrays()
         }
 
         bodies = result.bodies

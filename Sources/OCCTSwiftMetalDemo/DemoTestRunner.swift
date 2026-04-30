@@ -244,6 +244,9 @@ enum DemoTestRunner {
             ("v153StepAwareBends", OCCT8Gallery.v153StepAwareBends),
             ("v154FaceEdgeInits", OCCT8Gallery.v154FaceEdgeInits),
             ("v155ConvexBends", OCCT8Gallery.v155ConvexBends),
+            ("v155WireFromShape", OCCT8Gallery.v155WireFromShape),
+            ("v1561DocumentNodeAt", OCCT8Gallery.v1561DocumentNodeAt),
+            ("v1562MeshFromArrays", OCCT8Gallery.v1562MeshFromArrays),
         ]
         for (name, run) in occt8 {
             demos.append(DemoEntry(category: "OCCT8", name: name, run: run))

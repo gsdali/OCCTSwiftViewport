@@ -16459,6 +16459,190 @@ enum OCCT8Gallery {
             description: descriptions.joined(separator: " | ")
         )
     }
+
+    // MARK: - v0.155.1: Wire(_:Shape) convenience initializer
+
+    /// Demonstrates v0.155.1's `Wire(_: Shape)` initializer — the wire-typed
+    /// counterpart to v0.154's `Face(_:)` / `Edge(_:)`. Recovers a Wire from
+    /// a generic `Shape` returned by traversal helpers (`subShapes(ofType: .wire)`,
+    /// `Face.outerWire` shape access etc.) without needing kernel-internal lifts.
+    ///
+    /// Demo creates a closed polygon wire, embeds it as a face, then walks the
+    /// face's wire shapes and lifts each back to a typed `Wire` to query length.
+    static func v155WireFromShape() -> Curve2DGallery.GalleryResult {
+        var bodies: [ViewportBody] = []
+        var descriptions: [String] = []
+
+        // Build a hexagonal closed wire as the source profile (planar XY).
+        let r: Double = 5
+        let pts: [SIMD2<Double>] = (0..<6).map { i -> SIMD2<Double> in
+            let t = Double(i) / 6 * 2 * .pi
+            return SIMD2(cos(t) * r, sin(t) * r)
+        }
+        guard let hex = Wire.polygon(pts, closed: true) else {
+            return Curve2DGallery.GalleryResult(bodies: [], description: "polygon FAILED")
+        }
+        descriptions.append(String(format: "Source hex wire len=%.2f", hex.length ?? 0))
+
+        // Render the source wire so we see what we're recovering from.
+        if let srcShape = Shape.fromWire(hex) {
+            let (body, _) = CADFileLoader.shapeToBodyAndMetadata(
+                srcShape, id: "v1551-src", color: SIMD4(1, 0.85, 0.3, 1.0))
+            if let body { bodies.append(body) }
+        }
+
+        // Build a planar face from the wire so we can pull wires out via subShapes.
+        guard let faceShape = Shape.face(from: hex) else {
+            return Curve2DGallery.GalleryResult(bodies: bodies, description: "Shape.face FAILED")
+        }
+
+        let wireShapes = faceShape.subShapes(ofType: ShapeType.wire)
+        descriptions.append("face.subShapes(.wire) count=\(wireShapes.count)")
+
+        // Lift each generic Shape back to a typed Wire.
+        var lengths: [String] = []
+        for (i, ws) in wireShapes.enumerated() {
+            guard let w = Wire(ws) else {
+                lengths.append("W\(i)=nil")
+                continue
+            }
+            lengths.append(String(format: "W%d=%.2f", i, w.length ?? 0))
+        }
+        descriptions.append("Recovered: \(lengths.joined(separator: " "))")
+
+        // Type-mismatch round-trip: a vertex shape should not lift to Wire.
+        if let firstVertex = faceShape.subShapes(ofType: ShapeType.vertex).first {
+            let w = Wire(firstVertex)
+            descriptions.append("Wire(vertex shape)=\(w == nil ? "nil ✓" : "leaked")")
+        }
+
+        return Curve2DGallery.GalleryResult(
+            bodies: bodies,
+            description: descriptions.joined(separator: " | ")
+        )
+    }
+
+    // MARK: - v0.156.1: Document.node(at:) + AssemblyNode.labelId
+
+    /// Demonstrates v0.156.1's stable XCAF labelId round-trip. `AssemblyNode.labelId`
+    /// is now public, and `Document.node(at:)` looks a node up by its labelId — useful
+    /// for serializing selection state, assembly tree expansion, or referencing nodes
+    /// across UI layers without holding strong references.
+    ///
+    /// Demo builds an in-memory document with a couple of root parts, captures
+    /// labelIds, then resolves them back to verify identity round-trip and
+    /// confirms an invalid labelId returns nil.
+    static func v1561DocumentNodeAt() -> Curve2DGallery.GalleryResult {
+        var bodies: [ViewportBody] = []
+        var descriptions: [String] = []
+
+        guard let doc = Document.create() else {
+            return Curve2DGallery.GalleryResult(bodies: [], description: "Document.create FAILED")
+        }
+        guard let box = Shape.box(width: 6, height: 4, depth: 2),
+              let cyl = Shape.cylinder(radius: 1.5, height: 5) else {
+            return Curve2DGallery.GalleryResult(bodies: [], description: "primitive build FAILED")
+        }
+        let boxId = doc.addShape(box)
+        let cylId = doc.addShape(cyl)
+        _ = doc.node(at: boxId)?.setName("PartA")
+        _ = doc.node(at: cylId)?.setName("PartB")
+
+        let roots = doc.rootNodes
+        descriptions.append("rootNodes count=\(roots.count)")
+
+        // Capture (name, labelId) pairs and round-trip each.
+        var roundTripOK = 0
+        for node in roots {
+            let id = node.labelId
+            let name = node.name ?? "?"
+            descriptions.append("\(name) labelId=\(id)")
+            if let recovered = doc.node(at: id), recovered.labelId == id {
+                roundTripOK += 1
+            }
+        }
+        descriptions.append("round-trip OK \(roundTripOK)/\(roots.count)")
+
+        // Negative case: a definitely-invalid labelId should resolve to nil.
+        let bogus = doc.node(at: 9_999_999)
+        descriptions.append("node(at: 9999999)=\(bogus == nil ? "nil ✓" : "leaked")")
+
+        // Render the document's shapes with simple per-index colours so we can
+        // see something on screen alongside the labelId text output.
+        let palette: [SIMD4<Float>] = [
+            SIMD4(0.85, 0.55, 0.40, 1),
+            SIMD4(0.40, 0.70, 0.85, 1),
+        ]
+        for (i, shape) in doc.allShapes().enumerated() {
+            let color = palette[i % palette.count]
+            let (body, _) = CADFileLoader.shapeToBodyAndMetadata(
+                shape, id: "v1561-\(i)", color: color)
+            if let body { bodies.append(body) }
+        }
+
+        return Curve2DGallery.GalleryResult(
+            bodies: bodies,
+            description: descriptions.joined(separator: " | ")
+        )
+    }
+
+    // MARK: - v0.156.2: Mesh(vertices:normals:indices:) direct construction
+
+    /// Demonstrates v0.156.2's public `Mesh.init(vertices:normals:indices:)`. Lets
+    /// callers feed mesh data from non-OCCT sources (procedural generation, OBJ/STL
+    /// import, decimation output) directly into the Mesh API without going through
+    /// a B-Rep `Shape.mesh()` round-trip.
+    ///
+    /// Demo procedurally generates an icosahedron, builds a Mesh, then exercises
+    /// the validation behavior (mismatched normal count → nil, odd index count → nil).
+    static func v1562MeshFromArrays() -> Curve2DGallery.GalleryResult {
+        var bodies: [ViewportBody] = []
+        var descriptions: [String] = []
+
+        // Icosahedron vertices (12) and triangles (20).
+        let t: Float = (1 + sqrt(5)) / 2
+        let raw: [SIMD3<Float>] = [
+            SIMD3(-1,  t,  0), SIMD3( 1,  t,  0), SIMD3(-1, -t,  0), SIMD3( 1, -t,  0),
+            SIMD3( 0, -1,  t), SIMD3( 0,  1,  t), SIMD3( 0, -1, -t), SIMD3( 0,  1, -t),
+            SIMD3( t,  0, -1), SIMD3( t,  0,  1), SIMD3(-t,  0, -1), SIMD3(-t,  0,  1),
+        ]
+        let vertices = raw.map { simd_normalize($0) }
+        let indices: [UInt32] = [
+            0, 11, 5,  0, 5, 1,   0, 1, 7,   0, 7, 10,  0, 10, 11,
+            1, 5, 9,  5, 11, 4,  11, 10, 2, 10, 7, 6,   7, 1, 8,
+            3, 9, 4,  3, 4, 2,   3, 2, 6,   3, 6, 8,    3, 8, 9,
+            4, 9, 5,  2, 4, 11,  6, 2, 10,  8, 6, 7,    9, 8, 1,
+        ]
+
+        // Auto-normals path (smooth shading, normals == nil).
+        guard let mesh = Mesh(vertices: vertices, indices: indices) else {
+            return Curve2DGallery.GalleryResult(bodies: [], description: "Mesh init FAILED")
+        }
+        descriptions.append("Mesh: \(vertices.count) verts, \(indices.count / 3) tris (auto-normals)")
+
+        // Validate negative cases.
+        let badNormals = Mesh(vertices: vertices, normals: [SIMD3<Float>](repeating: .zero, count: 3), indices: indices)
+        descriptions.append("mismatched normals=\(badNormals == nil ? "nil ✓" : "leaked")")
+
+        let oddIndices = Mesh(vertices: vertices, indices: [0, 1])
+        descriptions.append("odd index count=\(oddIndices == nil ? "nil ✓" : "leaked")")
+
+        let outOfRange = Mesh(vertices: vertices, indices: [0, 1, 999])
+        descriptions.append("out-of-range index=\(outOfRange == nil ? "nil ✓" : "leaked")")
+
+        // Convert to ViewportBody via Shape.mesh round-trip (since CADFileLoader
+        // takes Shape, not Mesh — this also exercises Mesh.toShape()).
+        if let shape = mesh.toShape() {
+            let (body, _) = CADFileLoader.shapeToBodyAndMetadata(
+                shape, id: "v1562-icosa", color: SIMD4(0.4, 0.85, 0.55, 1.0))
+            if let body { bodies.append(body) }
+        }
+
+        return Curve2DGallery.GalleryResult(
+            bodies: bodies,
+            description: descriptions.joined(separator: " | ")
+        )
+    }
 }
 
 // MARK: - Drawing annotation-store helper (bridge)
