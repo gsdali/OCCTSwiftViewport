@@ -3,10 +3,22 @@
 //
 // Automated test runner that cycles through all demo galleries,
 // validating each produces bodies without crashing.
-// Launch with: swift run OCCTSwiftMetalDemo --test-all-demos
+//
+// Launch flags:
+//   --test-all-demos       Run every demo once (default behaviour)
+//   --render               Pipe each demo's bodies through OffscreenRenderer
+//                          and assert a non-nil CGImage. Catches "geometry
+//                          generates but Metal fails to rasterize" regressions.
+//   --iterations N         Run the full demo set N times, logging RSS delta
+//                          between runs. Default 1. Use N>=3 to surface leaks.
+//   --baseline-check PATH  Compare elapsed against PATH (JSON). Fail any demo
+//                          exceeding 2× its baseline.
+//   --write-baseline PATH  After the final iteration, write current timings
+//                          to PATH. Use to seed or refresh the baseline file.
 
 import Foundation
 import simd
+import Darwin
 import OCCTSwift
 import OCCTSwiftViewport
 import OCCTSwiftTools
@@ -24,6 +36,49 @@ enum DemoTestRunner {
 
     static var isTestMode: Bool {
         ProcessInfo.processInfo.arguments.contains("--test-all-demos")
+    }
+
+    /// Per-run configuration parsed from CommandLine arguments.
+    struct RunOptions {
+        var render: Bool = false
+        var iterations: Int = 1
+        /// Multiplier applied to baseline timings when checking for regressions.
+        /// 2× tolerance is enough to absorb noise on warm CPUs but tight enough
+        /// to catch a doubling in OCCT internals.
+        var regressionThreshold: Double = 2.0
+        var baselineURL: URL?
+        var writeBaselineURL: URL?
+
+        static func fromCommandLine() -> RunOptions {
+            var opts = RunOptions()
+            let args = ProcessInfo.processInfo.arguments
+            opts.render = args.contains("--render")
+            if let i = args.firstIndex(of: "--iterations"),
+               i + 1 < args.count, let n = Int(args[i + 1]), n >= 1 {
+                opts.iterations = n
+            }
+            if let i = args.firstIndex(of: "--baseline-check"),
+               i + 1 < args.count {
+                opts.baselineURL = URL(fileURLWithPath: args[i + 1])
+            }
+            if let i = args.firstIndex(of: "--write-baseline"),
+               i + 1 < args.count {
+                opts.writeBaselineURL = URL(fileURLWithPath: args[i + 1])
+            }
+            return opts
+        }
+    }
+
+    /// Resident-set size in bytes via Mach task info. Returns 0 on failure.
+    static func processRSS() -> UInt64 {
+        var info = mach_task_basic_info()
+        var count = mach_msg_type_number_t(MemoryLayout<mach_task_basic_info>.size / MemoryLayout<integer_t>.size)
+        let result = withUnsafeMutablePointer(to: &info) { ptr -> kern_return_t in
+            ptr.withMemoryRebound(to: integer_t.self, capacity: Int(count)) {
+                task_info(mach_task_self_, task_flavor_t(MACH_TASK_BASIC_INFO), $0, &count)
+            }
+        }
+        return result == KERN_SUCCESS ? info.resident_size : 0
     }
 
     /// All demos across every gallery category.
@@ -262,51 +317,195 @@ enum DemoTestRunner {
     /// Run all demos sequentially, logging results.
     /// Calls the completion handler with bodies for each demo so SpikeView can display them.
     /// Uses batched scheduling to avoid main queue stalls from accumulated SwiftUI/Metal state.
+    ///
+    /// Honours the launch flags documented in the file header (`--render`,
+    /// `--iterations`, `--baseline-check`, `--write-baseline`).
     static func runAll(
         loadDemo: @escaping ([ViewportBody], String) -> Void,
         completion: @escaping (Int, Int) -> Void
     ) {
+        let opts = RunOptions.fromCommandLine()
         let demos = allDemos
         let total = demos.count
-        var passed = 0
-        var failed = 0
-        var index = 0
+
+        // Lazy-init the renderer once if --render is set. OffscreenRenderer
+        // is @MainActor and re-uses its Metal device across calls.
+        let renderer: OffscreenRenderer? = opts.render ? OffscreenRenderer() : nil
+        if opts.render && renderer == nil {
+            print("⚠️  --render requested but OffscreenRenderer init failed; render checks will be skipped")
+            fflush(stdout)
+        }
+
+        // Optional baseline lookup table (key = "category/name", value = seconds).
+        let baseline: [String: Double] = {
+            guard let url = opts.baselineURL,
+                  let data = try? Data(contentsOf: url),
+                  let json = try? JSONDecoder().decode([String: Double].self, from: data)
+            else { return [:] }
+            return json
+        }()
+        if opts.baselineURL != nil && baseline.isEmpty {
+            print("⚠️  --baseline-check supplied but baseline file is missing or empty; regression checks skipped")
+            fflush(stdout)
+        }
+
+        // Aggregated timings across iterations (key = "category/name").
+        var summedTimings: [String: Double] = [:]
+        var totalPassed = 0
+        var totalFailed = 0
+        var totalRegressions = 0
+        var totalRenderFailures = 0
+        let initialRSS = processRSS()
+        var rssTrace: [(iter: Int, rss: UInt64)] = [(0, initialRSS)]
 
         print("╔══════════════════════════════════════════════════════════════╗")
-        print("║  DEMO TEST RUNNER — \(total) demos                              ║")
+        print("║  DEMO TEST RUNNER — \(total) demos × \(opts.iterations) iter                       ║")
         print("╚══════════════════════════════════════════════════════════════╝")
+        if opts.render { print("  --render        : ON (verifying CGImage emission)") }
+        if !baseline.isEmpty {
+            print("  --baseline-check: ON (\(baseline.count) entries; threshold \(opts.regressionThreshold)×)")
+        }
+        if opts.iterations > 1 {
+            print("  --iterations    : \(opts.iterations) (initial RSS = \(formatRSS(initialRSS)))")
+        }
         fflush(stdout)
+
+        var iteration = 1
+        var index = 0
+        var iterationPassed = 0
+        var iterationFailed = 0
+        var iterationRegressions = 0
+        var iterationRenderFailures = 0
+        var iterationTimings: [String: Double] = [:]
+        let iterationStart = CFAbsoluteTimeGetCurrent()
+
+        func startIteration() {
+            iterationPassed = 0
+            iterationFailed = 0
+            iterationRegressions = 0
+            iterationRenderFailures = 0
+            iterationTimings.removeAll(keepingCapacity: true)
+            index = 0
+            if opts.iterations > 1 {
+                print("")
+                print("── iteration \(iteration)/\(opts.iterations) ──")
+                fflush(stdout)
+            }
+        }
+
+        func finishIteration() {
+            let elapsed = CFAbsoluteTimeGetCurrent() - iterationStart
+            for (k, v) in iterationTimings { summedTimings[k, default: 0] += v }
+            totalPassed += iterationPassed
+            totalFailed += iterationFailed
+            totalRegressions += iterationRegressions
+            totalRenderFailures += iterationRenderFailures
+
+            if opts.iterations > 1 {
+                let rss = processRSS()
+                let delta = Int64(rss) - Int64(rssTrace.last?.rss ?? initialRSS)
+                let deltaStr = (delta >= 0 ? "+" : "") + formatRSS(UInt64(abs(delta)))
+                rssTrace.append((iteration, rss))
+                print("── iteration \(iteration) done: \(iterationPassed)/\(total) passed, \(String(format: "%.1fs", elapsed)), RSS \(formatRSS(rss)) (\(deltaStr))")
+                fflush(stdout)
+            }
+        }
+
+        func writeBaselineIfRequested() {
+            guard let url = opts.writeBaselineURL else { return }
+            // Average per-demo timings across iterations.
+            var averaged: [String: Double] = [:]
+            for (k, v) in summedTimings { averaged[k] = v / Double(opts.iterations) }
+            do {
+                let encoder = JSONEncoder()
+                encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+                let data = try encoder.encode(averaged)
+                try data.write(to: url)
+                print("✏️  Wrote baseline (\(averaged.count) entries) → \(url.path)")
+            } catch {
+                print("⚠️  Failed to write baseline to \(url.path): \(error)")
+            }
+            fflush(stdout)
+        }
+
+        func printFinalSummary() {
+            print("")
+            print("════════════════════════════════════════════════════════════════")
+            print("  RESULTS: \(totalPassed) passed, \(totalFailed) failed out of \(total * opts.iterations)")
+            if opts.render {
+                print("  Render failures: \(totalRenderFailures)")
+            }
+            if !baseline.isEmpty {
+                print("  Timing regressions: \(totalRegressions) (>\(opts.regressionThreshold)× baseline)")
+            }
+            if opts.iterations > 1 {
+                print("  RSS trace:")
+                for entry in rssTrace {
+                    let label = entry.iter == 0 ? "initial" : "after iter \(entry.iter)"
+                    print("    \(label): \(formatRSS(entry.rss))")
+                }
+                let totalDelta = Int64(rssTrace.last?.rss ?? 0) - Int64(initialRSS)
+                let leakStr = (totalDelta >= 0 ? "+" : "-") + formatRSS(UInt64(abs(totalDelta)))
+                print("  Net RSS delta: \(leakStr)")
+            }
+            print("════════════════════════════════════════════════════════════════")
+            fflush(stdout)
+        }
+
+        startIteration()
 
         func runNext() {
             // Process a batch of demos before yielding to the run loop.
-            // This avoids the main queue stalling after many asyncAfter cycles
-            // with accumulated SwiftUI view updates.
             let batchSize = 10
             var batchCount = 0
 
             while index < demos.count && batchCount < batchSize {
                 let demo = demos[index]
                 let num = index + 1
+                let key = "\(demo.category)/\(demo.name)"
                 index += 1
                 batchCount += 1
 
                 let startTime = CFAbsoluteTimeGetCurrent()
                 let result = demo.run()
                 let elapsed = CFAbsoluteTimeGetCurrent() - startTime
+                iterationTimings[key] = elapsed
 
                 let bodyCount = result.bodies.count
                 let hasContent = !result.bodies.isEmpty || !result.description.isEmpty
+
+                // Render verification: pass bodies through OffscreenRenderer.
+                var renderOK = true
+                var renderNote = ""
+                if let renderer, hasContent, !result.bodies.isEmpty {
+                    let opts = OffscreenRenderOptions(width: 256, height: 256)
+                    if renderer.render(bodies: result.bodies, options: opts) == nil {
+                        renderOK = false
+                        renderNote = " RENDER-FAIL"
+                        iterationRenderFailures += 1
+                    }
+                }
+
+                // Baseline regression check.
+                var regressionNote = ""
+                if let baselineSec = baseline[key],
+                   baselineSec > 0.05,  // ignore sub-50ms entries — too noisy
+                   elapsed > baselineSec * opts.regressionThreshold {
+                    iterationRegressions += 1
+                    regressionNote = String(format: " REGRESSION(%.2fs vs %.2fs)", elapsed, baselineSec)
+                }
+
                 let status: String
-                if hasContent {
-                    passed += 1
+                if hasContent && renderOK && regressionNote.isEmpty {
+                    iterationPassed += 1
                     status = "✅"
                 } else {
-                    failed += 1
+                    iterationFailed += 1
                     status = "❌"
                 }
 
                 let timeStr = String(format: "%.2fs", elapsed)
-                print("\(status) [\(num)/\(total)] \(demo.category)/\(demo.name) — \(bodyCount) bodies, \(timeStr)")
+                print("\(status) [\(num)/\(total)] \(key) — \(bodyCount) bodies, \(timeStr)\(renderNote)\(regressionNote)")
                 if !result.description.isEmpty {
                     let desc = result.description.prefix(120)
                     print("   └─ \(desc)")
@@ -314,27 +513,39 @@ enum DemoTestRunner {
                 fflush(stdout)
             }
 
-            // Load only the last demo's bodies into the viewport (avoids
-            // accumulating Metal buffers across all demos in the batch).
-            // Clear first to release previous bodies.
+            // Release per-batch geometry so Metal buffers don't accumulate.
             loadDemo([], "")
 
             if index >= demos.count {
-                print("")
-                print("════════════════════════════════════════════════════════════════")
-                print("  RESULTS: \(passed) passed, \(failed) failed out of \(total)")
-                print("════════════════════════════════════════════════════════════════")
-                fflush(stdout)
-                completion(passed, failed)
+                finishIteration()
+                if iteration < opts.iterations {
+                    iteration += 1
+                    startIteration()
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                        runNext()
+                    }
+                    return
+                }
+                writeBaselineIfRequested()
+                printFinalSummary()
+                completion(totalPassed, totalFailed)
                 return
             }
 
-            // Yield to the run loop briefly so AppKit/Metal can drain
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
                 runNext()
             }
         }
 
         runNext()
+    }
+
+    /// Human-friendly RSS formatter.
+    private static func formatRSS(_ bytes: UInt64) -> String {
+        let mb = Double(bytes) / 1_048_576
+        if mb >= 1024 {
+            return String(format: "%.2f GB", mb / 1024)
+        }
+        return String(format: "%.1f MB", mb)
     }
 }
