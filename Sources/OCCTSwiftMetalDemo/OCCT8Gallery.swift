@@ -16643,6 +16643,234 @@ enum OCCT8Gallery {
             description: descriptions.joined(separator: " | ")
         )
     }
+
+    // MARK: - v0.158: BRepGraph MeshView read API
+
+    /// Demonstrates v0.158's two-tier mesh storage read surface on `TopologyGraph`.
+    /// The MeshView splits algorithm-derived mesh caches from persistent (definition)
+    /// triangulations. This demo builds a graph from a meshed box and walks the
+    /// counters + per-face / per-edge cache lookups.
+    static func v158MeshViewRead() -> Curve2DGallery.GalleryResult {
+        var bodies: [ViewportBody] = []
+        var descriptions: [String] = []
+
+        guard let box = Shape.box(width: 4, height: 3, depth: 2) else {
+            return Curve2DGallery.GalleryResult(bodies: [], description: "box build FAILED")
+        }
+        // Trigger mesh generation so the cache tier has something in it.
+        _ = box.mesh(linearDeflection: 0.05)
+
+        guard let graph = TopologyGraph(shape: box) else {
+            return Curve2DGallery.GalleryResult(bodies: [], description: "TopologyGraph build FAILED")
+        }
+
+        descriptions.append("Persistent: tri=\(graph.triangulationCount) poly3D=\(graph.polygon3DCount) poly2D=\(graph.polygon2DCount) polyOnTri=\(graph.polygonOnTriCount)")
+        descriptions.append("Cache:      tri=\(graph.activeTriangulationCount) poly3D=\(graph.activePolygon3DCount) poly2D=\(graph.activePolygon2DCount) polyOnTri=\(graph.activePolygonOnTriCount)")
+
+        // Walk faces and report which carry an active triangulation rep id.
+        var faceHits = 0
+        for f in 1...graph.faceCount {
+            if graph.meshFaceActiveTriangulationRepId(f) != nil { faceHits += 1 }
+        }
+        descriptions.append("Faces with active tri rep: \(faceHits)/\(graph.faceCount)")
+
+        // Edges with a cached 3D polygon.
+        var edgeHits = 0
+        for e in 1...graph.edgeCount {
+            if graph.meshEdgePolygon3DRepId(e) != nil { edgeHits += 1 }
+        }
+        descriptions.append("Edges with active poly3D rep: \(edgeHits)/\(graph.edgeCount)")
+
+        // Coedges with mesh data.
+        var coEdgeHits = 0
+        for c in 1...graph.coedgeCount where graph.meshCoEdgeHasMesh(c) {
+            coEdgeHits += 1
+        }
+        descriptions.append("CoEdges with mesh: \(coEdgeHits)/\(graph.coedgeCount)")
+
+        let (body, _) = CADFileLoader.shapeToBodyAndMetadata(
+            box, id: "v158-box", color: SIMD4(0.55, 0.7, 0.85, 1.0))
+        if let body { bodies.append(body) }
+
+        return Curve2DGallery.GalleryResult(
+            bodies: bodies,
+            description: descriptions.joined(separator: " | ")
+        )
+    }
+
+    // MARK: - v0.160: Triangulation class + MeshCache write API
+
+    /// Demonstrates v0.160's `Triangulation` Swift class and the MeshCache write helpers
+    /// on `TopologyGraph`. Builds a procedural tetrahedron triangulation, registers it as
+    /// a rep, binds it to face #1's algorithm-derived cache, and reads the count back via
+    /// the v0.158 MeshView surface.
+    static func v160TriangulationCacheWrite() -> Curve2DGallery.GalleryResult {
+        var bodies: [ViewportBody] = []
+        var descriptions: [String] = []
+
+        // Tetrahedron in [-1,+1]: 4 nodes, 4 triangles.
+        let nodes: [SIMD3<Double>] = [
+            SIMD3( 1,  1,  1),
+            SIMD3(-1, -1,  1),
+            SIMD3(-1,  1, -1),
+            SIMD3( 1, -1, -1),
+        ]
+        let triangles = [0, 2, 1,  0, 1, 3,  0, 3, 2,  1, 2, 3]
+        guard let tri = Triangulation.create(nodes: nodes, triangles: triangles) else {
+            return Curve2DGallery.GalleryResult(bodies: [], description: "Triangulation.create FAILED")
+        }
+        descriptions.append("Tetra: nodes=\(tri.nodeCount) tris=\(tri.triangleCount)")
+        // Round-trip readback: node 0 and triangle 0.
+        if let n0 = tri.node(at: 0), let t0 = tri.triangle(at: 0) {
+            descriptions.append(String(format: "n0=(%.0f,%.0f,%.0f) t0=(%d,%d,%d)",
+                                       n0.x, n0.y, n0.z, t0.0, t0.1, t0.2))
+        }
+
+        // Negative cases: empty + out-of-range index.
+        let bad1 = Triangulation.create(nodes: [], triangles: [0, 1, 2])
+        descriptions.append("empty nodes=\(bad1 == nil ? "nil ✓" : "leaked")")
+        let bad2 = Triangulation.create(nodes: nodes, triangles: [0, 1, 99])
+        descriptions.append("oob index=\(bad2 == nil ? "nil ✓" : "leaked")")
+
+        // Build a small graph to bind into.
+        guard let box = Shape.box(width: 2, height: 2, depth: 2),
+              let graph = TopologyGraph(shape: box) else {
+            return Curve2DGallery.GalleryResult(bodies: bodies, description: "graph build FAILED")
+        }
+
+        // Register tri as a rep, then bind to face 1's cache as the active triangulation.
+        guard let repId = graph.createTriangulationRep(tri) else {
+            return Curve2DGallery.GalleryResult(bodies: bodies, description: "createTriangulationRep FAILED")
+        }
+        descriptions.append("triRepId=\(repId) activeTri=\(graph.activeTriangulationCount) before bind")
+
+        graph.appendCachedTriangulation(faceIndex: 1, triRepId: repId)
+        graph.setCachedActiveIndex(faceIndex: 1, activeIndex: 0)
+        descriptions.append("activeTri=\(graph.activeTriangulationCount) after bind")
+        if let boundId = graph.meshFaceActiveTriangulationRepId(1) {
+            descriptions.append("face[1] active rep id=\(boundId) (matches=\(boundId == repId ? "✓" : "✗"))")
+        }
+
+        let (body, _) = CADFileLoader.shapeToBodyAndMetadata(
+            box, id: "v160-box", color: SIMD4(0.85, 0.65, 0.4, 1.0))
+        if let body { bodies.append(body) }
+
+        return Curve2DGallery.GalleryResult(
+            bodies: bodies,
+            description: descriptions.joined(separator: " | ")
+        )
+    }
+
+    // MARK: - v0.163: ProductOps assembly building
+
+    /// Demonstrates v0.163's product/occurrence wrapping. Builds an assembly graph
+    /// with two leaf parts and one root product that references both via occurrences,
+    /// then verifies counts + parent/child traversal via the existing read API.
+    static func v163ProductOpsAssembly() -> Curve2DGallery.GalleryResult {
+        var bodies: [ViewportBody] = []
+        var descriptions: [String] = []
+
+        guard let box = Shape.box(width: 3, height: 3, depth: 3),
+              let graph = TopologyGraph(shape: box) else {
+            return Curve2DGallery.GalleryResult(bodies: [], description: "graph build FAILED")
+        }
+        descriptions.append("Initial: products=\(graph.productCount) occurrences=\(graph.occurrenceCount)")
+
+        // The bootstrap graph created from a shape has one part-product wrapping the box.
+        // Build two extra empty products and one root product to compose them.
+        guard let leafA = graph.createEmptyProduct(),
+              let leafB = graph.createEmptyProduct(),
+              let root = graph.createEmptyProduct() else {
+            return Curve2DGallery.GalleryResult(bodies: [], description: "createEmptyProduct FAILED")
+        }
+        descriptions.append("Created products A=\(leafA) B=\(leafB) root=\(root)")
+
+        // Link the leaves under the root with translated placements.
+        let identity = TopologyGraph.identityLocationMatrix
+        // Translate +X / -X for the two leaves so they're not coincident.
+        var placeA = identity; placeA[3] = 5    // tx=+5 (column 3 row 0 in row-major 3x4)
+        var placeB = identity; placeB[3] = -5   // tx=-5
+
+        guard let occA = graph.linkProducts(parentProductIndex: root,
+                                             referencedProductIndex: leafA,
+                                             placement: placeA),
+              let occB = graph.linkProducts(parentProductIndex: root,
+                                             referencedProductIndex: leafB,
+                                             placement: placeB) else {
+            return Curve2DGallery.GalleryResult(bodies: [], description: "linkProducts FAILED")
+        }
+        descriptions.append("Linked: occA=(\(occA.occurrenceIndex),ref=\(occA.occurrenceRefIndex)) occB=(\(occB.occurrenceIndex),ref=\(occB.occurrenceRefIndex))")
+        descriptions.append("After: products=\(graph.productCount) occurrences=\(graph.occurrenceCount)")
+        descriptions.append("rootProductCount=\(graph.rootProductCount) componentCount(root)=\(graph.productComponentCount(root))")
+
+        // Verify parent/occurrence linkage via read API.
+        if graph.occurrenceParentProduct(occA.occurrenceIndex) == root {
+            descriptions.append("occA.parent==root ✓")
+        }
+        if graph.occurrenceProduct(occA.occurrenceIndex) == leafA {
+            descriptions.append("occA.product==leafA ✓")
+        }
+
+        // Negative case: removing a non-existent occurrence ref returns false.
+        let bogus = graph.productRemoveOccurrence(root, occurrenceRefIndex: 99999)
+        descriptions.append("remove(99999)=\(bogus ? "leaked" : "false ✓")")
+
+        let (body, _) = CADFileLoader.shapeToBodyAndMetadata(
+            box, id: "v163-root", color: SIMD4(0.5, 0.85, 0.55, 1.0))
+        if let body { bodies.append(body) }
+
+        return Curve2DGallery.GalleryResult(
+            bodies: bodies,
+            description: descriptions.joined(separator: " | ")
+        )
+    }
+
+    // MARK: - v0.164: RepOps + cache entry inspection
+
+    /// Demonstrates v0.164's cache-entry inspection accessors. Reports the per-face,
+    /// per-edge, and per-coedge cache presence and `StoredOwnGen` freshness counter
+    /// before and after binding a triangulation via the v0.160 write API.
+    static func v164CacheInspection() -> Curve2DGallery.GalleryResult {
+        var bodies: [ViewportBody] = []
+        var descriptions: [String] = []
+
+        guard let box = Shape.box(width: 2, height: 2, depth: 2),
+              let graph = TopologyGraph(shape: box) else {
+            return Curve2DGallery.GalleryResult(bodies: [], description: "graph build FAILED")
+        }
+
+        // Pre-bind: face 1 cache entry should be absent on a fresh graph.
+        descriptions.append("face[1] pre:  present=\(graph.cachedFaceMeshIsPresent(1)) gen=\(graph.cachedFaceMeshStoredOwnGen(1))")
+        descriptions.append("edge[1] pre:  present=\(graph.cachedEdgeMeshIsPresent(1)) gen=\(graph.cachedEdgeMeshStoredOwnGen(1))")
+        descriptions.append("coedge[1] pre: present=\(graph.cachedCoEdgeMeshIsPresent(1)) gen=\(graph.cachedCoEdgeMeshStoredOwnGen(1))")
+
+        // Bind a degenerate-but-valid triangulation to face 1.
+        let nodes: [SIMD3<Double>] = [
+            SIMD3(0, 0, 0), SIMD3(1, 0, 0), SIMD3(0, 1, 0),
+        ]
+        guard let tri = Triangulation.create(nodes: nodes, triangles: [0, 1, 2]),
+              let repId = graph.createTriangulationRep(tri) else {
+            return Curve2DGallery.GalleryResult(bodies: [], description: "tri build FAILED")
+        }
+        graph.appendCachedTriangulation(faceIndex: 1, triRepId: repId)
+        graph.setCachedActiveIndex(faceIndex: 1, activeIndex: 0)
+
+        descriptions.append("face[1] post: present=\(graph.cachedFaceMeshIsPresent(1)) repCount=\(graph.cachedFaceMeshTriRepCount(1)) gen=\(graph.cachedFaceMeshStoredOwnGen(1))")
+        if let id0 = graph.cachedFaceMeshTriRepId(1, repIndex: 0) {
+            descriptions.append("face[1] cached repId[0]=\(id0)")
+        }
+        let active = graph.cachedFaceMeshActiveIndex(1)
+        descriptions.append("face[1] activeIndex=\(active)")
+
+        let (body, _) = CADFileLoader.shapeToBodyAndMetadata(
+            box, id: "v164-box", color: SIMD4(0.7, 0.55, 0.85, 1.0))
+        if let body { bodies.append(body) }
+
+        return Curve2DGallery.GalleryResult(
+            bodies: bodies,
+            description: descriptions.joined(separator: " | ")
+        )
+    }
 }
 
 // MARK: - Drawing annotation-store helper (bridge)

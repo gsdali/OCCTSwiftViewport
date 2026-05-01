@@ -247,6 +247,10 @@ enum DemoTestRunner {
             ("v155WireFromShape", OCCT8Gallery.v155WireFromShape),
             ("v1561DocumentNodeAt", OCCT8Gallery.v1561DocumentNodeAt),
             ("v1562MeshFromArrays", OCCT8Gallery.v1562MeshFromArrays),
+            ("v158MeshViewRead", OCCT8Gallery.v158MeshViewRead),
+            ("v160TriangulationCacheWrite", OCCT8Gallery.v160TriangulationCacheWrite),
+            ("v163ProductOpsAssembly", OCCT8Gallery.v163ProductOpsAssembly),
+            ("v164CacheInspection", OCCT8Gallery.v164CacheInspection),
         ]
         for (name, run) in occt8 {
             demos.append(DemoEntry(category: "OCCT8", name: name, run: run))

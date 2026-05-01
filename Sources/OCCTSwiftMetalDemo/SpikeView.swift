@@ -828,6 +828,7 @@ struct SpikeView: View {
         case v152InputBodyChain, v152JSONBoolean
         case v153StepAwareBends, v154FaceEdgeInits, v155ConvexBends
         case v1551WireFromShape, v1561DocumentNodeAt, v1562MeshFromArrays
+        case v158MeshViewRead, v160TriangulationCacheWrite, v163ProductOpsAssembly, v164CacheInspection
     }
 
     // MARK: - OCCT 8 Sub-groups
@@ -1013,6 +1014,10 @@ struct SpikeView: View {
         Button("v0.155.1 Wire(Shape)") { loadOCCT8Demo(.v1551WireFromShape) }
         Button("v0.156.1 Document.node(at:)") { loadOCCT8Demo(.v1561DocumentNodeAt) }
         Button("v0.156.2 Mesh from arrays") { loadOCCT8Demo(.v1562MeshFromArrays) }
+        Button("v0.158 MeshView Read") { loadOCCT8Demo(.v158MeshViewRead) }
+        Button("v0.160 Triangulation+Cache Write") { loadOCCT8Demo(.v160TriangulationCacheWrite) }
+        Button("v0.163 ProductOps Assembly") { loadOCCT8Demo(.v163ProductOpsAssembly) }
+        Button("v0.164 Cache Inspection") { loadOCCT8Demo(.v164CacheInspection) }
     }
 
     private func loadOCCT8Demo(_ demo: OCCT8Demo) {
@@ -1339,6 +1344,14 @@ struct SpikeView: View {
             result = OCCT8Gallery.v1561DocumentNodeAt()
         case .v1562MeshFromArrays:
             result = OCCT8Gallery.v1562MeshFromArrays()
+        case .v158MeshViewRead:
+            result = OCCT8Gallery.v158MeshViewRead()
+        case .v160TriangulationCacheWrite:
+            result = OCCT8Gallery.v160TriangulationCacheWrite()
+        case .v163ProductOpsAssembly:
+            result = OCCT8Gallery.v163ProductOpsAssembly()
+        case .v164CacheInspection:
+            result = OCCT8Gallery.v164CacheInspection()
         }
 
         bodies = result.bodies
