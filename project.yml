@@ -12,6 +12,8 @@ packages:
     path: .
   OCCTSwift:
     path: ../OCCTSwift
+  OCCTSwiftTools:
+    path: ../OCCTSwiftTools
 
 targets:
   OCCTSwiftMetalDemo:
@@ -21,7 +23,7 @@ targets:
       - path: Sources/OCCTSwiftMetalDemo
     dependencies:
       - package: OCCTSwiftViewport
-      - package: OCCTSwiftViewport
+      - package: OCCTSwiftTools
         product: OCCTSwiftTools
       - package: OCCTSwift
         product: OCCTSwift

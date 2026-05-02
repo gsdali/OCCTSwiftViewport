@@ -2,6 +2,15 @@
 
 All notable changes to OCCTSwiftViewport are documented in this file.
 
+## [0.51.0] — 2026-05-03
+
+### Removed (breaking)
+- **`OCCTSwiftTools` library product** has been extracted to its own repository: <https://github.com/gsdali/OCCTSwiftTools>. Consumers depending on the viewport's `OCCTSwiftTools` product must migrate to the standalone package (`>= 0.1.0`). This unblocks SwiftPM target-name uniqueness and lets OCCTSwiftTools tag its v0.1.0 release.
+  - Removed sources: `BodyUtilities.swift`, `CADFileLoader.swift`, `CurveConverter.swift`, `ExportManager.swift`, `ScriptManifest.swift`, `SurfaceConverter.swift`, `WireConverter.swift` (already mirrored in the standalone repo).
+
+### Changed
+- `OCCTSwiftMetalDemo` (executable, dev aid only — not a library product) now depends on the external `OCCTSwiftTools` package via a local path dep (`../OCCTSwiftTools`) so the demo continues to build during the transition. This will be switched to a versioned remote dep once `OCCTSwiftTools v0.1.0` is published.
+
 ## [0.26.0] — 2026-02-15
 
 ### Added
