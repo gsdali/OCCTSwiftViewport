@@ -2,6 +2,32 @@
 
 All notable changes to OCCTSwiftViewport are documented in this file.
 
+## [0.55.1] — 2026-05-03
+
+### Added
+
+- **Per-triangle highlight overlay** (issue #25). Replaces the "cheap-route" overlay-body pattern OCCTSwiftAIS v0.1 used for face highlighting.
+  - `ViewportBody.triangleStyles: [TriangleStyle]` — empty by default, no behavioural change. When populated (`count == indices.count / 3`), the renderer composites each non-zero-alpha entry over the base shading at that triangle.
+  - `TriangleStyle` is a single `SIMD4<Float>` color (16 bytes per triangle). `TriangleStyle.none` and the zero-alpha default skip the highlight pass for that triangle.
+  - New render pass between the shaded pass and the selection-outline pass. `MTLRenderPipelineState` (`triangle_highlight`) + `highlight_vertex` / `highlight_fragment` MSL shaders. Depth state is `.lessEqual` + write disabled, so identical-position highlights win the depth tie without disturbing depth state for subsequent passes.
+  - Per-body `triangleStyleBuffer: MTLBuffer?` cached alongside the existing vertex / index / edge buffers; built only when `triangleStyles` is populated, nil otherwise. The fragment shader indexes by `[[primitive_id]]`.
+
+### Why this beats the v0.1 cheap route
+
+- **No silhouette flicker.** Identical geometry depth-tests cleanly with `.lessEqual` instead of needing the bbox-diagonal nudge.
+- **No vertex-data churn.** Selection / hover state changes flip per-triangle alpha; no overlay body to spawn / kill on every selection change.
+- **No body-count blow-up.** Style buffer scales with triangle count, not selection count.
+- **Hover + multi-select for free.** Per-triangle style means hover at low alpha and primary selection at higher alpha can coexist without spawning N overlay bodies.
+
+### Driver
+
+OCCTSwiftAIS v0.6+ will adopt this and drop its `makeFaceOverlay(...)` cheap-route helper. Body-level selection still routes through `viewport.selectedBodyIDs` (already works).
+
+### References
+
+- [Issue #25](https://github.com/gsdali/OCCTSwiftViewport/issues/25)
+- [OCCTSwiftAIS SPEC.md §"Hover / highlight rendering"](https://github.com/gsdali/OCCTSwiftAIS/blob/main/SPEC.md#hover--highlight-rendering)
+
 ## [0.55.0] — 2026-05-03
 
 ### Added

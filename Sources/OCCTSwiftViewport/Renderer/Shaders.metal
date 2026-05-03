@@ -697,6 +697,58 @@ fragment WireframeFragmentOut wireframe_fragment(
     return out;
 }
 
+// MARK: - Per-triangle Highlight Pipeline (issue #25)
+//
+// Reads a per-triangle SIMD4<float> style buffer indexed by [[primitive_id]]
+// and composites the style color over the existing fragment. Triangles with
+// alpha == 0 are discarded, so the shader is a no-op on un-highlighted
+// triangles. Identical positions to the shaded pass; depth state is
+// .lessEqual + write disabled.
+
+struct HighlightVertexOut {
+    float4 clipPosition [[position]];
+    float3 worldPosition;
+};
+
+vertex HighlightVertexOut highlight_vertex(
+    VertexIn in [[stage_in]],
+    constant Uniforms &uniforms [[buffer(1)]]
+) {
+    HighlightVertexOut out;
+    float4 worldPos = uniforms.modelMatrix * float4(in.position, 1.0);
+    out.clipPosition = uniforms.viewProjectionMatrix * worldPos;
+    out.worldPosition = worldPos.xyz;
+    return out;
+}
+
+struct HighlightFragmentOut {
+    float4 color [[color(0)]];
+};
+
+fragment HighlightFragmentOut highlight_fragment(
+    HighlightVertexOut in [[stage_in]],
+    constant Uniforms &uniforms [[buffer(1)]],
+    constant float4 *triangleStyles [[buffer(2)]],
+    uint primitiveID [[primitive_id]]
+) {
+    // Clip plane discard — match the shaded pass so highlight respects sections.
+    for (uint cp = 0; cp < uniforms.clipPlaneCount; cp++) {
+        float4 plane = uniforms.clipPlanes[cp];
+        if (dot(plane.xyz, in.worldPosition) + plane.w < 0.0) {
+            discard_fragment();
+        }
+    }
+
+    float4 style = triangleStyles[primitiveID];
+    if (style.a <= 0.0) {
+        discard_fragment();
+    }
+
+    HighlightFragmentOut out;
+    out.color = style;
+    return out;
+}
+
 // MARK: - Grid Pipeline (Instanced Dots)
 
 struct GridUniforms {

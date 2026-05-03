@@ -27,6 +27,23 @@ public enum PickLayer: Hashable, Sendable {
     case widget
 }
 
+/// Per-triangle highlight style. `.zero` alpha = no highlight; non-zero alpha
+/// composites the given color over the base shading at that triangle.
+///
+/// A single 32-bit-aligned `SIMD4<Float>` keeps the per-triangle memory cheap
+/// (16 bytes × triangle count) and gives the renderer a uniform layout for
+/// `[[primitive_id]]`-indexed lookup.
+public struct TriangleStyle: Hashable, Sendable {
+    /// RGBA. Alpha 0 means "no highlight"; alpha > 0 composites color over the
+    /// base shading at that triangle.
+    public var color: SIMD4<Float>
+
+    public init(color: SIMD4<Float> = .zero) { self.color = color }
+
+    /// No highlight — alpha is 0, so the renderer skips this triangle.
+    public static let none = TriangleStyle(color: .zero)
+}
+
 /// A renderable body for the Metal viewport.
 ///
 /// Contains interleaved vertex data, triangle indices, and edge polylines
@@ -72,6 +89,19 @@ public struct ViewportBody: Identifiable, Sendable {
     /// pick result's `primitiveIndex` is the vertex index directly).
     public var vertexIndices: [Int32]
 
+    /// Per-triangle highlight style. Empty (default) = no highlight pass for
+    /// this body. When populated, `count == indices.count / 3`.
+    ///
+    /// Set entries to non-zero-alpha colors to highlight specific triangles
+    /// (e.g., the triangles of a selected face). The renderer composites the
+    /// style color over the base shading in a dedicated pass with `.lessEqual`
+    /// depth test, so identical-position highlights never silhouette-flicker.
+    ///
+    /// Mutating this field on an existing body forces the renderer to upload
+    /// a fresh per-triangle style buffer; the rest of the body's GPU state
+    /// (vertex / index / edge / point buffers) is preserved.
+    public var triangleStyles: [TriangleStyle]
+
     /// Body colour (RGBA). Used as the base colour fallback when `material` is nil.
     public var color: SIMD4<Float>
 
@@ -111,6 +141,7 @@ public struct ViewportBody: Identifiable, Sendable {
         edgeIndices: [Int32] = [],
         vertices: [SIMD3<Float>] = [],
         vertexIndices: [Int32] = [],
+        triangleStyles: [TriangleStyle] = [],
         color: SIMD4<Float>,
         roughness: Float = 0.5,
         metallic: Float = 0.0,
@@ -130,6 +161,7 @@ public struct ViewportBody: Identifiable, Sendable {
         self.edgeIndices = edgeIndices
         self.vertices = vertices
         self.vertexIndices = vertexIndices
+        self.triangleStyles = triangleStyles
         self.color = color
         self.roughness = roughness
         self.metallic = metallic

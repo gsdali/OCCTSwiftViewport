@@ -149,6 +149,10 @@ private struct BodyBuffers {
     let tessellation: TessellationBuffers?
     // Mesh shader meshlets (nil when mesh shaders disabled or edge-only body)
     let meshlets: MeshletBuffers?
+    /// Per-triangle highlight style buffer. Nil when `body.triangleStyles` is
+    /// empty. SIMD4<Float> RGBA per triangle, indexed by `[[primitive_id]]`
+    /// in the highlight fragment shader.
+    let triangleStyleBuffer: MTLBuffer?
 }
 
 // MARK: - ViewportRenderer
@@ -184,6 +188,11 @@ public final class ViewportRenderer: NSObject, MTKViewDelegate, Sendable {
     private let shadowMapManager: ShadowMapManager
     // Selection outline
     private let outlinePipeline: MTLRenderPipelineState
+
+    // Per-triangle highlight overlay (issue #25).
+    // Drawn with the same vertex pipeline as shaded — so identical positions —
+    // but composites per-triangle style color over the existing fragment.
+    private let highlightPipeline: MTLRenderPipelineState
     private let stencilWriteState: MTLDepthStencilState
     private let stencilTestState: MTLDepthStencilState
     private let depthState: MTLDepthStencilState
@@ -191,6 +200,11 @@ public final class ViewportRenderer: NSObject, MTKViewDelegate, Sendable {
     /// widgets etc.). Drawn after the selection outline so they remain visible
     /// even when occluded by user geometry.
     private let overlayDepthState: MTLDepthStencilState
+
+    // .lessEqual + write disabled — for the per-triangle highlight pass.
+    // Identical-position highlight triangles win ties with the shaded pass
+    // without depth-fighting; depth write off so later passes aren't disturbed.
+    private let highlightDepthState: MTLDepthStencilState
     private let matcapTexture: MTLTexture
     private let msaaSampleCount: Int
     // Skybox (HDR background draw — IBL cubemap as fullscreen background)
@@ -488,6 +502,28 @@ public final class ViewportRenderer: NSObject, MTKViewDelegate, Sendable {
         }
         self.outlinePipeline = outlinePipeline
 
+        // Highlight pipeline (per-triangle style buffer; alpha-composite over base shading)
+        let highlightDesc = MTLRenderPipelineDescriptor()
+        highlightDesc.label = "triangle_highlight"
+        highlightDesc.vertexFunction = library.makeFunction(name: "highlight_vertex")
+        highlightDesc.fragmentFunction = library.makeFunction(name: "highlight_fragment")
+        highlightDesc.colorAttachments[0].pixelFormat = .bgra8Unorm
+        highlightDesc.colorAttachments[1].pixelFormat = .invalid
+        highlightDesc.colorAttachments[0].isBlendingEnabled = true
+        highlightDesc.colorAttachments[0].sourceRGBBlendFactor = .sourceAlpha
+        highlightDesc.colorAttachments[0].destinationRGBBlendFactor = .oneMinusSourceAlpha
+        highlightDesc.colorAttachments[0].sourceAlphaBlendFactor = .sourceAlpha
+        highlightDesc.colorAttachments[0].destinationAlphaBlendFactor = .oneMinusSourceAlpha
+        highlightDesc.depthAttachmentPixelFormat = depthFormat
+        highlightDesc.stencilAttachmentPixelFormat = depthFormat
+        highlightDesc.rasterSampleCount = sampleCount
+        highlightDesc.vertexDescriptor = vertexDesc
+
+        guard let highlightPipeline = try? device.makeRenderPipelineState(descriptor: highlightDesc) else {
+            return nil
+        }
+        self.highlightPipeline = highlightPipeline
+
         // --- Hardware tessellation pipelines (PN triangles) ---
         let quality = controller.configuration.renderingQuality
         let wantsTessellation = quality == .enhanced || quality == .maximum
@@ -754,6 +790,17 @@ public final class ViewportRenderer: NSObject, MTKViewDelegate, Sendable {
             return nil
         }
         self.pickEdgeOrPointDepthState = pickEdgeOrPointDepthState
+
+        // .lessEqual + write disabled — for the highlight pass. Same geometry as
+        // the shaded pass at the same positions; we want them to win the depth
+        // tie without writing depth so subsequent passes aren't disturbed.
+        let highlightDepthDesc = MTLDepthStencilDescriptor()
+        highlightDepthDesc.depthCompareFunction = .lessEqual
+        highlightDepthDesc.isDepthWriteEnabled = false
+        guard let highlightDepthState = device.makeDepthStencilState(descriptor: highlightDepthDesc) else {
+            return nil
+        }
+        self.highlightDepthState = highlightDepthState
 
         // Build axis vertex buffer (6 vertices for 3 lines)
         let axisLength: Float = 1000.0
@@ -1419,6 +1466,45 @@ public final class ViewportRenderer: NSObject, MTKViewDelegate, Sendable {
                 mainEncoder.setFragmentBytes(&edgeBodyUniforms, length: MemoryLayout<BodyUniforms>.size, index: 2)
                 mainEncoder.drawPrimitives(type: .line, vertexStart: 0, vertexCount: buffers.edgeVertexCount)
             }
+        }
+
+        // 3.5 Per-triangle highlight pass (issue #25).
+        // For every visible body that has a triangleStyleBuffer, draw with the
+        // highlight pipeline. The shader discards triangles with alpha == 0,
+        // so this is cheap on bodies with sparse highlight maps.
+        // .lessEqual + depth-write-off keeps depth state untouched for outline.
+        let hasHighlightBodies = bodies.contains { body in
+            body.isVisible
+                && body.renderLayer == .geometry
+                && bodyBufferCache[body.id]?.triangleStyleBuffer != nil
+        }
+        if hasHighlightBodies, displayMode.showsSurfaces {
+            mainEncoder.setRenderPipelineState(highlightPipeline)
+            mainEncoder.setDepthStencilState(highlightDepthState)
+            for body in bodies where body.isVisible && body.renderLayer == .geometry {
+                guard let buffers = bodyBufferCache[body.id],
+                      let vb = buffers.vertexBuffer,
+                      let ib = buffers.indexBuffer,
+                      let styleBuf = buffers.triangleStyleBuffer,
+                      buffers.indexCount > 0 else { continue }
+
+                var uniforms = makeUniforms()
+                uniforms.modelMatrix = body.transform
+
+                mainEncoder.setVertexBuffer(vb, offset: 0, index: 0)
+                mainEncoder.setVertexBytes(&uniforms, length: MemoryLayout<Uniforms>.size, index: 1)
+                mainEncoder.setFragmentBytes(&uniforms, length: MemoryLayout<Uniforms>.size, index: 1)
+                mainEncoder.setFragmentBuffer(styleBuf, offset: 0, index: 2)
+                mainEncoder.drawIndexedPrimitives(
+                    type: .triangle,
+                    indexCount: buffers.indexCount,
+                    indexType: .uint32,
+                    indexBuffer: ib,
+                    indexBufferOffset: 0
+                )
+            }
+            // Restore the default depth state for the outline pass that follows.
+            mainEncoder.setDepthStencilState(stencilTestState)
         }
 
         // 4. Selection outline pass (stencil test: draw only where stencil != 1)
@@ -2151,6 +2237,24 @@ public final class ViewportRenderer: NSObject, MTKViewDelegate, Sendable {
             )
         }
 
+        // Per-triangle highlight style buffer. Built only when the body has any
+        // triangleStyles set; nil otherwise. Uploaded as raw SIMD4<Float> array
+        // so the fragment shader can index by [[primitive_id]] directly.
+        let triStyleBuf: MTLBuffer?
+        let triangleCount = indexCount / 3
+        if !body.triangleStyles.isEmpty, triangleCount > 0,
+           body.triangleStyles.count == triangleCount {
+            // Pack into a contiguous SIMD4<Float> array.
+            var packed = body.triangleStyles.map { $0.color }
+            triStyleBuf = device.makeBuffer(
+                bytes: &packed,
+                length: packed.count * MemoryLayout<SIMD4<Float>>.stride,
+                options: .storageModeShared
+            )
+        } else {
+            triStyleBuf = nil
+        }
+
         bodyBufferCache[body.id] = BodyBuffers(
             vertexBuffer: vertexBuffer,
             indexBuffer: indexBuffer,
@@ -2162,7 +2266,8 @@ public final class ViewportRenderer: NSObject, MTKViewDelegate, Sendable {
             pointVertexCount: pointVertexCount,
             vertexCount: vertexCount,
             tessellation: tessBuffers,
-            meshlets: meshletBufs
+            meshlets: meshletBufs,
+            triangleStyleBuffer: triStyleBuf
         )
         bodyGeneration[body.id] = currentGen
     }
