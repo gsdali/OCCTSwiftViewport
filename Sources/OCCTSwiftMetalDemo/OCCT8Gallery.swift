@@ -16825,6 +16825,101 @@ enum OCCT8Gallery {
         )
     }
 
+    // MARK: - v0.168: ImportProgress (STEP/IGES progress + cancellation)
+
+    /// Tracking observer that records every progress callback for inspection.
+    private final class ProgressRecorder: ImportProgress, @unchecked Sendable {
+        private let lock = NSLock()
+        private var fractionsStorage: [Double] = []
+        var fractions: [Double] {
+            lock.lock(); defer { lock.unlock() }
+            return fractionsStorage
+        }
+        func progress(fraction: Double, step: String) {
+            lock.lock(); defer { lock.unlock() }
+            fractionsStorage.append(fraction)
+        }
+    }
+
+    /// Cancelling observer that requests cancellation after the first callback.
+    private final class CancelAfterFirst: ImportProgress, @unchecked Sendable {
+        private let lock = NSLock()
+        private var sawCallback = false
+        func progress(fraction: Double, step: String) {
+            lock.lock(); defer { lock.unlock() }
+            sawCallback = true
+        }
+        func shouldCancel() -> Bool {
+            lock.lock(); defer { lock.unlock() }
+            return sawCallback
+        }
+    }
+
+    /// Demonstrates v0.168's `ImportProgress` protocol on `Shape.loadSTEP`. Writes
+    /// a small STEP file, re-loads it twice — once with a progress observer that
+    /// records every fraction, and once with an observer that cancels after the
+    /// first callback (catches `ImportError.cancelled`).
+    static func v168ImportProgress() -> Curve2DGallery.GalleryResult {
+        var bodies: [ViewportBody] = []
+        var descriptions: [String] = []
+
+        // Build a small fused assembly so the importer has more than one entity
+        // to transfer (and therefore more than one progress checkpoint).
+        guard let a = Shape.box(width: 4, height: 2, depth: 2),
+              let b = Shape.cylinder(radius: 1.2, height: 4),
+              let bShifted = b.translated(by: SIMD3<Double>(2, 1, 0)) else {
+            return Curve2DGallery.GalleryResult(bodies: [], description: "primitive build FAILED")
+        }
+        let combined = a.union(bShifted) ?? a
+
+        let tmpStep = NSTemporaryDirectory() + "v168_import_progress.step"
+        do {
+            try combined.writeSTEP(to: URL(fileURLWithPath: tmpStep), modelType: .manifoldSolidBrep)
+        } catch {
+            return Curve2DGallery.GalleryResult(bodies: [], description: "STEP export FAILED: \(error)")
+        }
+        defer { try? FileManager.default.removeItem(atPath: tmpStep) }
+
+        // 1) Progress-observed re-load — record every fraction reported.
+        let recorder = ProgressRecorder()
+        do {
+            let imported = try Shape.loadSTEP(fromPath: tmpStep, progress: recorder)
+            let count = recorder.fractions.count
+            let last = recorder.fractions.last.map { String(format: "%.2f", $0) } ?? "—"
+            descriptions.append("observed: \(count) progress callbacks, last fraction=\(last)")
+            let (body, _) = CADFileLoader.shapeToBodyAndMetadata(
+                imported, id: "v168-loaded", color: SIMD4(0.55, 0.75, 0.95, 1.0))
+            if let body { bodies.append(body) }
+        } catch {
+            descriptions.append("observed load FAILED: \(error)")
+        }
+
+        // 2) Cancelled re-load — same file, but observer requests cancellation
+        // after the first callback. Loader should throw ImportError.cancelled.
+        let canceller = CancelAfterFirst()
+        do {
+            _ = try Shape.loadSTEP(fromPath: tmpStep, progress: canceller)
+            descriptions.append("cancellation: UNEXPECTED success (loader did not honour shouldCancel)")
+        } catch ImportError.cancelled {
+            descriptions.append("cancellation: caught ImportError.cancelled OK")
+        } catch {
+            descriptions.append("cancellation: unexpected error \(error)")
+        }
+
+        // 3) Source-compat: nil progress still works (no observer).
+        do {
+            _ = try Shape.loadSTEP(fromPath: tmpStep, progress: nil)
+            descriptions.append("nil-progress: load OK (source-compat)")
+        } catch {
+            descriptions.append("nil-progress: \(error)")
+        }
+
+        return Curve2DGallery.GalleryResult(
+            bodies: bodies,
+            description: descriptions.joined(separator: " | ")
+        )
+    }
+
     // MARK: - v0.164: RepOps + cache entry inspection
 
     /// Demonstrates v0.164's cache-entry inspection accessors. Reports the per-face,

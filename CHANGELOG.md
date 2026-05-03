@@ -2,6 +2,17 @@
 
 All notable changes to OCCTSwiftViewport are documented in this file.
 
+## [0.53.0] — 2026-05-03
+
+### Changed
+- **Bumped OCCTSwift dep to `from: "0.168.0"`** (was 0.165.0). Pulls in:
+  - v0.166.0 / v0.166.1 — Swift Package Index metadata + platform-plan docs (no API change).
+  - v0.167.0 — visionOS + tvOS xcframework slices (no API change).
+  - v0.168.0 — `ImportProgress` protocol + cooperative cancellation for `Shape.loadSTEP` / `loadIGES` / `loadIGESRobust` and `Document.load` / `loadSTEP`.
+
+### Added
+- **v0.168 Import Progress demo** in `OCCT8Gallery` (`v168ImportProgress`). Writes a small fused box+cylinder STEP, then re-loads three times: with a recording observer (75 progress callbacks at last run), with an observer that requests cancellation after the first callback (catches `ImportError.cancelled`), and with `progress: nil` to confirm source-compat. Wired into the OCCT 8 sub-group in `SpikeView` and into the headless `--test-all-demos` runner.
+
 ## [0.52.0] — 2026-05-03
 
 ### Added
