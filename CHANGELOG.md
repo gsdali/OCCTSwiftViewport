@@ -2,6 +2,19 @@
 
 All notable changes to OCCTSwiftViewport are documented in this file.
 
+## [0.55.0] — 2026-05-03
+
+### Added
+- **Edge / vertex picking** for OCCTSwiftAIS v0.3 (issue #24). The single GPU pick pass now resolves to face / edge / vertex via a 2-bit kind tag in the high bits of the pick raw value, so consumers get a uniform pick API across all three sub-shapes.
+  - `ViewportBody` gains:
+    - `edgeIndices: [Int32]` — per-line-segment source-edge index, parallel to the line primitives in `edges` flattened. Empty by default → body is not edge-pickable.
+    - `vertices: [SIMD3<Float>]` — point list rendered as point sprites (8×8 px) for vertex picking. Empty by default → body is not vertex-pickable.
+    - `vertexIndices: [Int32]` — per-point source-vertex index. Empty defaults to identity.
+  - `PickResult.kind: PrimitiveKind` (`.face` / `.edge` / `.vertex`). New `PrimitiveKind` enum re-exported from the module.
+  - Pick encoding: bits 0-15 objectIndex (unchanged), bits 16-29 primitiveID (14 bits, masked everywhere it's emitted — including the existing `pick_fragment` and `tessellated_pick_fragment`), bits 30-31 kind. `triangleIndex` keeps its name and now carries the primitive index for whatever kind matched.
+  - New `pick_line_fragment`, `pick_point_vertex`, `pick_point_fragment` shaders; new `pickLinePipeline` + `pickPointPipeline` + `pickEdgeOrPointDepthState` (`.lessEqual`) so edges/vertices coplanar with a face win the pick over the face.
+  - 8 new `PickResultTests` pin the encoding contract that AIS will rely on.
+
 ## [0.54.0] — 2026-05-03
 
 ### Changed

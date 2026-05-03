@@ -135,6 +135,15 @@ private struct BodyBuffers {
     let indexCount: Int
     let edgeVertexBuffer: MTLBuffer?
     let edgeVertexCount: Int
+    /// Number of line segments (edge primitives). Equals `edgeVertexCount / 2`.
+    /// Used to gate edge picking, since the line primitive count must equal
+    /// `body.edgeIndices.count` for the index map to be usable.
+    let edgePrimitiveCount: Int
+    /// Vertex buffer for point-sprite picking (built from `body.vertices`).
+    /// Same stride as the mesh vertex buffer (position + zeroed normal) so it
+    /// can reuse the standard pick vertex descriptor.
+    let pointVertexBuffer: MTLBuffer?
+    let pointVertexCount: Int
     let vertexCount: Int
     // Tessellation (nil when tessellation disabled or edge-only body)
     let tessellation: TessellationBuffers?
@@ -158,6 +167,16 @@ public final class ViewportRenderer: NSObject, MTKViewDelegate, Sendable {
     private let axisPipeline: MTLRenderPipelineState
     // 1x pick-only pipelines (pick texture is always sampleCount=1)
     private let pickShadedPipeline: MTLRenderPipelineState
+    /// Line-primitive pick pipeline for edge picking. Same vertex shader as
+    /// `pick_vertex`; fragment emits kind=1 in the pick encoding.
+    private let pickLinePipeline: MTLRenderPipelineState?
+    /// Point-sprite pick pipeline for vertex picking. Vertex shader writes
+    /// `[[point_size]]` so individual points have a clickable footprint;
+    /// fragment emits kind=2.
+    private let pickPointPipeline: MTLRenderPipelineState?
+    /// `.lessEqual` depth state used by the edge + vertex pick sub-passes so
+    /// edges/points coplanar with a face win the pick over the face.
+    private let pickEdgeOrPointDepthState: MTLDepthStencilState
     // Depth-only pipeline for SSAO depth pass
     private let depthOnlyPipeline: MTLRenderPipelineState
     // Shadow mapping
@@ -397,6 +416,29 @@ public final class ViewportRenderer: NSObject, MTKViewDelegate, Sendable {
             return nil
         }
         self.pickShadedPipeline = pickShadedPipeline
+
+        // 1x line pick pipeline (edge picking) — reuses pick_vertex; fragment emits kind=1.
+        let pickLineDesc = MTLRenderPipelineDescriptor()
+        pickLineDesc.label = "pick_line"
+        pickLineDesc.vertexFunction = library.makeFunction(name: "pick_vertex")
+        pickLineDesc.fragmentFunction = library.makeFunction(name: "pick_line_fragment")
+        pickLineDesc.colorAttachments[0].pixelFormat = .r32Uint
+        pickLineDesc.depthAttachmentPixelFormat = .depth32Float
+        pickLineDesc.rasterSampleCount = 1
+        pickLineDesc.vertexDescriptor = vertexDesc
+        self.pickLinePipeline = try? device.makeRenderPipelineState(descriptor: pickLineDesc)
+
+        // 1x point pick pipeline (vertex picking) — pick_point_vertex outputs
+        // point_size for clickable footprint; fragment emits kind=2.
+        let pickPointDesc = MTLRenderPipelineDescriptor()
+        pickPointDesc.label = "pick_point"
+        pickPointDesc.vertexFunction = library.makeFunction(name: "pick_point_vertex")
+        pickPointDesc.fragmentFunction = library.makeFunction(name: "pick_point_fragment")
+        pickPointDesc.colorAttachments[0].pixelFormat = .r32Uint
+        pickPointDesc.depthAttachmentPixelFormat = .depth32Float
+        pickPointDesc.rasterSampleCount = 1
+        pickPointDesc.vertexDescriptor = vertexDesc
+        self.pickPointPipeline = try? device.makeRenderPipelineState(descriptor: pickPointDesc)
 
         // Depth-only pipeline (for SSAO depth pass — no color attachments)
         let depthOnlyDesc = MTLRenderPipelineDescriptor()
@@ -702,6 +744,16 @@ public final class ViewportRenderer: NSObject, MTKViewDelegate, Sendable {
             return nil
         }
         self.overlayDepthState = overlayDepthState
+
+        // .lessEqual + write enabled — edges and points that lie on a face win
+        // ties (face writes first with .less, edge/point overwrites at equal depth).
+        let pickEdgeDesc = MTLDepthStencilDescriptor()
+        pickEdgeDesc.depthCompareFunction = .lessEqual
+        pickEdgeDesc.isDepthWriteEnabled = true
+        guard let pickEdgeOrPointDepthState = device.makeDepthStencilState(descriptor: pickEdgeDesc) else {
+            return nil
+        }
+        self.pickEdgeOrPointDepthState = pickEdgeOrPointDepthState
 
         // Build axis vertex buffer (6 vertices for 3 lines)
         let axisLength: Float = 1000.0
@@ -1553,6 +1605,77 @@ public final class ViewportRenderer: NSObject, MTKViewDelegate, Sendable {
                         }
                     }
 
+                    // Edge pick pass: render line primitives for any body with
+                    // `edgeIndices` set. Uses `.lessEqual` so edges co-planar with
+                    // a face overwrite the face's pick ID. The fragment encodes
+                    // kind=1, primitiveID = line-segment index.
+                    if let pickLinePipeline {
+                        let hasEdgePickable = bodies.contains {
+                            $0.isVisible && !$0.edgeIndices.isEmpty
+                        }
+                        if hasEdgePickable {
+                            pickEncoder.setDepthStencilState(pickEdgeOrPointDepthState)
+                            pickEncoder.setRenderPipelineState(pickLinePipeline)
+                            objectIndex = 0
+                            for body in bodies where body.isVisible {
+                                let bodyObjectIndex = objectIndex
+                                objectIndex += 1
+                                guard !body.edgeIndices.isEmpty,
+                                      let buffers = bodyBufferCache[body.id],
+                                      let edgeVB = buffers.edgeVertexBuffer,
+                                      buffers.edgePrimitiveCount > 0 else { continue }
+
+                                var uniforms = makeUniforms()
+                                uniforms.modelMatrix = body.transform
+                                var bodyUniforms = BodyUniforms(body: body, objectIndex: bodyObjectIndex)
+
+                                pickEncoder.setVertexBuffer(edgeVB, offset: 0, index: 0)
+                                pickEncoder.setVertexBytes(&uniforms, length: MemoryLayout<Uniforms>.size, index: 1)
+                                pickEncoder.setFragmentBytes(&bodyUniforms, length: MemoryLayout<BodyUniforms>.size, index: 2)
+                                pickEncoder.drawPrimitives(
+                                    type: .line,
+                                    vertexStart: 0,
+                                    vertexCount: buffers.edgeVertexCount
+                                )
+                            }
+                        }
+                    }
+
+                    // Vertex pick pass: render point sprites for any body with
+                    // `vertices` set. Same `.lessEqual` policy as edges so vertices
+                    // sitting on edges win the tie.
+                    if let pickPointPipeline {
+                        let hasVertexPickable = bodies.contains {
+                            $0.isVisible && !$0.vertices.isEmpty
+                        }
+                        if hasVertexPickable {
+                            pickEncoder.setDepthStencilState(pickEdgeOrPointDepthState)
+                            pickEncoder.setRenderPipelineState(pickPointPipeline)
+                            objectIndex = 0
+                            for body in bodies where body.isVisible {
+                                let bodyObjectIndex = objectIndex
+                                objectIndex += 1
+                                guard !body.vertices.isEmpty,
+                                      let buffers = bodyBufferCache[body.id],
+                                      let pointVB = buffers.pointVertexBuffer,
+                                      buffers.pointVertexCount > 0 else { continue }
+
+                                var uniforms = makeUniforms()
+                                uniforms.modelMatrix = body.transform
+                                var bodyUniforms = BodyUniforms(body: body, objectIndex: bodyObjectIndex)
+
+                                pickEncoder.setVertexBuffer(pointVB, offset: 0, index: 0)
+                                pickEncoder.setVertexBytes(&uniforms, length: MemoryLayout<Uniforms>.size, index: 1)
+                                pickEncoder.setFragmentBytes(&bodyUniforms, length: MemoryLayout<BodyUniforms>.size, index: 2)
+                                pickEncoder.drawPrimitives(
+                                    type: .point,
+                                    vertexStart: 0,
+                                    vertexCount: buffers.pointVertexCount
+                                )
+                            }
+                        }
+                    }
+
                     // Overlay pick pass: draw RenderLayer.overlay bodies with
                     // always-pass depth so they win the pick over occluding geometry.
                     let hasOverlayBodies = bodies.contains { $0.isVisible && $0.renderLayer == .overlay }
@@ -1964,6 +2087,29 @@ public final class ViewportRenderer: NSObject, MTKViewDelegate, Sendable {
         }
 
         let edgeVertexCount = edgeVertices.count / 6
+        let edgePrimitiveCount = edgeVertexCount / 2
+
+        // Build point vertex buffer for vertex picking. Each entry in body.vertices
+        // becomes one point sprite; uses the same position+normal stride as the
+        // mesh vertex buffer so the standard pick vertex descriptor applies.
+        let pointVB: MTLBuffer?
+        let pointVertexCount: Int
+        if !body.vertices.isEmpty {
+            var pointData: [Float] = []
+            pointData.reserveCapacity(body.vertices.count * 6)
+            for v in body.vertices {
+                pointData.append(contentsOf: [v.x, v.y, v.z, 0, 0, 0])
+            }
+            pointVB = device.makeBuffer(
+                bytes: pointData,
+                length: pointData.count * MemoryLayout<Float>.size,
+                options: .storageModeShared
+            )
+            pointVertexCount = body.vertices.count
+        } else {
+            pointVB = nil
+            pointVertexCount = 0
+        }
 
         // Skip bodies with no renderable data at all
         guard vertexBuffer != nil || edgeVB != nil else { return }
@@ -2011,6 +2157,9 @@ public final class ViewportRenderer: NSObject, MTKViewDelegate, Sendable {
             indexCount: indexCount,
             edgeVertexBuffer: edgeVB,
             edgeVertexCount: edgeVertexCount,
+            edgePrimitiveCount: edgePrimitiveCount,
+            pointVertexBuffer: pointVB,
+            pointVertexCount: pointVertexCount,
             vertexCount: vertexCount,
             tessellation: tessBuffers,
             meshlets: meshletBufs

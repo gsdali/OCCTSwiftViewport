@@ -500,13 +500,57 @@ vertex PickVertexOut pick_vertex(
     return out;
 }
 
+// Pick encoding (must stay in sync with PickResult decoder):
+//   bits  0-15 : objectIndex (16 bits)
+//   bits 16-29 : primitiveID (14 bits, masked)
+//   bits 30-31 : kind        (2 bits — 0=face, 1=edge, 2=vertex)
 fragment PickFragmentOut pick_fragment(
     PickVertexOut in [[stage_in]],
     constant BodyUniforms &bodyUniforms [[buffer(2)]],
     uint primitiveID [[primitive_id]]
 ) {
     PickFragmentOut out;
-    out.pickID = bodyUniforms.objectIndex | (primitiveID << 16);
+    out.pickID = bodyUniforms.objectIndex | ((primitiveID & 0x3FFFu) << 16) | (0u << 30);
+    return out;
+}
+
+// Edge pick — kind=1.
+fragment PickFragmentOut pick_line_fragment(
+    PickVertexOut in [[stage_in]],
+    constant BodyUniforms &bodyUniforms [[buffer(2)]],
+    uint primitiveID [[primitive_id]]
+) {
+    PickFragmentOut out;
+    out.pickID = bodyUniforms.objectIndex | ((primitiveID & 0x3FFFu) << 16) | (1u << 30);
+    return out;
+}
+
+// Point sprite vertex shader for vertex picking. Outputs `point_size` so
+// individual vertices have a clickable footprint instead of a single pixel.
+struct PickPointVertexOut {
+    float4 clipPosition [[position]];
+    float pointSize [[point_size]];
+};
+
+vertex PickPointVertexOut pick_point_vertex(
+    VertexIn in [[stage_in]],
+    constant Uniforms &uniforms [[buffer(1)]]
+) {
+    PickPointVertexOut out;
+    float4 worldPos = uniforms.modelMatrix * float4(in.position, 1.0);
+    out.clipPosition = uniforms.viewProjectionMatrix * worldPos;
+    out.pointSize = 8.0; // 8x8 px clickable footprint
+    return out;
+}
+
+// Vertex pick — kind=2.
+fragment PickFragmentOut pick_point_fragment(
+    PickPointVertexOut in [[stage_in]],
+    constant BodyUniforms &bodyUniforms [[buffer(2)]],
+    uint primitiveID [[primitive_id]]
+) {
+    PickFragmentOut out;
+    out.pickID = bodyUniforms.objectIndex | ((primitiveID & 0x3FFFu) << 16) | (2u << 30);
     return out;
 }
 
@@ -1505,14 +1549,14 @@ vertex TessPatchPickVertexOut tessellated_pick_vertex(
     return out;
 }
 
-// Pick fragment for tessellated patches — uses face index from patch, not primitive_id
+// Pick fragment for tessellated patches — uses face index from patch, not primitive_id.
+// Kind tag stays 0 (face). primitiveID truncated to 14 bits to match decoder layout.
 fragment PickFragmentOut tessellated_pick_fragment(
     TessPatchPickVertexOut in [[stage_in]],
     constant BodyUniforms& bodyUniforms [[buffer(2)]]
 ) {
     PickFragmentOut out;
-    // Encode: objectIndex in low 16 bits, faceIndex in high 16 bits
-    out.pickID = bodyUniforms.objectIndex | (uint(in.faceIndex) << 16);
+    out.pickID = bodyUniforms.objectIndex | ((uint(in.faceIndex) & 0x3FFFu) << 16) | (0u << 30);
     return out;
 }
 

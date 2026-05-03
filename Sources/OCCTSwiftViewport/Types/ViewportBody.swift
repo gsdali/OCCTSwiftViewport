@@ -56,6 +56,22 @@ public struct ViewportBody: Identifiable, Sendable {
     /// Maps each triangle back to its B-Rep face for sub-body selection. Empty if not applicable.
     public var faceIndices: [Int32]
 
+    /// Per-line-segment source-edge index. Parallel to the line primitives in
+    /// `edges` flattened ([poly0.seg0, poly0.seg1, ..., poly1.seg0, ...]). Maps
+    /// a picked edge segment back to its B-Rep edge for selection. Empty if not
+    /// applicable — in which case the body is not edge-pickable.
+    public var edgeIndices: [Int32]
+
+    /// Optional point list rendered as point sprites in the pick pass for
+    /// vertex picking. Each entry is one B-Rep vertex position. Empty if not
+    /// applicable — in which case the body is not vertex-pickable.
+    public var vertices: [SIMD3<Float>]
+
+    /// Per-point source-vertex index. Parallel to `vertices`. Maps a picked
+    /// point back to its B-Rep vertex. Empty defaults to identity (i.e. the
+    /// pick result's `primitiveIndex` is the vertex index directly).
+    public var vertexIndices: [Int32]
+
     /// Body colour (RGBA). Used as the base colour fallback when `material` is nil.
     public var color: SIMD4<Float>
 
@@ -92,6 +108,9 @@ public struct ViewportBody: Identifiable, Sendable {
         indices: [UInt32],
         edges: [[SIMD3<Float>]],
         faceIndices: [Int32] = [],
+        edgeIndices: [Int32] = [],
+        vertices: [SIMD3<Float>] = [],
+        vertexIndices: [Int32] = [],
         color: SIMD4<Float>,
         roughness: Float = 0.5,
         metallic: Float = 0.0,
@@ -108,6 +127,9 @@ public struct ViewportBody: Identifiable, Sendable {
         self.indices = indices
         self.edges = edges
         self.faceIndices = faceIndices
+        self.edgeIndices = edgeIndices
+        self.vertices = vertices
+        self.vertexIndices = vertexIndices
         self.color = color
         self.roughness = roughness
         self.metallic = metallic

@@ -124,6 +124,7 @@ public typealias _MeasurementMode = MeasurementMode
 
 // Picking
 public typealias _PickResult = PickResult
+public typealias _PrimitiveKind = PrimitiveKind
 public typealias _PickingConfiguration = PickingConfiguration
 
 // Dynamic Pivot
