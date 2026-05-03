@@ -2,6 +2,13 @@
 
 All notable changes to OCCTSwiftViewport are documented in this file.
 
+## [0.55.2] — 2026-05-04
+
+### Fixed
+- **xcodebuild conflicting-identity crash for downstream consumers** (issue #27). The demo target's `OCCTSwiftTools` dep is now a versioned remote URL (`from: "0.4.1"`) instead of `.package(path: "../OCCTSwiftTools")`. Pure-SPM (`swift build` / `swift test`) tolerated the path identity, but xcodebuild's SPM integration treated the path-identity and URL-identity as distinct packages with the same name and crashed in `IDESPMWorkspaceDelegate.registerDependencyFileReferences` whenever a downstream consumer (e.g. OCCTDesignLoop) also declared `OCCTSwiftTools` as a remote dep. Closes the option-(c) workaround that landed with #22 in v0.51.0; consumers can now adopt anything from `v0.51.0` onward in xcodeproj-based projects.
+
+`project.yml` updated in lockstep so the regenerated Xcode project also pulls OCCTSwiftTools by URL.
+
 ## [0.55.1] — 2026-05-03
 
 ### Added

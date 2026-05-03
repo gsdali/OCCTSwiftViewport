@@ -13,7 +13,8 @@ packages:
   OCCTSwift:
     path: ../OCCTSwift
   OCCTSwiftTools:
-    path: ../OCCTSwiftTools
+    url: https://github.com/gsdali/OCCTSwiftTools.git
+    from: 0.4.1
 
 targets:
   OCCTSwiftMetalDemo:
