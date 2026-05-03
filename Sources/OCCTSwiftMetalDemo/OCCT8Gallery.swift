@@ -16920,6 +16920,146 @@ enum OCCT8Gallery {
         )
     }
 
+    // MARK: - v0.169: mesh progress (BRepMesh_IncrementalMesh)
+
+    /// Demonstrates v0.169's `Shape.meshWithProgress`. Builds a sphere whose
+    /// tessellation is expensive enough to fire many progress callbacks, runs
+    /// `meshWithProgress` with a recording observer, then runs again with an
+    /// observer that cancels after the first callback (catches `ImportError.cancelled`).
+    static func v169MeshProgress() -> Curve2DGallery.GalleryResult {
+        var bodies: [ViewportBody] = []
+        var descriptions: [String] = []
+
+        guard let sphere = Shape.sphere(radius: 5) else {
+            return Curve2DGallery.GalleryResult(bodies: [], description: "sphere FAILED")
+        }
+
+        // 1) Mesh with a recording observer at fine deflection (more progress fires).
+        let recorder = ProgressRecorder()
+        do {
+            try sphere.meshWithProgress(linearDeflection: 0.05, angularDeflection: 0.2, progress: recorder)
+            let count = recorder.fractions.count
+            let last = recorder.fractions.last.map { String(format: "%.2f", $0) } ?? "—"
+            descriptions.append("mesh observed: \(count) callbacks, last fraction=\(last)")
+        } catch {
+            descriptions.append("mesh observed FAILED: \(error)")
+        }
+
+        // 2) Mesh again with cancel-after-first. Use a fresh shape so the existing
+        // triangulation isn't reused short-circuiting the callback stream.
+        guard let sphere2 = Shape.sphere(radius: 5) else {
+            descriptions.append("cancel-mesh: sphere2 FAILED")
+            return Curve2DGallery.GalleryResult(bodies: bodies, description: descriptions.joined(separator: " | "))
+        }
+        let canceller = CancelAfterFirst()
+        do {
+            try sphere2.meshWithProgress(linearDeflection: 0.05, angularDeflection: 0.2, progress: canceller)
+            descriptions.append("cancel-mesh: UNEXPECTED success (loader did not honour shouldCancel)")
+        } catch ImportError.cancelled {
+            descriptions.append("cancel-mesh: caught ImportError.cancelled OK")
+        } catch {
+            descriptions.append("cancel-mesh: unexpected error \(error)")
+        }
+
+        // 3) progress: nil source-compat
+        guard let sphere3 = Shape.sphere(radius: 5) else {
+            descriptions.append("nil-progress: sphere3 FAILED")
+            return Curve2DGallery.GalleryResult(bodies: bodies, description: descriptions.joined(separator: " | "))
+        }
+        do {
+            try sphere3.meshWithProgress(linearDeflection: 0.5, progress: nil)
+            descriptions.append("nil-progress: mesh OK")
+        } catch {
+            descriptions.append("nil-progress: \(error)")
+        }
+
+        let (body, _) = CADFileLoader.shapeToBodyAndMetadata(
+            sphere, id: "v169-meshed-sphere", color: SIMD4(0.6, 0.8, 0.95, 1.0))
+        if let body { bodies.append(body) }
+
+        return Curve2DGallery.GalleryResult(
+            bodies: bodies,
+            description: descriptions.joined(separator: " | ")
+        )
+    }
+
+    // MARK: - v0.169: export progress (STEP / IGES writers, Document.writeSTEP)
+
+    /// Demonstrates v0.169's writer-side progress + cancellation:
+    /// `Exporter.writeSTEP(shape:to:progress:)`, `Exporter.writeIGES(shape:to:progress:)`,
+    /// and `Document.writeSTEP(to:progress:)`. Each writer is run twice (with a
+    /// recording observer, then with a cancel-after-first observer) to confirm
+    /// `ExportError.cancelled` (Exporter) / `ImportError.cancelled` (Document).
+    static func v169ExportProgress() -> Curve2DGallery.GalleryResult {
+        var bodies: [ViewportBody] = []
+        var descriptions: [String] = []
+
+        // A torus produces enough export entities to fire several progress callbacks.
+        guard let torus = Shape.torus(majorRadius: 6, minorRadius: 2) else {
+            return Curve2DGallery.GalleryResult(bodies: [], description: "torus FAILED")
+        }
+
+        // --- STEP export with progress ---
+        let stepPath = NSTemporaryDirectory() + "v169_step_progress.step"
+        let stepRec = ProgressRecorder()
+        do {
+            try Exporter.writeSTEP(shape: torus, to: URL(fileURLWithPath: stepPath), progress: stepRec)
+            descriptions.append("STEP export: \(stepRec.fractions.count) callbacks")
+        } catch {
+            descriptions.append("STEP export FAILED: \(error)")
+        }
+        defer { try? FileManager.default.removeItem(atPath: stepPath) }
+
+        // --- STEP export, cancelled ---
+        let stepCancelPath = NSTemporaryDirectory() + "v169_step_cancel.step"
+        let stepCanceller = CancelAfterFirst()
+        do {
+            try Exporter.writeSTEP(shape: torus, to: URL(fileURLWithPath: stepCancelPath), progress: stepCanceller)
+            descriptions.append("STEP cancel: UNEXPECTED success")
+        } catch Exporter.ExportError.cancelled {
+            descriptions.append("STEP cancel: caught ExportError.cancelled OK")
+        } catch {
+            descriptions.append("STEP cancel: unexpected error \(error)")
+        }
+        try? FileManager.default.removeItem(atPath: stepCancelPath)
+
+        // --- IGES export with progress ---
+        let igesPath = NSTemporaryDirectory() + "v169_iges_progress.igs"
+        let igesRec = ProgressRecorder()
+        do {
+            try Exporter.writeIGES(shape: torus, to: URL(fileURLWithPath: igesPath), progress: igesRec)
+            descriptions.append("IGES export: \(igesRec.fractions.count) callbacks")
+        } catch {
+            descriptions.append("IGES export FAILED: \(error)")
+        }
+        defer { try? FileManager.default.removeItem(atPath: igesPath) }
+
+        // --- Document.writeSTEP with progress ---
+        if let doc = Document.create() {
+            _ = doc.addShape(torus)
+            let docPath = NSTemporaryDirectory() + "v169_doc_step.step"
+            let docRec = ProgressRecorder()
+            do {
+                try doc.writeSTEP(to: URL(fileURLWithPath: docPath), progress: docRec)
+                descriptions.append("Document STEP: \(docRec.fractions.count) callbacks")
+            } catch {
+                descriptions.append("Document STEP FAILED: \(error)")
+            }
+            try? FileManager.default.removeItem(atPath: docPath)
+        } else {
+            descriptions.append("Document.create FAILED")
+        }
+
+        let (body, _) = CADFileLoader.shapeToBodyAndMetadata(
+            torus, id: "v169-torus", color: SIMD4(0.95, 0.7, 0.4, 1.0))
+        if let body { bodies.append(body) }
+
+        return Curve2DGallery.GalleryResult(
+            bodies: bodies,
+            description: descriptions.joined(separator: " | ")
+        )
+    }
+
     // MARK: - v0.164: RepOps + cache entry inspection
 
     /// Demonstrates v0.164's cache-entry inspection accessors. Reports the per-face,

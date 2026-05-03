@@ -307,6 +307,8 @@ enum DemoTestRunner {
             ("v163ProductOpsAssembly", OCCT8Gallery.v163ProductOpsAssembly),
             ("v164CacheInspection", OCCT8Gallery.v164CacheInspection),
             ("v168ImportProgress", OCCT8Gallery.v168ImportProgress),
+            ("v169MeshProgress", OCCT8Gallery.v169MeshProgress),
+            ("v169ExportProgress", OCCT8Gallery.v169ExportProgress),
         ]
         for (name, run) in occt8 {
             demos.append(DemoEntry(category: "OCCT8", name: name, run: run))

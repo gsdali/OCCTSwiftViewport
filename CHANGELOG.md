@@ -2,6 +2,17 @@
 
 All notable changes to OCCTSwiftViewport are documented in this file.
 
+## [0.54.0] — 2026-05-03
+
+### Changed
+- **Bumped OCCTSwift dep to `from: "0.169.0"`** (was 0.168.0). v0.169 extends the `ImportProgress` channel to three more long-running operations: `Shape.meshWithProgress(linearDeflection:angularDeflection:progress:)`, `Exporter.writeSTEP(shape:to:progress:)` / `writeIGES(shape:to:progress:)`, and `Document.writeSTEP(to:progress:)`. New `Exporter.ExportError.cancelled` case.
+
+### Added
+- **v0.169 Mesh Progress demo** (`v169MeshProgress`): builds a sphere, runs `meshWithProgress` at fine deflection (4 progress callbacks observed end-to-end), then runs again with a cancel-after-first observer to verify `ImportError.cancelled`.
+- **v0.169 Export Progress demo** (`v169ExportProgress`): builds a torus, runs `Exporter.writeSTEP` (7 callbacks), `Exporter.writeIGES` (3 callbacks), and `Document.writeSTEP` (7 callbacks) each with a recording observer, plus a STEP export with cancel-after-first that verifies `ExportError.cancelled`.
+
+Both demos wired into the OCCT 8 sub-group of `SpikeView` and into the headless `--test-all-demos` runner (201 demos total).
+
 ## [0.53.0] — 2026-05-03
 
 ### Changed

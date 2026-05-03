@@ -816,6 +816,7 @@ struct SpikeView: View {
         case v1551WireFromShape, v1561DocumentNodeAt, v1562MeshFromArrays
         case v158MeshViewRead, v160TriangulationCacheWrite, v163ProductOpsAssembly, v164CacheInspection
         case v168ImportProgress
+        case v169MeshProgress, v169ExportProgress
     }
 
     // MARK: - OCCT 8 Sub-groups
@@ -1006,6 +1007,8 @@ struct SpikeView: View {
         Button("v0.163 ProductOps Assembly") { loadOCCT8Demo(.v163ProductOpsAssembly) }
         Button("v0.164 Cache Inspection") { loadOCCT8Demo(.v164CacheInspection) }
         Button("v0.168 Import Progress") { loadOCCT8Demo(.v168ImportProgress) }
+        Button("v0.169 Mesh Progress") { loadOCCT8Demo(.v169MeshProgress) }
+        Button("v0.169 Export Progress") { loadOCCT8Demo(.v169ExportProgress) }
     }
 
     private func loadOCCT8Demo(_ demo: OCCT8Demo) {
@@ -1342,6 +1345,10 @@ struct SpikeView: View {
             result = OCCT8Gallery.v164CacheInspection()
         case .v168ImportProgress:
             result = OCCT8Gallery.v168ImportProgress()
+        case .v169MeshProgress:
+            result = OCCT8Gallery.v169MeshProgress()
+        case .v169ExportProgress:
+            result = OCCT8Gallery.v169ExportProgress()
         }
 
         bodies = result.bodies
