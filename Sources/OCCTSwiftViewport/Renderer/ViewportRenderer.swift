@@ -168,6 +168,10 @@ public final class ViewportRenderer: NSObject, MTKViewDelegate, Sendable {
     private let stencilWriteState: MTLDepthStencilState
     private let stencilTestState: MTLDepthStencilState
     private let depthState: MTLDepthStencilState
+    /// Always-pass, no-write depth state for overlay-layer bodies (manipulator
+    /// widgets etc.). Drawn after the selection outline so they remain visible
+    /// even when occluded by user geometry.
+    private let overlayDepthState: MTLDepthStencilState
     private let matcapTexture: MTLTexture
     private let msaaSampleCount: Int
     // Skybox (HDR background draw — IBL cubemap as fullscreen background)
@@ -232,6 +236,9 @@ public final class ViewportRenderer: NSObject, MTKViewDelegate, Sendable {
     private let pickReadbackBuffer: MTLBuffer
     /// Maps objectIndex → bodyID, rebuilt each frame.
     private var currentIndexMap: [Int: String] = [:]
+    /// Maps bodyID → PickLayer, rebuilt each frame. Used to route GPU pick results
+    /// to either `ViewportController.pickResult` or `widgetPickResult`.
+    private var currentLayerMap: [String: PickLayer] = [:]
 
     // MARK: - Initialization
 
@@ -686,6 +693,16 @@ public final class ViewportRenderer: NSObject, MTKViewDelegate, Sendable {
         }
         self.stencilTestState = stencilTestState
 
+        // Overlay depth state: always pass, no depth or stencil writes. Used for
+        // RenderLayer.overlay bodies so they render on top of all geometry.
+        let overlayDesc = MTLDepthStencilDescriptor()
+        overlayDesc.depthCompareFunction = .always
+        overlayDesc.isDepthWriteEnabled = false
+        guard let overlayDepthState = device.makeDepthStencilState(descriptor: overlayDesc) else {
+            return nil
+        }
+        self.overlayDepthState = overlayDepthState
+
         // Build axis vertex buffer (6 vertices for 3 lines)
         let axisLength: Float = 1000.0
         let axisData: [Float] = [
@@ -1051,15 +1068,18 @@ public final class ViewportRenderer: NSObject, MTKViewDelegate, Sendable {
 
         // Build index map for picking: objectIndex → bodyID
         var indexMap: [Int: String] = [:]
+        var layerMap: [String: PickLayer] = [:]
         var objectIndex: UInt32 = 0
 
         // Ensure buffers for all visible bodies
         for body in bodies where body.isVisible {
             ensureBuffers(for: body)
             indexMap[Int(objectIndex)] = body.id
+            layerMap[body.id] = body.pickLayer
             objectIndex += 1
         }
         currentIndexMap = indexMap
+        currentLayerMap = layerMap
 
         let silhouettesEnabled = controller.configuration.enableSilhouettes
         let ssaoEnabled = (lighting.enableSSAO || silhouettesEnabled) && ssaoPipeline != nil && displayMode.showsSurfaces
@@ -1133,12 +1153,14 @@ public final class ViewportRenderer: NSObject, MTKViewDelegate, Sendable {
 
                     for body in bodies where body.isVisible {
                         guard let buffers = bodyBufferCache[body.id] else { continue }
+                        // Overlay bodies don't cast shadows — they are UI affordances.
+                        if body.renderLayer == .overlay { continue }
                         let hasMesh = buffers.vertexBuffer != nil && buffers.indexBuffer != nil && buffers.indexCount > 0
 
                         if hasMesh, let vb = buffers.vertexBuffer, let ib = buffers.indexBuffer {
                             var shadowUniforms = ShadowUniformsSwift(
                                 lightViewProjectionMatrix: lightVP,
-                                modelMatrix: matrix_identity_float4x4
+                                modelMatrix: body.transform
                             )
 
                             if useMeshShaders, let ml = buffers.meshlets, let msPipeline = meshShaderShadowPipeline {
@@ -1246,15 +1268,19 @@ public final class ViewportRenderer: NSObject, MTKViewDelegate, Sendable {
 
         objectIndex = 0
         for body in bodies where body.isVisible {
+            let bodyObjectIndex = objectIndex
+            objectIndex += 1
             guard let buffers = bodyBufferCache[body.id] else {
-                objectIndex += 1
                 continue
             }
+            // Overlay bodies are drawn after the selection outline, in their own pass.
+            if body.renderLayer == .overlay { continue }
 
             var uniforms = makeUniforms()
+            uniforms.modelMatrix = body.transform
 
             let selState: UInt32 = selectedIDs.contains(body.id) ? 1 : (hoveredID == body.id ? 2 : 0)
-            var bodyUniforms = BodyUniforms(body: body, objectIndex: objectIndex, isSelected: selState)
+            var bodyUniforms = BodyUniforms(body: body, objectIndex: bodyObjectIndex, isSelected: selState)
 
             let hasMesh = buffers.vertexBuffer != nil && buffers.indexBuffer != nil && buffers.indexCount > 0
             let hasEdges = buffers.edgeVertexBuffer != nil && buffers.edgeVertexCount > 0
@@ -1341,8 +1367,6 @@ public final class ViewportRenderer: NSObject, MTKViewDelegate, Sendable {
                 mainEncoder.setFragmentBytes(&edgeBodyUniforms, length: MemoryLayout<BodyUniforms>.size, index: 2)
                 mainEncoder.drawPrimitives(type: .line, vertexStart: 0, vertexCount: buffers.edgeVertexCount)
             }
-
-            objectIndex += 1
         }
 
         // 4. Selection outline pass (stencil test: draw only where stencil != 1)
@@ -1365,7 +1389,7 @@ public final class ViewportRenderer: NSObject, MTKViewDelegate, Sendable {
 
                 var outlineParams = SelectionOutlineParamsSwift(
                     viewProjectionMatrix: viewProjection,
-                    modelMatrix: matrix_identity_float4x4,
+                    modelMatrix: body.transform,
                     outlineColor: outlineColor,
                     outlineScale: 0.015
                 )
@@ -1380,6 +1404,60 @@ public final class ViewportRenderer: NSObject, MTKViewDelegate, Sendable {
                     indexBuffer: ib,
                     indexBufferOffset: 0
                 )
+            }
+        }
+
+        // 5. Overlay pass — RenderLayer.overlay bodies, drawn after the selection
+        // outline with always-pass depth so they remain visible through any geometry.
+        // Uses the standard shaded + wireframe pipelines (no tessellation / mesh
+        // shader paths, since manipulator widgets are simple meshes).
+        let hasOverlayBodies = bodies.contains { $0.isVisible && $0.renderLayer == .overlay }
+        if hasOverlayBodies {
+            mainEncoder.setDepthStencilState(overlayDepthState)
+            objectIndex = 0
+            for body in bodies where body.isVisible {
+                let bodyObjectIndex = objectIndex
+                objectIndex += 1
+                guard body.renderLayer == .overlay,
+                      let buffers = bodyBufferCache[body.id] else { continue }
+
+                var uniforms = makeUniforms()
+                uniforms.modelMatrix = body.transform
+                var bodyUniforms = BodyUniforms(body: body, objectIndex: bodyObjectIndex, isSelected: 0)
+
+                let hasMesh = buffers.vertexBuffer != nil && buffers.indexBuffer != nil && buffers.indexCount > 0
+                let hasEdges = buffers.edgeVertexBuffer != nil && buffers.edgeVertexCount > 0
+
+                if displayMode.showsSurfaces, hasMesh,
+                   let vb = buffers.vertexBuffer, let ib = buffers.indexBuffer {
+                    mainEncoder.setRenderPipelineState(shadedPipeline)
+                    mainEncoder.setVertexBuffer(vb, offset: 0, index: 0)
+                    mainEncoder.setVertexBytes(&uniforms, length: MemoryLayout<Uniforms>.size, index: 1)
+                    mainEncoder.setFragmentBytes(&uniforms, length: MemoryLayout<Uniforms>.size, index: 1)
+                    mainEncoder.setFragmentBytes(&bodyUniforms, length: MemoryLayout<BodyUniforms>.size, index: 2)
+                    mainEncoder.setFragmentTexture(matcapTexture, index: 0)
+                    mainEncoder.drawIndexedPrimitives(
+                        type: .triangle,
+                        indexCount: buffers.indexCount,
+                        indexType: .uint32,
+                        indexBuffer: ib,
+                        indexBufferOffset: 0
+                    )
+                }
+
+                let shouldDrawEdges = hasEdges && (displayMode.showsEdges || !hasMesh)
+                if shouldDrawEdges, let edgeVB = buffers.edgeVertexBuffer {
+                    var edgeBodyUniforms = bodyUniforms
+                    if !hasMesh {
+                        edgeBodyUniforms.metallic = -1.0
+                    }
+                    mainEncoder.setRenderPipelineState(wireframePipeline)
+                    mainEncoder.setVertexBuffer(edgeVB, offset: 0, index: 0)
+                    mainEncoder.setVertexBytes(&uniforms, length: MemoryLayout<Uniforms>.size, index: 1)
+                    mainEncoder.setFragmentBytes(&uniforms, length: MemoryLayout<Uniforms>.size, index: 1)
+                    mainEncoder.setFragmentBytes(&edgeBodyUniforms, length: MemoryLayout<BodyUniforms>.size, index: 2)
+                    mainEncoder.drawPrimitives(type: .line, vertexStart: 0, vertexCount: buffers.edgeVertexCount)
+                }
             }
         }
 
@@ -1414,16 +1492,20 @@ public final class ViewportRenderer: NSObject, MTKViewDelegate, Sendable {
 
                     objectIndex = 0
                     for body in bodies where body.isVisible {
+                        let bodyObjectIndex = objectIndex
+                        objectIndex += 1
                         guard let buffers = bodyBufferCache[body.id] else {
-                            objectIndex += 1
                             continue
                         }
+                        // Overlay bodies are picked in the second pick loop (always-pass depth).
+                        if body.renderLayer == .overlay { continue }
 
                         let hasMesh = buffers.vertexBuffer != nil && buffers.indexBuffer != nil && buffers.indexCount > 0
 
                         if hasMesh, let vb = buffers.vertexBuffer, let ib = buffers.indexBuffer {
                             var uniforms = makeUniforms()
-                            var bodyUniforms = BodyUniforms(body: body, objectIndex: objectIndex)
+                            uniforms.modelMatrix = body.transform
+                            var bodyUniforms = BodyUniforms(body: body, objectIndex: bodyObjectIndex)
 
                             if useMeshShaders, let ml = buffers.meshlets, let msPipeline = meshShaderPickPipeline {
                                 pickEncoder.setRenderPipelineState(msPipeline)
@@ -1469,8 +1551,39 @@ public final class ViewportRenderer: NSObject, MTKViewDelegate, Sendable {
                                 )
                             }
                         }
+                    }
 
-                        objectIndex += 1
+                    // Overlay pick pass: draw RenderLayer.overlay bodies with
+                    // always-pass depth so they win the pick over occluding geometry.
+                    let hasOverlayBodies = bodies.contains { $0.isVisible && $0.renderLayer == .overlay }
+                    if hasOverlayBodies {
+                        pickEncoder.setDepthStencilState(overlayDepthState)
+                        objectIndex = 0
+                        for body in bodies where body.isVisible {
+                            let bodyObjectIndex = objectIndex
+                            objectIndex += 1
+                            guard body.renderLayer == .overlay,
+                                  let buffers = bodyBufferCache[body.id],
+                                  let vb = buffers.vertexBuffer,
+                                  let ib = buffers.indexBuffer,
+                                  buffers.indexCount > 0 else { continue }
+
+                            var uniforms = makeUniforms()
+                            uniforms.modelMatrix = body.transform
+                            var bodyUniforms = BodyUniforms(body: body, objectIndex: bodyObjectIndex)
+
+                            pickEncoder.setRenderPipelineState(pickShadedPipeline)
+                            pickEncoder.setVertexBuffer(vb, offset: 0, index: 0)
+                            pickEncoder.setVertexBytes(&uniforms, length: MemoryLayout<Uniforms>.size, index: 1)
+                            pickEncoder.setFragmentBytes(&bodyUniforms, length: MemoryLayout<BodyUniforms>.size, index: 2)
+                            pickEncoder.drawIndexedPrimitives(
+                                type: .triangle,
+                                indexCount: buffers.indexCount,
+                                indexType: .uint32,
+                                indexBuffer: ib,
+                                indexBufferOffset: 0
+                            )
+                        }
                     }
 
                     pickEncoder.endEncoding()
@@ -1943,11 +2056,12 @@ public final class ViewportRenderer: NSObject, MTKViewDelegate, Sendable {
         blitEncoder.endEncoding()
 
         let indexMap = currentIndexMap
+        let layerMap = currentLayerMap
         let readbackBuffer = pickReadbackBuffer
 
         commandBuffer.addCompletedHandler { _ in
             let rawValue = readbackBuffer.contents().load(as: UInt32.self)
-            let result = PickResult(rawValue: rawValue, indexMap: indexMap)
+            let result = PickResult(rawValue: rawValue, indexMap: indexMap, layerMap: layerMap)
             Task { @MainActor in
                 completion(result)
             }

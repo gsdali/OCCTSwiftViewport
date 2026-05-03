@@ -5,6 +5,28 @@
 
 import simd
 
+/// Render-time layering for a body.
+///
+/// `.geometry` participates in normal depth testing. `.overlay` is drawn after the
+/// selection outline pass with an always-pass depth state, so the body is visible
+/// even when occluded by other geometry — used by manipulator widgets and similar
+/// always-on-top UI affordances.
+public enum RenderLayer: Hashable, Sendable {
+    case geometry
+    case overlay
+}
+
+/// Pick stream a body belongs to.
+///
+/// `.userGeometry` results land in `ViewportController.pickResult`. `.widget`
+/// results land in `ViewportController.widgetPickResult`, so consumers (e.g.,
+/// OCCTSwiftAIS manipulators) can run their own pick handling without leaking
+/// into the user selection stream.
+public enum PickLayer: Hashable, Sendable {
+    case userGeometry
+    case widget
+}
+
 /// A renderable body for the Metal viewport.
 ///
 /// Contains interleaved vertex data, triangle indices, and edge polylines
@@ -52,6 +74,18 @@ public struct ViewportBody: Identifiable, Sendable {
     /// Whether this body should be rendered.
     public var isVisible: Bool
 
+    /// Render-time layer. `.overlay` bodies are drawn always-on-top.
+    public var renderLayer: RenderLayer
+
+    /// Pick stream this body belongs to. `.widget` results route to
+    /// `ViewportController.widgetPickResult` instead of `pickResult`.
+    public var pickLayer: PickLayer
+
+    /// Per-body model transform. Applied as an additional matrix on top of the
+    /// scene model matrix in the vertex shader, so the renderer can move a body
+    /// (e.g., during a manipulator drag) without re-uploading vertex data.
+    public var transform: simd_float4x4
+
     public init(
         id: String,
         vertexData: [Float],
@@ -62,7 +96,10 @@ public struct ViewportBody: Identifiable, Sendable {
         roughness: Float = 0.5,
         metallic: Float = 0.0,
         material: PBRMaterial? = nil,
-        isVisible: Bool = true
+        isVisible: Bool = true,
+        renderLayer: RenderLayer = .geometry,
+        pickLayer: PickLayer = .userGeometry,
+        transform: simd_float4x4 = matrix_identity_float4x4
     ) {
         ViewportBody._nextGeneration += 1
         self.generation = ViewportBody._nextGeneration
@@ -76,6 +113,9 @@ public struct ViewportBody: Identifiable, Sendable {
         self.metallic = metallic
         self.material = material
         self.isVisible = isVisible
+        self.renderLayer = renderLayer
+        self.pickLayer = pickLayer
+        self.transform = transform
     }
 }
 

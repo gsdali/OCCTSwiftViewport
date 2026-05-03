@@ -27,14 +27,20 @@ public struct PickResult: Sendable, Equatable {
     /// The raw encoded value read from the pick buffer.
     public let rawValue: UInt32
 
+    /// The pick layer the body belongs to. Used by `ViewportController` to
+    /// route the result to either `pickResult` or `widgetPickResult`.
+    public let pickLayer: PickLayer
+
     /// Decodes a raw pick value using the provided index map.
     ///
     /// - Parameters:
     ///   - rawValue: The R32Uint value read back from the GPU.
     ///   - indexMap: Mapping from objectIndex (Int) to body ID (String).
+    ///   - layerMap: Optional mapping from body ID to its `PickLayer`. Bodies
+    ///     not present in the map are treated as `.userGeometry`.
     /// - Returns: `nil` if the raw value is the sentinel (no hit) or the
     ///   object index is not found in the map.
-    public init?(rawValue: UInt32, indexMap: [Int: String]) {
+    public init?(rawValue: UInt32, indexMap: [Int: String], layerMap: [String: PickLayer] = [:]) {
         guard rawValue != Self.sentinel else { return nil }
 
         let objectIndex = Int(rawValue & 0xFFFF)
@@ -46,5 +52,6 @@ public struct PickResult: Sendable, Equatable {
         self.bodyIndex = objectIndex
         self.triangleIndex = primitiveID
         self.rawValue = rawValue
+        self.pickLayer = layerMap[bodyID] ?? .userGeometry
     }
 }

@@ -2,6 +2,15 @@
 
 All notable changes to OCCTSwiftViewport are documented in this file.
 
+## [0.52.0] — 2026-05-03
+
+### Added
+- **Renderer-side support for OCCTSwiftAIS manipulator widgets** (issue #23):
+  - `ViewportBody.renderLayer: RenderLayer` (`.geometry` / `.overlay`). Overlay bodies are drawn after the selection outline with `depthCompareFunction = .always`, so manipulator arrows remain grabbable even when occluded by their target body. Overlay bodies are also rendered into the pick texture with always-pass depth.
+  - `ViewportBody.pickLayer: PickLayer` (`.userGeometry` / `.widget`). `ViewportController.pickResult` now exposes only user-geometry picks; `ViewportController.widgetPickResult` (new) carries widget-layer picks. A single GPU pick pass populates both via the body's layer. Adds `onWidgetPick` callback and `clearWidgetPick()`.
+  - `ViewportBody.transform: simd_float4x4`. Drives the per-body model matrix in the main, shadow, pick, and selection-outline passes — manipulator drags can now move a body without re-uploading vertex data.
+  - `PickResult.pickLayer` field; the existing `init(rawValue:indexMap:)` gains an optional `layerMap:` parameter (existing call sites stay source-compatible).
+
 ## [0.51.0] — 2026-05-03
 
 ### Removed (breaking)

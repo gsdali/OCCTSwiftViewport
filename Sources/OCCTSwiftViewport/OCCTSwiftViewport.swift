@@ -83,6 +83,8 @@ public typealias _ViewportController = ViewportController
 
 // Metal Renderer
 public typealias _ViewportBody = ViewportBody
+public typealias _RenderLayer = RenderLayer
+public typealias _PickLayer = PickLayer
 public typealias _ViewportRenderer = ViewportRenderer
 public typealias _OffscreenRenderer = OffscreenRenderer
 public typealias _OffscreenRenderOptions = OffscreenRenderOptions

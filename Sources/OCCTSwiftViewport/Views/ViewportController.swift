@@ -54,8 +54,14 @@ public final class ViewportController: ObservableObject {
     /// Lighting configuration for live adjustment.
     @Published public var lightingConfiguration: LightingConfiguration
 
-    /// The most recent pick result, or nil if nothing is selected.
+    /// The most recent pick result on the user-geometry layer, or nil if nothing
+    /// is selected. Pick events on bodies with `pickLayer == .widget` are routed
+    /// to `widgetPickResult` instead.
     @Published public private(set) var pickResult: PickResult?
+
+    /// The most recent pick result on the widget layer (e.g., manipulator handles
+    /// from OCCTSwiftAIS), or nil. Populated for bodies with `pickLayer == .widget`.
+    @Published public private(set) var widgetPickResult: PickResult?
 
     /// Set of currently selected body IDs. Bodies in this set render with a highlight outline.
     @Published public var selectedBodyIDs: Set<String> = []
@@ -309,20 +315,33 @@ public final class ViewportController: ObservableObject {
 
     // MARK: - Picking
 
-    /// Optional callback invoked when a pick occurs.
+    /// Optional callback invoked when a user-geometry pick occurs.
     public var onPick: ((PickResult?) -> Void)?
 
+    /// Optional callback invoked when a widget-layer pick occurs.
+    public var onWidgetPick: ((PickResult?) -> Void)?
+
     /// Called by the view layer after a GPU pick readback completes.
+    ///
+    /// Routes the result to either `pickResult` (default) or `widgetPickResult`
+    /// based on the picked body's `pickLayer`. A nil result clears `pickResult`
+    /// only — `widgetPickResult` keeps its last value, since the widget-pick
+    /// stream is owned by an external consumer (e.g., AIS) that decides when to
+    /// reset it.
     public func handlePick(result: PickResult?) {
-        pickResult = result
-        onPick?(result)
+        if let result, result.pickLayer == .widget {
+            widgetPickResult = result
+            onWidgetPick?(result)
+        } else {
+            pickResult = result
+            onPick?(result)
+        }
     }
 
     /// Called by the view layer after a GPU pick readback completes, with NDC coordinates.
     public func handlePick(result: PickResult?, ndc: SIMD2<Float>) {
         lastPickNDC = ndc
-        pickResult = result
-        onPick?(result)
+        handlePick(result: result)
     }
 
     /// Clears the current selection.
@@ -330,6 +349,12 @@ public final class ViewportController: ObservableObject {
         pickResult = nil
         selectedBodyIDs.removeAll()
         onPick?(nil)
+    }
+
+    /// Clears the most recent widget-layer pick result.
+    public func clearWidgetPick() {
+        widgetPickResult = nil
+        onWidgetPick?(nil)
     }
 
     /// Selects a body by ID, optionally toggling (for multi-select).
