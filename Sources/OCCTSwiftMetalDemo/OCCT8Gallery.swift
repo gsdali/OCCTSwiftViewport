@@ -12947,20 +12947,13 @@ enum OCCT8Gallery {
             edges: [invPts], color: SIMD4(0.5, 0.3, 0.9, 1)))
         descriptions.append("Involute: r=3")
 
-        // --- PointSetLib ---
+        // --- PointSet sample cloud (PointSetLib_Props/Equation removed in OCCT 8.0.0 GA) ---
         let points: [SIMD3<Double>] = (0..<20).map { i in
             let angle = Double(i) * 2.0 * .pi / 20.0
             return SIMD3(5 * cos(angle), 5 * sin(angle), Double.random(in: -0.5...0.5))
         }
-        let props = PointSetLib.properties(points: points)
-        let _ = PointSetLib.barycentre(points: points)
-        descriptions.append("PointSet: centroid=(\(String(format: "%.1f", props.centroid.x)),\(String(format: "%.1f", props.centroid.y)),\(String(format: "%.1f", props.centroid.z)))")
+        descriptions.append("PointSetLib removed in OCCT 8.0.0 GA — no upstream replacement")
 
-        if let eq = PointSetLib.equation(points: points) {
-            descriptions.append("Eq: type=\(eq.type.rawValue) n=(\(String(format: "%.2f", eq.planeNormal.x)),\(String(format: "%.2f", eq.planeNormal.y)),\(String(format: "%.2f", eq.planeNormal.z)))")
-        }
-
-        // Show point cloud
         for (i, pt) in points.enumerated() {
             bodies.append(makeMarker(at: SIMD3<Float>(Float(pt.x), Float(pt.y) - 15, Float(pt.z)),
                 radius: 0.3, id: "v130-pt-\(i)", color: SIMD4(0.9, 0.9, 0.3, 1)))
@@ -17099,6 +17092,58 @@ enum OCCT8Gallery {
 
         let (body, _) = CADFileLoader.shapeToBodyAndMetadata(
             box, id: "v164-box", color: SIMD4(0.7, 0.55, 0.85, 1.0))
+        if let body { bodies.append(body) }
+
+        return Curve2DGallery.GalleryResult(
+            bodies: bodies,
+            description: descriptions.joined(separator: " | ")
+        )
+    }
+
+    // MARK: - v1.0.0: OCCT 8.0.0 GA — rootNodes / setEdgeRegularity
+
+    /// Demonstrates the OCCTSwift v1.0 GA changes:
+    ///
+    /// 1. `TopologyGraph.NodeKind` now covers `product=10` and `occurrence=11`. Pre-1.0.1
+    ///    this was missing, so `rootNodes` silently returned `[]` for graphs whose roots
+    ///    are products — which became the norm after OCCT 8.0.0 beta1 reshaped root
+    ///    iteration to "Products only".
+    /// 2. `setEdgeRegularity(_:face1:face2:continuity:)` is the consolidated GA API.
+    ///    Pre-1.0 had three separate setters (`setCoEdgeContinuity`,
+    ///    `setCoEdgeSeamContinuity`, `setCoEdgeSeamPairId`); GA pushed continuity to
+    ///    the `(edge, face1, face2)` triple in `BRepGraph_LayerRegularity`.
+    static func v1RootNodesAndEdgeRegularity() -> Curve2DGallery.GalleryResult {
+        var bodies: [ViewportBody] = []
+        var descriptions: [String] = []
+
+        guard let cyl = Shape.cylinder(radius: 2.0, height: 4.0),
+              let graph = TopologyGraph(shape: cyl) else {
+            return Curve2DGallery.GalleryResult(bodies: [], description: "graph build FAILED")
+        }
+
+        // Wrap the solid in a Product so the graph has a Product root (kind=10).
+        // Before v1.0.1 this would still resolve, but `rootNodes` would skip it
+        // because NodeKind.product/occurrence raw values were missing from the enum.
+        if let pid = graph.linkProductToTopology(shapeRootKind: 0 /* Solid */,
+                                                  shapeRootIndex: 0) {
+            descriptions.append("linkProductToTopology → product[\(pid)]")
+        } else {
+            descriptions.append("linkProductToTopology FAILED")
+        }
+
+        let roots = graph.rootNodes
+        descriptions.append("rootNodes.count=\(roots.count)")
+        for (i, r) in roots.enumerated() {
+            descriptions.append("root[\(i)]: kind=\(r.kind) idx=\(r.index)")
+        }
+
+        // setEdgeRegularity: write C^1 continuity on edge 1 across faces 1 & 2.
+        // Returns true only if the LayerRegularity layer is registered on the graph.
+        let regWritten = graph.setEdgeRegularity(1, face1: 1, face2: 2, continuity: 1)
+        descriptions.append("setEdgeRegularity(edge=1,f1=1,f2=2,C1) → \(regWritten ? "ok" : "no-layer")")
+
+        let (body, _) = CADFileLoader.shapeToBodyAndMetadata(
+            cyl, id: "v1-cyl", color: SIMD4(0.4, 0.7, 0.95, 1.0))
         if let body { bodies.append(body) }
 
         return Curve2DGallery.GalleryResult(

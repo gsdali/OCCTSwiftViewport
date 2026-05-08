@@ -45,7 +45,7 @@ This package provides two library products:
 // Package.swift
 dependencies: [
     .package(path: "../OCCTSwiftViewport"),
-    // or: .package(url: "https://github.com/gsdali/OCCTSwiftViewport.git", from: "0.50.0")
+    // or: .package(url: "https://github.com/gsdali/OCCTSwiftViewport.git", from: "1.0.0")
 ],
 targets: [
     .target(
