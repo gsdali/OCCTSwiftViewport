@@ -2,6 +2,8 @@
 
 A reusable Metal-based 3D viewport library for CAD applications on iOS and macOS. Designed as a rendering companion to [OCCTSwift](https://github.com/gsdali/OCCTSwift) — the two libraries are fully independent, with your app bridging geometry and display.
 
+Part of the [OCCTSwift ecosystem](https://github.com/gsdali/OCCTSwift/blob/main/docs/ecosystem.md) — see the ecosystem map for how this package fits with the kernel, bridge, and sibling layers. SemVer-stable from v1.0.0.
+
 ```
 Your App
   ├── OCCTSwift          (geometry kernel — B-Rep, STEP, booleans, etc.)
@@ -456,6 +458,10 @@ git clone https://github.com/gsdali/OCCTSwift.git
 git clone https://github.com/gsdali/OCCTSwiftViewport.git
 # They should be at the same directory level
 ```
+
+## Changelog
+
+See [docs/CHANGELOG.md](docs/CHANGELOG.md) for release notes.
 
 ## License
 
