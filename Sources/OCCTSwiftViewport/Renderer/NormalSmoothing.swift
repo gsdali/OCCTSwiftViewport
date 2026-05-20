@@ -134,13 +134,23 @@ public enum NormalSmoothing {
     }
 
     /// Quantizes a position to a grid for spatial hashing (tolerance ~1e-5).
+    ///
+    /// Non-finite coordinates map to 0 and coordinates beyond the Int32 range are
+    /// clamped, so an out-of-range or `NaN`/`±inf` tessellation vertex can never trap
+    /// the trapping `Int32(_: Float)` initializer. This only affects the welding key:
+    /// welding matters only for near-coincident vertices, so a clamped extreme simply
+    /// fails to weld with anything, which is correct.
     private static func quantize(_ p: SIMD3<Float>) -> SIMD3<Int32> {
         let scale: Float = 1e5
-        return SIMD3<Int32>(
-            Int32(round(p.x * scale)),
-            Int32(round(p.y * scale)),
-            Int32(round(p.z * scale))
-        )
+        // Inside the Int32 range and exactly representable as Float. Clamping to
+        // Float(Int32.max) would itself trap, since that rounds up to 2³¹.
+        let limit: Float = 2_000_000_000
+        func q(_ v: Float) -> Int32 {
+            let s = (v * scale).rounded()
+            guard s.isFinite else { return 0 }
+            return Int32(min(max(s, -limit), limit))
+        }
+        return SIMD3<Int32>(q(p.x), q(p.y), q(p.z))
     }
 
     /// Groups triangle indices by crease-angle connectivity.
