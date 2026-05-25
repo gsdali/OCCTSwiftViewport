@@ -30,9 +30,12 @@ cd "$REPO" || { echo "Repo not found at $REPO" >> "$LOG"; exit 1; }
   echo
 } > "$LOG"
 
-# Rebuild to pick up any in-flight changes since the last run.
+# Rebuild to pick up any in-flight changes since the last run. The demo now
+# lives in its own package at Examples/MetalDemo (kept out of the root manifest
+# to avoid a Viewport -> Tools -> Viewport cycle), so build that package.
+DEMO_PKG="Examples/MetalDemo"
 echo "── building ──" >> "$LOG"
-swift build >> "$LOG" 2>&1
+swift build --package-path "$DEMO_PKG" >> "$LOG" 2>&1
 build_exit=$?
 if [ $build_exit -ne 0 ]; then
   echo "BUILD FAILED (exit $build_exit) — aborting" >> "$LOG"
@@ -44,7 +47,7 @@ fi
 # 3 iterations exercises the leak detector; --render verifies Metal can
 # rasterize each demo; --baseline-check fails any 2x regression.
 echo "── running stress test (3 iterations, render, baseline check) ──" >> "$LOG"
-caffeinate -d .build/debug/OCCTSwiftMetalDemo \
+caffeinate -d "$DEMO_PKG/.build/debug/OCCTSwiftMetalDemo" \
   --test-all-demos \
   --iterations 3 \
   --render \

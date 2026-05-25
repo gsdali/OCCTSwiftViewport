@@ -21,7 +21,7 @@ targets:
     type: application
     platform: [macOS, iOS]
     sources:
-      - path: Sources/OCCTSwiftMetalDemo
+      - path: Examples/MetalDemo/Sources/OCCTSwiftMetalDemo
     dependencies:
       - package: OCCTSwiftViewport
       - package: OCCTSwiftTools

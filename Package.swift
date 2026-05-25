@@ -1,6 +1,12 @@
 // swift-tools-version: 6.0
 import PackageDescription
 
+// NOTE: OCCTSwiftViewport is a leaf layer. Its library and test targets depend
+// on NO other OCCTSwift package — it renders plain `ViewportBody` arrays and
+// knows nothing about the kernel. The interactive demo, which DOES use the
+// kernel and OCCTSwiftTools, lives in its own package at Examples/MetalDemo so
+// that this published manifest never declares an upward dependency on Tools
+// (which depends back on Viewport — a package cycle). See Examples/MetalDemo.
 let package = Package(
     name: "OCCTSwiftViewport",
     platforms: [
@@ -13,10 +19,6 @@ let package = Package(
             targets: ["OCCTSwiftViewport"]
         ),
     ],
-    dependencies: [
-        .package(url: "https://github.com/gsdali/OCCTSwift.git", from: "1.0.1"),
-        .package(url: "https://github.com/gsdali/OCCTSwiftTools.git", from: "1.0.0"),
-    ],
     targets: [
         .target(
             name: "OCCTSwiftViewport",
@@ -24,18 +26,6 @@ let package = Package(
             resources: [
                 .process("Renderer/Shaders.metal")
             ],
-            swiftSettings: [
-                .swiftLanguageMode(.v6)
-            ]
-        ),
-        .executableTarget(
-            name: "OCCTSwiftMetalDemo",
-            dependencies: [
-                "OCCTSwiftViewport",
-                .product(name: "OCCTSwiftTools", package: "OCCTSwiftTools"),
-                .product(name: "OCCTSwift", package: "OCCTSwift"),
-            ],
-            path: "Sources/OCCTSwiftMetalDemo",
             swiftSettings: [
                 .swiftLanguageMode(.v6)
             ]
