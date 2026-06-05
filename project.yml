@@ -4,6 +4,7 @@ options:
   deploymentTarget:
     iOS: "18.0"
     macOS: "15.0"
+    visionOS: "1.0"
   xcodeVersion: "16.0"
   generateEmptyDirectories: false
 
@@ -19,7 +20,7 @@ packages:
 targets:
   OCCTSwiftMetalDemo:
     type: application
-    platform: [macOS, iOS]
+    platform: [macOS, iOS, visionOS]
     sources:
       - path: Examples/MetalDemo/Sources/OCCTSwiftMetalDemo
     dependencies:
