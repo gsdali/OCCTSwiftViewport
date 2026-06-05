@@ -135,6 +135,13 @@ public struct ViewportConfiguration: Sendable {
     /// Silhouette edge darkness (0 = invisible, 1 = fully dark).
     public var silhouetteIntensity: Float
 
+    /// Whether to frustum-cull bodies whose world-space bounds fall entirely
+    /// outside the camera view (issue #42). On by default — off-screen bodies are
+    /// not visible anyway, and skipping them is the main lever for large scenes.
+    /// Bodies with no `boundingBox` are never culled. The shadow pass is not
+    /// culled by the camera frustum (off-screen casters can shadow visible geometry).
+    public var enableFrustumCulling: Bool
+
     // MARK: - Picking
 
     /// Configuration for GPU-accelerated picking.
@@ -206,6 +213,7 @@ public struct ViewportConfiguration: Sendable {
         enableSilhouettes: Bool = true,
         silhouetteThickness: Float = 1.0,
         silhouetteIntensity: Float = 0.7,
+        enableFrustumCulling: Bool = true,
         pickingConfiguration: PickingConfiguration = .init(),
         enableDepthOfField: Bool = false,
         dofAperture: Float = 2.8,
@@ -245,6 +253,7 @@ public struct ViewportConfiguration: Sendable {
         self.enableSilhouettes = enableSilhouettes
         self.silhouetteThickness = silhouetteThickness
         self.silhouetteIntensity = silhouetteIntensity
+        self.enableFrustumCulling = enableFrustumCulling
         self.pickingConfiguration = pickingConfiguration
         self.enableDepthOfField = enableDepthOfField
         self.dofAperture = dofAperture
