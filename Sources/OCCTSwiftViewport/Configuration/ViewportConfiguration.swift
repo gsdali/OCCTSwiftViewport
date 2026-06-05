@@ -142,6 +142,18 @@ public struct ViewportConfiguration: Sendable {
     /// culled by the camera frustum (off-screen casters can shadow visible geometry).
     public var enableFrustumCulling: Bool
 
+    /// Whether to apply crease-aware normal smoothing to each body's mesh when its
+    /// buffers are built (issue #48). Meshes that arrive with per-face (flat)
+    /// normals can't be rounded by Phong tessellation; smoothing averages normals
+    /// across shared vertices (preserving hard edges via the crease angle) so
+    /// `.enhanced` tessellation produces smooth silhouettes. Off by default —
+    /// enabled by `.cadHighQuality`. Computed once per body (cached), not per frame.
+    public var autoSmoothNormals: Bool
+
+    /// Crease angle (radians) for `autoSmoothNormals`: edges whose adjacent faces
+    /// differ by more than this stay sharp. Default ~30°.
+    public var normalSmoothingCreaseAngle: Float
+
     // MARK: - Picking
 
     /// Configuration for GPU-accelerated picking.
@@ -214,6 +226,8 @@ public struct ViewportConfiguration: Sendable {
         silhouetteThickness: Float = 1.0,
         silhouetteIntensity: Float = 0.7,
         enableFrustumCulling: Bool = true,
+        autoSmoothNormals: Bool = false,
+        normalSmoothingCreaseAngle: Float = 0.524,
         pickingConfiguration: PickingConfiguration = .init(),
         enableDepthOfField: Bool = false,
         dofAperture: Float = 2.8,
@@ -254,6 +268,8 @@ public struct ViewportConfiguration: Sendable {
         self.silhouetteThickness = silhouetteThickness
         self.silhouetteIntensity = silhouetteIntensity
         self.enableFrustumCulling = enableFrustumCulling
+        self.autoSmoothNormals = autoSmoothNormals
+        self.normalSmoothingCreaseAngle = normalSmoothingCreaseAngle
         self.pickingConfiguration = pickingConfiguration
         self.enableDepthOfField = enableDepthOfField
         self.dofAperture = dofAperture
@@ -340,6 +356,7 @@ public struct ViewportConfiguration: Sendable {
         showViewCube: true,
         showAxes: true,
         showGrid: true,
+        autoSmoothNormals: true,
         renderingQuality: .enhanced,
         tessellationMaxFactor: 48,
         adaptiveTessellation: true

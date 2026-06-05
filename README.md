@@ -260,10 +260,13 @@ let controller = ViewportController(configuration: .cadHighQuality)
 
 **What controls smoothness**
 - **Surfaces:** `renderingQuality = .enhanced` (or `.maximum`) enables adaptive
-  Phong tessellation. Requires an Apple3+ GPU (falls back gracefully). Needs
-  reasonable per-vertex normals on the input mesh — OCCT meshes provide these; for
-  flat-normalled meshes, run `NormalSmoothing.smoothNormals(vertexData:indices:creaseAngle:)`
-  first (crease-aware, so hard edges stay sharp).
+  Phong tessellation. Requires an Apple3+ GPU (falls back gracefully). Smooth
+  silhouettes need reasonable per-vertex normals — OCCT meshes provide these. For
+  flat / per-face-normalled meshes (e.g. STL), set `autoSmoothNormals = true`
+  (on by default in `.cadHighQuality`) and the renderer applies crease-aware
+  smoothing when building each body, so hard edges stay sharp (tune via
+  `normalSmoothingCreaseAngle`). You can also pre-smooth yourself with
+  `NormalSmoothing.smoothNormals(vertexData:indices:creaseAngle:)`.
 - **Feature edges:** edges are drawn as polylines, so a circular edge is only as
   smooth as its sampling. Sample BREP edges finely (e.g. 64+ points per circle)
   until analytic arc edges land — see [issue #48](https://github.com/gsdali/OCCTSwiftViewport/issues/48).

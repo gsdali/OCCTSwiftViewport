@@ -2,6 +2,15 @@
 
 All notable changes to OCCTSwiftViewport are documented in this file.
 
+## [1.1.6] — 2026-06-06
+
+### Added
+- **Renderer-side auto normal smoothing** (issue #48, part 2) — `ViewportConfiguration.autoSmoothNormals` (+ `normalSmoothingCreaseAngle`). When enabled, the renderer applies crease-aware `NormalSmoothing` to each body's mesh as its buffers are built, so meshes that arrive with flat / per-face normals (e.g. STL) can actually be rounded by `.enhanced` Phong tessellation — hard edges stay sharp via the crease angle. Computed once per body (generation-gated, cached), and the smoothed normals flow into the tessellation patch control points automatically (the patch builder reads the body vertex buffer).
+- Enabled by default in `.cadHighQuality`. New tests: config wiring + crease preservation (116 total).
+- README "Smooth Round Geometry" updated to point at `autoSmoothNormals`.
+
+Analytic arc edges continue in #48 (part 3).
+
 ## [1.1.5] — 2026-06-06
 
 ### Added

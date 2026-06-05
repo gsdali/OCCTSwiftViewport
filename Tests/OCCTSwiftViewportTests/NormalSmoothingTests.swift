@@ -69,4 +69,46 @@ struct NormalSmoothingTests {
         #expect(abs(n1.x) < 1e-5)
         #expect(abs(n1.y) < 1e-5)
     }
+
+    // MARK: - Crease preservation (justifies auto-applying — #48 part 2)
+
+    /// Two triangles meeting at a 90° ridge along the shared y-axis edge. With a
+    /// crease angle below 90° the edge stays SHARP (each side keeps its own face
+    /// normal); with a crease angle above 90° the shared-edge normals average.
+    @Test("A hard crease is preserved below the crease angle, averaged above it")
+    func creasePreservedBelowAngle() {
+        // Two faces meeting at a 90° ridge along the shared edge (0,0,0)-(0,1,0):
+        // face A in the z=0 plane, face B in the x=0 plane. v0 (face A) and v3
+        // (face B) sit at the same position, so smoothing either splits them
+        // (sharp) or merges them (smooth) depending on the crease angle.
+        func build() -> [Float] {
+            interleaved([
+                SIMD3(0, 0, 0), SIMD3(0, 1, 0), SIMD3(1, 0, 0),   // face A
+                SIMD3(0, 0, 0), SIMD3(0, 1, 0), SIMD3(0, 0, 1),   // face B
+            ])
+        }
+        let indices: [UInt32] = [0, 1, 2, 3, 4, 5]
+        func normal(_ d: [Float], _ v: Int) -> SIMD3<Float> {
+            SIMD3(d[v * 6 + 3], d[v * 6 + 4], d[v * 6 + 5])
+        }
+
+        // Sharp: 45° crease < 90° ridge → the shared-position normals stay split,
+        // each axis-aligned to its own face.
+        var sharp = build()
+        NormalSmoothing.smoothNormals(vertexData: &sharp, indices: indices, creaseAngle: .pi / 4)
+        let aSharp = normal(sharp, 0), bSharp = normal(sharp, 3)
+        #expect(simd_length(aSharp - bSharp) > 0.5)            // distinct (sharp)
+        #expect(abs(simd_length(aSharp) - 1) < 1e-4)           // unit, single-face
+        let aSharpComps = [abs(aSharp.x), abs(aSharp.y), abs(aSharp.z)].filter { $0 > 0.3 }
+        #expect(aSharpComps.count == 1)                        // axis-aligned
+
+        // Smooth: 120° crease > 90° ridge → both shared-position normals merge to
+        // the same blended (two-component) normal.
+        var smooth = build()
+        NormalSmoothing.smoothNormals(vertexData: &smooth, indices: indices, creaseAngle: 2.094)
+        let aSmooth = normal(smooth, 0), bSmooth = normal(smooth, 3)
+        #expect(simd_length(aSmooth - bSmooth) < 1e-3)         // merged (same normal)
+        let blendComps = [abs(aSmooth.x), abs(aSmooth.y), abs(aSmooth.z)].filter { $0 > 0.3 }
+        #expect(blendComps.count >= 2)                         // blended across faces
+    }
 }
