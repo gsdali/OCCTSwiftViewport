@@ -86,4 +86,18 @@ struct ViewportArcTests {
                                    arcs: [Self.unitCircle], color: .one)
         #expect(withArc.arcs.count == 1)
     }
+
+    // MARK: - Pick decode contract (arc → kind=.edge, primitiveID = arc index)
+
+    @Test("Arc pick value decodes to .edge with the arc index as triangleIndex")
+    func arcPickDecode() {
+        // The arc pick fragment emits objectIndex | (arcIndex << 16) | (1 << 30).
+        let objectIndex: UInt32 = 7
+        let arcIndex: UInt32 = 3
+        let raw = objectIndex | ((arcIndex & 0x3FFF) << 16) | (1 << 30)
+        let result = PickResult(rawValue: raw, indexMap: [7: "ring"])
+        #expect(result?.bodyID == "ring")
+        #expect(result?.kind == .edge)
+        #expect(result?.triangleIndex == Int(arcIndex))   // arc index
+    }
 }

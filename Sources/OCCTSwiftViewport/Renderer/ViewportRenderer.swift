@@ -194,6 +194,7 @@ public final class ViewportRenderer: NSObject, MTKViewDelegate, Sendable {
     /// Line-primitive pick pipeline for edge picking. Same vertex shader as
     /// `pick_vertex`; fragment emits kind=1 in the pick encoding.
     private let pickLinePipeline: MTLRenderPipelineState?
+    private let pickArcPipeline: MTLRenderPipelineState?
     /// Point-sprite pick pipeline for vertex picking. Vertex shader writes
     /// `[[point_size]]` so individual points have a clickable footprint;
     /// fragment emits kind=2.
@@ -474,6 +475,18 @@ public final class ViewportRenderer: NSObject, MTKViewDelegate, Sendable {
         pickLineDesc.rasterSampleCount = 1
         pickLineDesc.vertexDescriptor = vertexDesc
         self.pickLinePipeline = try? device.makeRenderPipelineState(descriptor: pickLineDesc)
+
+        // 1x arc pick pipeline (issue #48) — reuses pick_vertex; fragment emits
+        // kind=1 with the per-draw arc index.
+        let pickArcDesc = MTLRenderPipelineDescriptor()
+        pickArcDesc.label = "pick_arc"
+        pickArcDesc.vertexFunction = library.makeFunction(name: "pick_vertex")
+        pickArcDesc.fragmentFunction = library.makeFunction(name: "pick_arc_fragment")
+        pickArcDesc.colorAttachments[0].pixelFormat = .r32Uint
+        pickArcDesc.depthAttachmentPixelFormat = .depth32Float
+        pickArcDesc.rasterSampleCount = 1
+        pickArcDesc.vertexDescriptor = vertexDesc
+        self.pickArcPipeline = try? device.makeRenderPipelineState(descriptor: pickArcDesc)
 
         // 1x point pick pipeline (vertex picking) — pick_point_vertex outputs
         // point_size for clickable footprint; fragment emits kind=2.
@@ -1546,16 +1559,17 @@ public final class ViewportRenderer: NSObject, MTKViewDelegate, Sendable {
             }
         }
 
-        // 3.35 Analytic arc edge pass (issue #48 part 3).
+        // 3.35 Analytic arc edge pass (issue #48).
         // Adaptively samples each visible body's `arcs` to line segments by their
         // projected size, so circular feature edges stay smooth at any zoom
-        // independent of mesh density. Built once per frame into one reused buffer
-        // and drawn per body (so arcs inherit the body's transform / colour).
+        // independent of mesh density. Per-arc segment ranges are recorded in
+        // `frameArcDraws` and the data lives in `arcLineBuffer`, so the pick pass
+        // below re-draws the same segments to the pick texture without re-sampling.
+        var frameArcDraws: [(body: ViewportBody, objectIndex: UInt32, arcIndex: Int, start: Int, count: Int)] = []
         let arcBodies = frameVisibleBodies.filter { !$0.body.arcs.isEmpty }
         if !arcBodies.isEmpty {
             let vpSize = SIMD2<Float>(Float(w), Float(h))
             var arcVerts: [Float] = []
-            var arcRanges: [(body: ViewportBody, objectIndex: UInt32, start: Int, count: Int)] = []
             for entry in arcBodies {
                 // Match the edge-pass visibility rule: show feature edges when the
                 // display mode draws edges, or when the body is edge-only.
@@ -1563,9 +1577,9 @@ public final class ViewportRenderer: NSObject, MTKViewDelegate, Sendable {
                 guard displayMode.showsEdges || !bodyHasMesh else { continue }
 
                 let mvp = viewProjection * entry.body.transform
-                let startVert = arcVerts.count / 6
-                for arc in entry.body.arcs {
+                for (arcIndex, arc) in entry.body.arcs.enumerated() {
                     let segs = ArcSampling.segmentCount(arc: arc, mvp: mvp, viewportSize: vpSize)
+                    let startVert = arcVerts.count / 6
                     var prev = arc.point(at: 0)
                     for s in 1...segs {
                         let cur = arc.point(at: Float(s) / Float(segs))
@@ -1573,10 +1587,10 @@ public final class ViewportRenderer: NSObject, MTKViewDelegate, Sendable {
                                                      cur.x, cur.y, cur.z, 0, 0, 0])
                         prev = cur
                     }
-                }
-                let count = arcVerts.count / 6 - startVert
-                if count > 0 {
-                    arcRanges.append((entry.body, entry.objectIndex, startVert, count))
+                    let count = arcVerts.count / 6 - startVert
+                    if count > 0 {
+                        frameArcDraws.append((entry.body, entry.objectIndex, arcIndex, startVert, count))
+                    }
                 }
             }
 
@@ -1587,15 +1601,16 @@ public final class ViewportRenderer: NSObject, MTKViewDelegate, Sendable {
                 }
                 mainEncoder.setRenderPipelineState(wireframePipeline)
                 mainEncoder.setVertexBuffer(arcBuf, offset: 0, index: 0)
-                var uniforms = makeUniforms()
-                for r in arcRanges {
-                    let bodyHasMesh = (bodyBufferCache[r.body.id]?.indexCount ?? 0) > 0
-                    var arcBodyUniforms = BodyUniforms(body: r.body, objectIndex: r.objectIndex, isSelected: 0)
+                for d in frameArcDraws {
+                    let bodyHasMesh = (bodyBufferCache[d.body.id]?.indexCount ?? 0) > 0
+                    var uniforms = makeUniforms()
+                    uniforms.modelMatrix = d.body.transform
+                    var arcBodyUniforms = BodyUniforms(body: d.body, objectIndex: d.objectIndex, isSelected: 0)
                     if !bodyHasMesh { arcBodyUniforms.metallic = -1.0 }  // use body colour directly
                     mainEncoder.setVertexBytes(&uniforms, length: MemoryLayout<Uniforms>.size, index: 1)
                     mainEncoder.setFragmentBytes(&uniforms, length: MemoryLayout<Uniforms>.size, index: 1)
                     mainEncoder.setFragmentBytes(&arcBodyUniforms, length: MemoryLayout<BodyUniforms>.size, index: 2)
-                    mainEncoder.drawPrimitives(type: .line, vertexStart: r.start, vertexCount: r.count)
+                    mainEncoder.drawPrimitives(type: .line, vertexStart: d.start, vertexCount: d.count)
                 }
             }
         }
@@ -1904,6 +1919,26 @@ public final class ViewportRenderer: NSObject, MTKViewDelegate, Sendable {
                                     vertexCount: buffers.edgeVertexCount
                                 )
                             }
+                        }
+                    }
+
+                    // Arc pick pass (issue #48): re-draw this frame's adaptively
+                    // sampled arc segments (from `arcLineBuffer`, ranges in
+                    // `frameArcDraws`) to the pick texture. Each arc is drawn
+                    // separately so the fragment can stamp the ARC index (kind=1).
+                    if let pickArcPipeline, !frameArcDraws.isEmpty, let arcBuf = arcLineBuffer {
+                        pickEncoder.setDepthStencilState(pickEdgeOrPointDepthState)
+                        pickEncoder.setRenderPipelineState(pickArcPipeline)
+                        pickEncoder.setVertexBuffer(arcBuf, offset: 0, index: 0)
+                        for d in frameArcDraws {
+                            var uniforms = makeUniforms()
+                            uniforms.modelMatrix = d.body.transform
+                            var bodyUniforms = BodyUniforms(body: d.body, objectIndex: d.objectIndex)
+                            var arcPrimID = UInt32(truncatingIfNeeded: d.arcIndex)
+                            pickEncoder.setVertexBytes(&uniforms, length: MemoryLayout<Uniforms>.size, index: 1)
+                            pickEncoder.setFragmentBytes(&bodyUniforms, length: MemoryLayout<BodyUniforms>.size, index: 2)
+                            pickEncoder.setFragmentBytes(&arcPrimID, length: MemoryLayout<UInt32>.size, index: 3)
+                            pickEncoder.drawPrimitives(type: .line, vertexStart: d.start, vertexCount: d.count)
                         }
                     }
 

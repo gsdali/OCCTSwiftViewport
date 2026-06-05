@@ -2,6 +2,16 @@
 
 All notable changes to OCCTSwiftViewport are documented in this file.
 
+## [1.1.8] — 2026-06-06
+
+### Added
+- **Analytic arc picking** (follow-up to #48). `ViewportArc`s are now pickable: a hit reports `PickResult.kind == .edge` with `triangleIndex` = the arc's index in `ViewportBody.arcs`. The pick pass re-draws this frame's adaptively-sampled arc segments (reusing the display pass's buffer + ranges — no re-sampling) through a new `pick_arc` pipeline; because segment counts are per-frame adaptive, each arc is drawn separately and a `pick_arc_fragment` stamps the arc index (rather than `[[primitive_id]]`).
+- Fixes a latent bug found while wiring this: the arc *display* pass set the model matrix once (identity) instead of per body, so arcs on a transformed body drew at the wrong place; now set per draw.
+- New pick-decode contract test (123 total). Builds + runs on the Vision Pro simulator with the pick pass active.
+
+### Note
+- A body mixing polyline `edges` and `arcs` reports both as `kind == .edge`; `kind` alone can't disambiguate — prefer one edge representation per body.
+
 ## [1.1.7] — 2026-06-06
 
 ### Added
