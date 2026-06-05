@@ -2256,9 +2256,22 @@ public final class ViewportRenderer: NSObject, MTKViewDelegate, Sendable {
         var vertexCount = 0
 
         if !body.vertexData.isEmpty, !body.indices.isEmpty {
+            // Optionally apply crease-aware normal smoothing (issue #48) so meshes
+            // with flat / per-face normals can be rounded by Phong tessellation.
+            // Done once here (generation-gated), and the tessellation patch builder
+            // reads from this vertex buffer, so smoothed normals flow into the
+            // PN-triangle control points automatically.
+            var meshVertexData = body.vertexData
+            if controller?.configuration.autoSmoothNormals == true {
+                NormalSmoothing.smoothNormals(
+                    vertexData: &meshVertexData,
+                    indices: body.indices,
+                    creaseAngle: controller?.configuration.normalSmoothingCreaseAngle ?? 0.524
+                )
+            }
             vertexBuffer = device.makeBuffer(
-                bytes: body.vertexData,
-                length: body.vertexData.count * MemoryLayout<Float>.size,
+                bytes: meshVertexData,
+                length: meshVertexData.count * MemoryLayout<Float>.size,
                 options: .storageModeShared
             )
             indexBuffer = device.makeBuffer(

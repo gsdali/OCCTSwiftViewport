@@ -29,4 +29,10 @@ struct ViewportConfigurationTests {
         // Plain .cad stays on the cheaper standard path (no auto-tessellation).
         #expect(ViewportConfiguration.cad.renderingQuality == .standard)
     }
+
+    @Test("cadHighQuality enables auto normal smoothing; default off (#48)")
+    func cadHighQualityAutoSmoothNormals() {
+        #expect(ViewportConfiguration.cadHighQuality.autoSmoothNormals == true)
+        #expect(ViewportConfiguration().autoSmoothNormals == false)
+    }
 }
