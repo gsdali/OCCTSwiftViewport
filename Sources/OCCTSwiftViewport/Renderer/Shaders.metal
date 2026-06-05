@@ -525,6 +525,19 @@ fragment PickFragmentOut pick_line_fragment(
     return out;
 }
 
+// Analytic arc pick — kind=1 (edge). primitiveID is the ARC index, supplied per
+// draw (each arc is drawn separately), since the arc's segment count is sampled
+// adaptively per frame and `[[primitive_id]]` would only give a segment index.
+fragment PickFragmentOut pick_arc_fragment(
+    PickVertexOut in [[stage_in]],
+    constant BodyUniforms &bodyUniforms [[buffer(2)]],
+    constant uint &arcPrimID [[buffer(3)]]
+) {
+    PickFragmentOut out;
+    out.pickID = bodyUniforms.objectIndex | ((arcPrimID & 0x3FFFu) << 16) | (1u << 30);
+    return out;
+}
+
 // Point sprite vertex shader for vertex picking. Outputs `point_size` so
 // individual vertices have a clickable footprint instead of a single pixel.
 struct PickPointVertexOut {

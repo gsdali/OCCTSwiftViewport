@@ -13,6 +13,11 @@ import simd
 /// `center + radius * (cos θ · xAxis + sin θ · yAxis)`. The renderer samples the
 /// arc to line segments adaptively to its projected size each frame, so a circle
 /// renders smooth regardless of zoom — no pre-faceting by the consumer.
+///
+/// **Picking:** arcs are pickable. A hit reports `PickResult.kind == .edge` with
+/// `triangleIndex` equal to the arc's index within `ViewportBody.arcs`. (A body
+/// mixing polyline `edges` and `arcs` can't tell them apart from `kind` alone —
+/// prefer one representation per body.)
 public struct ViewportArc: Sendable, Hashable {
 
     /// Arc center (body-local space).
