@@ -5,7 +5,7 @@ All notable changes to OCCTSwiftViewport are documented in this file.
 ## [Unreleased]
 
 ### Added
-- **visionOS platform support — library (Phase 0 of #36).** The package now declares `.visionOS(.v2)` and the library compiles for visionOS (verified against `arm64-apple-xros2.0-simulator`). visionOS runs the existing UIKit `MTKView` + SwiftUI gesture path in a window / volume (shared space).
+- **visionOS platform support — library (Phase 0 of #36).** The package now declares `.visionOS(.v1)` (matching the OCCTSwift / OCCTSwiftTools ecosystem) and the library compiles for visionOS. visionOS runs the existing UIKit `MTKView` + SwiftUI gesture path in a window / volume (shared space).
   - `MetalViewRepresentable` and the `MetalViewportView` gesture / two-finger-pan code are now gated `#if os(iOS) || os(visionOS)` (UIKit is shared).
   - Point→pixel scale for picking is derived from the renderer's actual drawable size (new `ViewportRenderer.lastDrawableSize`) instead of `UIScreen.main` (unavailable on visionOS) / `NSScreen.main` — more correct on all platforms and removes the screen-API dependency.
   - No behaviour change on iOS / macOS; 102 tests green.
