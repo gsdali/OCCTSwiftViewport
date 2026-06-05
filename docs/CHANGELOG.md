@@ -2,6 +2,18 @@
 
 All notable changes to OCCTSwiftViewport are documented in this file.
 
+## [1.0.5] — 2026-06-05
+
+### Added
+- **Selection filter chains** (issue #33). A composable `SelectionFilter` predicate over `PickResult`, the OCCTSwiftViewport analogue of OCCT's `SelectMgr_Filter`. Lets consumers constrain what the user-geometry pick stream accepts.
+  - `SelectionFilter` is a `Sendable` wrapper over `@Sendable (PickResult) -> Bool`, exposing `matches(_:)` and `callAsFunction`. Re-exported as `_SelectionFilter`.
+  - Built-ins: `.all` / `.nothing`, `.kind(_)` / `.kinds(_)` / `.faces` / `.edges` / `.vertices`, `.layer(_)`, `.bodyIDs(_)` / `.excludingBodyIDs(_)`, `.bodyIndices(_)`.
+  - Composition: `.and(_)`, `.or(_)`, `.negated`, and chain combinators `.all(of:)` (AND) / `.any(of:)` (OR).
+  - `ViewportController.selectionFilter: SelectionFilter?` — applied in `handlePick` to the user-geometry stream. A pick that fails the filter is treated as a miss (clears `pickResult`), since GPU picking resolves a single primitive per pixel with no alternate candidate to fall through to. Widget-layer picks bypass the filter (that stream is owned by an external consumer, e.g. OCCTSwiftAIS manipulators).
+  - New `SelectionFilterTests` (13 tests). No public API break — additive (PATCH).
+  - Builds on the face/edge/vertex pick discrimination shipped in v0.55.0.
+  - Note: depth/distance filtering is intentionally absent — the GPU `PickResult` carries no depth value; use the CPU `SceneRaycast` path for distance-aware filtering.
+
 ## [0.55.2] — 2026-05-04
 
 ### Fixed

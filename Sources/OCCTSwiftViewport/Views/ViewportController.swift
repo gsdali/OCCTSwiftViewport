@@ -321,20 +321,30 @@ public final class ViewportController: ObservableObject {
     /// Optional callback invoked when a widget-layer pick occurs.
     public var onWidgetPick: ((PickResult?) -> Void)?
 
+    /// Optional filter constraining what the user-geometry pick stream accepts.
+    ///
+    /// When set, a user-geometry pick that fails the filter is treated as a miss
+    /// (clearing `pickResult`), since GPU picking resolves a single primitive per
+    /// pixel and has no alternate candidate to fall through to. Widget-layer picks
+    /// bypass the filter — that stream is owned by an external consumer.
+    public var selectionFilter: SelectionFilter?
+
     /// Called by the view layer after a GPU pick readback completes.
     ///
     /// Routes the result to either `pickResult` (default) or `widgetPickResult`
     /// based on the picked body's `pickLayer`. A nil result clears `pickResult`
     /// only — `widgetPickResult` keeps its last value, since the widget-pick
     /// stream is owned by an external consumer (e.g., AIS) that decides when to
-    /// reset it.
+    /// reset it. The user-geometry stream additionally honours `selectionFilter`.
     public func handlePick(result: PickResult?) {
         if let result, result.pickLayer == .widget {
             widgetPickResult = result
             onWidgetPick?(result)
         } else {
-            pickResult = result
-            onPick?(result)
+            // A result that fails the selection filter is treated as a miss.
+            let passed = result.flatMap { selectionFilter?.matches($0) == false ? nil : $0 }
+            pickResult = passed
+            onPick?(passed)
         }
     }
 
