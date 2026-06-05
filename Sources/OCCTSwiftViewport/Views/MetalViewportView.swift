@@ -66,8 +66,11 @@ public struct MetalViewportView: View {
                     #if os(iOS)
                     .overlay { panGestureOverlay }
                     .gesture(orbitGesture)
-                    .gesture(zoomGesture)
-                    .gesture(rollGesture)
+                    // Pinch and rotate are both two-finger continuous gestures;
+                    // they must be simultaneous or SwiftUI's default exclusivity
+                    // lets pinch win and rotate never fires.
+                    .simultaneousGesture(zoomGesture)
+                    .simultaneousGesture(rollGesture)
                     .gesture(
                         SpatialTapGesture()
                             .onEnded { value in
@@ -77,8 +80,9 @@ public struct MetalViewportView: View {
                     .gesture(doubleTapGesture)
                     #else
                     .gesture(macGestures)
-                    .gesture(macMagnifyGesture)
-                    .gesture(macRotateGesture)
+                    // Same exclusivity issue on the macOS trackpad.
+                    .simultaneousGesture(macMagnifyGesture)
+                    .simultaneousGesture(macRotateGesture)
                     #endif
 
                 if controller.showViewCube {

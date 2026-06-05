@@ -15,6 +15,9 @@ All notable changes to OCCTSwiftViewport are documented in this file.
 ### Demo
 - **Input inspector** overlay (sidebar → Debug → "Input event inspector") showing the live `ViewportInputEvent` stream — for on-device verification of gesture interpretation.
 
+### Fixed
+- **Two-finger rotate (roll) never fired on iOS / macOS trackpad.** Pinch and rotate were attached as separate `.gesture()` modifiers, which SwiftUI treats as mutually exclusive, so pinch always won. Both two-finger continuous gestures are now `.simultaneousGesture`, so pinch + rotate coexist. (Pre-existing bug, surfaced by on-device verification of #35.)
+
 ### Note
 - This closes the #35 follow-up. The shipped seam is what #36 (visionOS/XR) builds on: XR / synthetic input produces `ViewportInputEvent`s and calls `dispatch(_:)` directly.
 
