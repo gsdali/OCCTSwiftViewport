@@ -2,6 +2,25 @@
 
 All notable changes to OCCTSwiftViewport are documented in this file.
 
+## [1.0.8] — 2026-06-05
+
+### Added
+- **Portable input-event model** (issue #35, completing the layer). A source-neutral event type plus a single observable dispatch entry, so synthetic / XR / test input can drive the camera without any AppKit / UIKit type.
+  - **`ViewportInputEvent`** — `Sendable` / `Equatable` enum (drag, two-finger pan, pinch, rotate, scroll, tap) with raw deltas. Re-exported as `_ViewportInputEvent`.
+  - **`ViewportController.dispatch(_:)`** — the single interpretation entry point. It owns gesture-action resolution, the orbit X-axis inversion, and the drag-to-zoom curve; the platform layer is now a thin native→event adapter. macOS resolves drag actions via modifiers (`dragAction(for:)`); iOS via `singleFingerDrag` (both config fields preserved — no behaviour change).
+  - **`ViewportController.onInputEvent`** — observation hook for the whole event stream (drives the demo's input inspector; useful for debugging / HUDs).
+  - iOS + macOS gesture, scroll, and tap handlers rerouted through `dispatch`; behaviour preserved (Views keep delta math + dynamic-pivot scheduling).
+  - New `ViewportInputRouterTests` (8 tests → 102 total, all green). iOS (arm64) + macOS demo builds verified.
+
+### Demo
+- **Input inspector** overlay (sidebar → Debug → "Input event inspector") showing the live `ViewportInputEvent` stream — for on-device verification of gesture interpretation.
+
+### Fixed
+- **Two-finger rotate (roll) never fired on iOS / macOS trackpad.** Pinch and rotate were attached as separate `.gesture()` modifiers, which SwiftUI treats as mutually exclusive, so pinch always won. Both two-finger continuous gestures are now `.simultaneousGesture`, so pinch + rotate coexist. (Pre-existing bug, surfaced by on-device verification of #35.)
+
+### Note
+- This closes the #35 follow-up. The shipped seam is what #36 (visionOS/XR) builds on: XR / synthetic input produces `ViewportInputEvent`s and calls `dispatch(_:)` directly.
+
 ## [1.0.7] — 2026-06-05
 
 ### Added
