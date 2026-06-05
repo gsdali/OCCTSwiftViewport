@@ -170,6 +170,9 @@ private struct BodyBuffers {
     /// empty. SIMD4<Float> RGBA per triangle, indexed by `[[primitive_id]]`
     /// in the highlight fragment shader.
     let triangleStyleBuffer: MTLBuffer?
+    /// The body's local-space AABB, computed once when buffers are built. Cached
+    /// here so per-frame frustum culling (issue #42) doesn't rescan vertices.
+    let localBoundingBox: BoundingBox?
 }
 
 // MARK: - ViewportRenderer
@@ -1228,6 +1231,22 @@ public final class ViewportRenderer: NSObject, MTKViewDelegate, Sendable {
         currentIndexMap = indexMap
         currentLayerMap = layerMap
 
+        // Per-body frustum culling (issue #42): skip bodies whose world-space
+        // bounds fall entirely outside the camera, computed once per frame from
+        // cached local AABBs. Applied to the main geometry pass; the shadow pass is
+        // intentionally not camera-culled (off-screen casters can shadow visible
+        // geometry), and bodies with no bounds are never culled.
+        var culledBodyIDs: Set<String> = []
+        if controller.configuration.enableFrustumCulling {
+            let frustum = Frustum(viewProjection: viewProjection)
+            for body in bodies where body.isVisible && body.renderLayer == .geometry {
+                guard let localBox = bodyBufferCache[body.id]?.localBoundingBox else { continue }
+                if !frustum.intersects(localBox.transformed(by: body.transform)) {
+                    culledBodyIDs.insert(body.id)
+                }
+            }
+        }
+
         let silhouettesEnabled = controller.configuration.enableSilhouettes
         let ssaoEnabled = (lighting.enableSSAO || silhouettesEnabled) && ssaoPipeline != nil && displayMode.showsSurfaces
         let taaEnabled = controller.enableTAA && taaPipeline != nil
@@ -1417,6 +1436,9 @@ public final class ViewportRenderer: NSObject, MTKViewDelegate, Sendable {
         for body in bodies where body.isVisible {
             let bodyObjectIndex = objectIndex
             objectIndex += 1
+            // Frustum-culled (off-screen) bodies are skipped here, but objectIndex
+            // still advances so the remaining bodies keep their stable pick IDs.
+            if culledBodyIDs.contains(body.id) { continue }
             guard let buffers = bodyBufferCache[body.id] else {
                 continue
             }
@@ -2401,7 +2423,8 @@ public final class ViewportRenderer: NSObject, MTKViewDelegate, Sendable {
             vertexCount: vertexCount,
             tessellation: tessBuffers,
             meshlets: meshletBufs,
-            triangleStyleBuffer: triStyleBuf
+            triangleStyleBuffer: triStyleBuf,
+            localBoundingBox: body.boundingBox
         )
         bodyGeneration[body.id] = currentGen
     }

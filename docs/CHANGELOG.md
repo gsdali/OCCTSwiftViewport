@@ -2,6 +2,18 @@
 
 All notable changes to OCCTSwiftViewport are documented in this file.
 
+## [1.1.2] — 2026-06-05
+
+### Added
+- **Per-body frustum culling** (issue #42, part 2) — the main lever for large scenes. Bodies whose world-space bounds fall entirely outside the camera are skipped in the main geometry pass, so cost scales with what's *on screen* rather than total body count.
+  - New `Frustum` (Gribb–Hartmann plane extraction, Metal `[0,1]` depth) with a conservative AABB `intersects(_:)`, and `BoundingBox.transformed(by:)` for world-space bounds (identity-transform fast path).
+  - Per-body local AABBs are computed once and cached in the renderer's buffer cache (no per-frame vertex rescans); the culled set is built once per frame.
+  - Pick-ID indices stay stable (culled bodies still advance the object index). The shadow pass is **not** camera-culled (off-screen casters can shadow visible geometry); bodies with no bounding box are never culled.
+  - New `ViewportConfiguration.enableFrustumCulling` (default `true` — off-screen bodies aren't visible anyway; set `false` to opt out).
+  - New `Frustum`/`BoundingBox.transformed` tests (8 → 112 total). Verified rendering unchanged on the Vision Pro simulator.
+
+Per-body CPU overhead reduction continues in #42 (part 3).
+
 ## [1.1.1] — 2026-06-05
 
 ### Added
