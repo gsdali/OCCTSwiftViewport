@@ -6,6 +6,18 @@
 import SwiftUI
 import simd
 
+extension ViewCubePosition {
+    /// SwiftUI alignment for placing the view-cube overlay in its corner (issue #62).
+    var overlayAlignment: Alignment {
+        switch self {
+        case .topLeading: return .topLeading
+        case .topTrailing: return .topTrailing
+        case .bottomLeading: return .bottomLeading
+        case .bottomTrailing: return .bottomTrailing
+        }
+    }
+}
+
 /// A 3D viewport view using Metal.
 ///
 /// MetalViewportView provides a complete Metal-based 3D viewing experience with:
@@ -388,15 +400,13 @@ public struct MetalViewportView: View {
     // MARK: - ViewCube Overlay
 
     private var viewCubeOverlay: some View {
-        VStack {
-            Spacer()
-            HStack {
-                Spacer()
-                NavigationCubeView(controller: controller)
-                    .frame(width: 80, height: 80)
-                    .padding(12)
-            }
-        }
+        // Honour configuration.viewCubePosition (issue #62) and keep clear of the
+        // safe area (e.g. an iPhone bottom sheet covering bottom-trailing).
+        NavigationCubeView(controller: controller)
+            .frame(width: 80, height: 80)
+            .padding(12)
+            .frame(maxWidth: .infinity, maxHeight: .infinity,
+                   alignment: controller.configuration.viewCubePosition.overlayAlignment)
     }
 
     // MARK: - HUD Overlays
