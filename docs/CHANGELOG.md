@@ -2,6 +2,12 @@
 
 All notable changes to OCCTSwiftViewport are documented in this file.
 
+## [1.1.13] — 2026-06-08
+
+### Fixed
+- **View-cube overlay now honours `ViewportConfiguration.viewCubePosition`** (issue #62). The overlay was hardcoded to bottom-trailing, so the cube couldn't be moved — a real problem on iPhone where a bottom sheet covers that corner. It now maps the `.topLeading` / `.topTrailing` / `.bottomLeading` / `.bottomTrailing` config to the overlay alignment (within the safe area), so a host can move the cube clear of other UI. Default stays bottom-trailing (no behaviour change).
+- New `ViewCubePositionTests` (2). 138 tests total.
+
 ## [1.1.12] — 2026-06-08
 
 ### Added
