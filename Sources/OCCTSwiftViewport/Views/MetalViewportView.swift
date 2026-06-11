@@ -81,7 +81,7 @@ public struct MetalViewportView: View {
                     // Pinch and rotate are both two-finger continuous gestures;
                     // they must be simultaneous or SwiftUI's default exclusivity
                     // lets pinch win and rotate never fires.
-                    .simultaneousGesture(zoomGesture)
+                    .simultaneousGesture(zoomGesture(viewSize: geometry.size))
                     .simultaneousGesture(rollGesture)
                     .gesture(
                         SpatialTapGesture()
@@ -93,7 +93,7 @@ public struct MetalViewportView: View {
                     #else
                     .gesture(macGestures)
                     // Same exclusivity issue on the macOS trackpad.
-                    .simultaneousGesture(macMagnifyGesture)
+                    .simultaneousGesture(macMagnifyGesture(viewSize: geometry.size))
                     .simultaneousGesture(macRotateGesture)
                     #endif
 
@@ -157,6 +157,13 @@ public struct MetalViewportView: View {
     }
 
     // MARK: - Picking Helpers
+
+    /// Gesture centre → NDC (top-left UIKit/SwiftUI coords → −1…+1, y up).
+    private func pinchCenterNDC(_ location: CGPoint, _ size: CGSize) -> SIMD2<Float> {
+        guard size.width > 0, size.height > 0 else { return .zero }
+        return SIMD2(Float(location.x / size.width) * 2 - 1,
+                     Float(1 - location.y / size.height) * 2 - 1)
+    }
 
     /// Converts a view-space point to drawable pixel coordinates.
     private func viewToPixel(_ point: CGPoint, viewSize: CGSize) -> SIMD2<Int>? {
@@ -308,12 +315,15 @@ public struct MetalViewportView: View {
             }
     }
 
-    private var zoomGesture: some Gesture {
+    private func zoomGesture(viewSize: CGSize) -> some Gesture {
         MagnifyGesture()
             .onChanged { value in
                 let delta = value.magnification / lastMagnification
                 lastMagnification = value.magnification
-                controller.dispatch(.pinchChanged(scale: Float(delta)))
+                // Zoom toward the FINGERS, not the view centre.
+                let ndc = pinchCenterNDC(value.startLocation, viewSize)
+                let aspect = Float(viewSize.width / max(viewSize.height, 1))
+                controller.dispatch(.pinchAtChanged(scale: Float(delta), centerNDC: ndc, aspectRatio: aspect))
             }
             .onEnded { _ in
                 lastMagnification = 1.0
@@ -372,12 +382,15 @@ public struct MetalViewportView: View {
             }
     }
 
-    private var macMagnifyGesture: some Gesture {
+    private func macMagnifyGesture(viewSize: CGSize) -> some Gesture {
         MagnifyGesture()
             .onChanged { value in
                 let delta = value.magnification / lastMagnification
                 lastMagnification = value.magnification
-                controller.dispatch(.pinchChanged(scale: Float(delta)))
+                // Zoom toward the trackpad cursor, not the view centre.
+                let ndc = pinchCenterNDC(value.startLocation, viewSize)
+                let aspect = Float(viewSize.width / max(viewSize.height, 1))
+                controller.dispatch(.pinchAtChanged(scale: Float(delta), centerNDC: ndc, aspectRatio: aspect))
             }
             .onEnded { _ in
                 lastMagnification = 1.0

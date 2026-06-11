@@ -267,7 +267,15 @@ public final class CameraController: ObservableObject {
     ///   - cursorNormalized: Cursor position in normalized coordinates (−1…+1), or `nil` for center zoom
     ///   - aspectRatio: View aspect ratio (width / height)
     public func scrollZoom(delta: Float, cursorNormalized: SIMD2<Float>? = nil, aspectRatio: Float = 1.0) {
-        let factor = 1.0 + delta * scrollZoomSensitivity
+        // Exponential mapping: smooth, symmetric (in/out cancel), and never produces a non-positive
+        // factor. The old linear 1 + delta·k jumped wildly on precise-trackpad pixel deltas.
+        let factor = exp(delta * scrollZoomSensitivity)
+        zoomToward(factor: factor, cursorNormalized: cursorNormalized, aspectRatio: aspectRatio)
+    }
+
+    /// Zooms by `factor`, keeping the world point under `cursorNormalized` (NDC −1…+1) stationary —
+    /// pinch-at-fingers / zoom-at-cursor. `nil` cursor = plain centre zoom.
+    public func zoomToward(factor: Float, cursorNormalized: SIMD2<Float>?, aspectRatio: Float = 1.0) {
         guard factor > 0 else { return }
 
         let oldDistance = cameraState.distance

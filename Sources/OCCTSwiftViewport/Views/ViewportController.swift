@@ -268,6 +268,12 @@ public final class ViewportController: ObservableObject {
         cameraController.zoom(factor: Float(magnification))
     }
 
+    /// Pinch zoom toward the gesture centre (NDC) — fingers stay over the same world point.
+    public func handleZoom(magnification: CGFloat, centerNormalized: SIMD2<Float>, aspectRatio: Float) {
+        cameraController.zoomToward(factor: Float(magnification), cursorNormalized: centerNormalized,
+                                    aspectRatio: aspectRatio)
+    }
+
     /// Handles scroll wheel zoom.
     public func handleScrollZoom(delta: CGFloat) {
         cameraController.scrollZoom(delta: Float(delta))

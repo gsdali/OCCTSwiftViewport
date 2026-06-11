@@ -40,6 +40,9 @@ extension ViewportController {
         case let .pinchChanged(scale):
             handleZoom(magnification: CGFloat(scale))
 
+        case let .pinchAtChanged(scale, centerNDC, aspectRatio):
+            handleZoom(magnification: CGFloat(scale), centerNormalized: centerNDC, aspectRatio: aspectRatio)
+
         case .pinchEnded:
             break
 

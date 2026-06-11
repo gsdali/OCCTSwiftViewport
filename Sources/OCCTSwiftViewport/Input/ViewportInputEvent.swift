@@ -34,6 +34,10 @@ public enum ViewportInputEvent: Sendable, Equatable {
     /// Pinch changed, as an incremental scale ratio (1.0 = no change).
     case pinchChanged(scale: Float)
 
+    /// Pinch with a known gesture centre (NDC −1…+1): zooms TOWARD the fingers/cursor instead of the
+    /// view centre, matching every mainstream CAD/maps app.
+    case pinchAtChanged(scale: Float, centerNDC: SIMD2<Float>, aspectRatio: Float)
+
     /// Pinch ended.
     case pinchEnded
 

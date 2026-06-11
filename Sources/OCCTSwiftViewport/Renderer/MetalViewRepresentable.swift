@@ -43,7 +43,11 @@ class ScrollCaptureMTKView: MTKView {
     override var acceptsFirstResponder: Bool { true }
 
     override func scrollWheel(with event: NSEvent) {
-        let delta = event.scrollingDeltaY
+        // Precise devices (trackpads, Magic Mouse) report PIXEL deltas — ±60/event during a flick,
+        // ~10× a wheel line tick. Normalize so one "unit" means the same zoom on every device;
+        // without this, trackpad zoom is violent and steppy.
+        let raw = event.scrollingDeltaY
+        let delta = event.hasPreciseScrollingDeltas ? raw / 10.0 : raw
         let locationInView = convert(event.locationInWindow, from: nil)
         let viewSize = bounds.size
         onScrollWheel?(CGFloat(delta), locationInView, viewSize)
