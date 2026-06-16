@@ -43,6 +43,21 @@ func body(_ shape: Shape?, _ id: String, _ rgba: SIMD4<Float>) -> ViewportBody? 
     return CADFileLoader.shapeToBodyAndMetadata(shape, id: id, color: rgba).0
 }
 
+// GLB models go next to the images dir (…/cookbook/models) for the interactive <model-viewer>.
+let modelsDir = outDir.deletingLastPathComponent().appendingPathComponent("models", isDirectory: true)
+try? FileManager.default.createDirectory(at: modelsDir, withIntermediateDirectories: true)
+
+func exportGLB(_ shape: Shape?, _ name: String) {
+    guard let shape else { return }
+    let url = modelsDir.appendingPathComponent(name)
+    do {
+        try Exporter.writeGLTF(shape: shape, to: url, binary: true, deflection: 0.08)
+        print("exported \(name)")
+    } catch {
+        fail("\(name): GLB export failed — \(error)")
+    }
+}
+
 // Palette
 let steel = SIMD4<Float>(0.62, 0.66, 0.72, 1)
 let blue  = SIMD4<Float>(0.30, 0.52, 0.90, 1)
@@ -58,9 +73,17 @@ func booleansThreeOps() {
           let cyl = Shape.cylinder(at: SIMD3(0, 0, -8), direction: SIMD3(0, 0, 1),
                                    radius: 3, height: 16) else { fail("booleans: primitives") }
     let w = 560, h = 480
-    if let b = body(box.union(cyl), "union", steel)         { render([b], to: "booleans-union.png", width: w, height: h) }
-    if let b = body(box.subtracting(cyl), "cut", blue)      { render([b], to: "booleans-cut.png", width: w, height: h) }
-    if let b = body(box.intersection(cyl), "common", amber) { render([b], to: "booleans-common.png", width: w, height: h) }
+    let ops: [(name: String, shape: Shape?, color: SIMD4<Float>)] = [
+        ("union",  box.union(cyl),        steel),
+        ("cut",    box.subtracting(cyl),  blue),
+        ("common", box.intersection(cyl), amber),
+    ]
+    for op in ops {
+        if let b = body(op.shape, op.name, op.color) {
+            render([b], to: "booleans-\(op.name).png", width: w, height: h)   // static figure / poster
+        }
+        exportGLB(op.shape, "booleans-\(op.name).glb")                        // interactive model-viewer
+    }
 }
 
 MainActor.assumeIsolated {
