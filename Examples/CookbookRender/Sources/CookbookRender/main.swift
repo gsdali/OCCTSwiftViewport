@@ -47,14 +47,18 @@ func body(_ shape: Shape?, _ id: String, _ rgba: SIMD4<Float>) -> ViewportBody? 
 let modelsDir = outDir.deletingLastPathComponent().appendingPathComponent("models", isDirectory: true)
 try? FileManager.default.createDirectory(at: modelsDir, withIntermediateDirectories: true)
 
-func exportGLB(_ shape: Shape?, _ name: String) {
-    guard let shape else { return }
+// Export a GLB with a baked-in material colour. Exporter.writeGLTF(shape:) emits no
+// material (renders white in model-viewer), so go through an XDE Document: set the colour
+// on the shape's label, then writeGLTF preserves it as a glTF baseColorFactor.
+func exportGLB(_ shape: Shape?, _ name: String, _ rgba: SIMD4<Float>) {
+    guard let shape, let doc = Document.create() else { return }
+    let labelId = doc.addShape(shape, makeAssembly: false)
+    doc.node(at: labelId)?.setColor(Color(red: Double(rgba.x), green: Double(rgba.y), blue: Double(rgba.z)))
     let url = modelsDir.appendingPathComponent(name)
-    do {
-        try Exporter.writeGLTF(shape: shape, to: url, binary: true, deflection: 0.08)
+    if doc.writeGLTF(to: url, binary: true) {
         print("exported \(name)")
-    } catch {
-        fail("\(name): GLB export failed — \(error)")
+    } else {
+        fail("\(name): GLB export failed")
     }
 }
 
@@ -82,7 +86,7 @@ func booleansThreeOps() {
         if let b = body(op.shape, op.name, op.color) {
             render([b], to: "booleans-\(op.name).png", width: w, height: h)   // static figure / poster
         }
-        exportGLB(op.shape, "booleans-\(op.name).glb")                        // interactive model-viewer
+        exportGLB(op.shape, "booleans-\(op.name).glb", op.color)              // interactive model-viewer (coloured)
     }
 }
 
