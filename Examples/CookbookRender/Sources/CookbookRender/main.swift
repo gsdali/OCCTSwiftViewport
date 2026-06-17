@@ -17,7 +17,8 @@ func fail(_ msg: String) -> Never {
 }
 
 @MainActor
-func render(_ bodies: [ViewportBody], to name: String, width: Int = 1280, height: Int = 720) {
+func render(_ bodies: [ViewportBody], to name: String, width: Int = 1280, height: Int = 720,
+            view: CameraState? = nil) {
     guard let renderer = OffscreenRenderer() else { fail("No Metal device — headless render unavailable") }
     let visible = bodies.filter { $0.isVisible }
     guard !visible.isEmpty else { fail("\(name): no renderable bodies") }
@@ -26,6 +27,7 @@ func render(_ bodies: [ViewportBody], to name: String, width: Int = 1280, height
     opts.height = height
     opts.showGrid = false
     opts.showAxes = false
+    if let view { opts.cameraState = view }   // pick a viewpoint (default looks down +Z)
     if let cam = opts.cameraState.fit(to: visible, aspectRatio: Float(width) / Float(height), padding: 1.25) {
         opts.cameraState = cam
     }
@@ -90,6 +92,27 @@ func booleansThreeOps() {
     }
 }
 
+// ── Threads: a smooth ISO-68 V-thread built without booleans (#213) ───────
+// threadedShaft on a plain cylinder builds the rod DIRECTLY (cam-loft + sew, no BOP):
+// a smooth, BRepCheck-valid 60° V-thread. One portrait figure + interactive GLB.
+@MainActor
+func threadsScene() {
+    guard let shank = Shape.cylinder(radius: 6, height: 24) else { fail("threads: shank") }
+    let spec = ThreadSpec(form: .iso68, nominalDiameter: 12, pitch: 1.75)
+    guard let threaded = shank.threadedShaft(axisOrigin: .zero, axisDirection: SIMD3(0, 0, 1),
+                                             spec: spec, length: 18) else { fail("threads: build") }
+    if let b = body(threaded, "thread", steel) {
+        // Isometric view — a Z-axis shaft seen down +Z is just a circle; show the flanks.
+        render([b], to: "threads-shaft.png", width: 520, height: 640, view: .isometric)
+    }
+    exportGLB(threaded, "threads-shaft.glb", steel)                     // interactive model-viewer
+}
+
+// Render only the scenes named on the command line after the output dir (default: all).
+let sceneArgs = Set(CommandLine.arguments.dropFirst(2).map { $0.lowercased() })
+func wants(_ name: String) -> Bool { sceneArgs.isEmpty || sceneArgs.contains(name) }
+
 MainActor.assumeIsolated {
-    booleansThreeOps()
+    if wants("booleans") { booleansThreeOps() }
+    if wants("threads")  { threadsScene() }
 }
