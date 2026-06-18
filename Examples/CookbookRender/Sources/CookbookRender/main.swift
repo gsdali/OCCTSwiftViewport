@@ -3,6 +3,7 @@
 // Renders each scene from the same OCCTSwift API the cookbook page shows, so
 // the figure and the code never drift.
 import Foundation
+import simd
 import OCCTSwift
 import OCCTSwiftTools
 import OCCTSwiftViewport
@@ -108,6 +109,23 @@ func threadsScene() {
     exportGLB(threaded, "threads-shaft.glb", steel)                     // interactive model-viewer
 }
 
+// ── Helices: a coiled spring = a circle swept along a helix ───────────────
+// Stock pipe-sweep along a Wire.helix. The circular section is rotationally symmetric,
+// so the sweep's Frenet re-framing is harmless (correctedFrenet keeps the section true) —
+// the very thing that distorts an asymmetric thread profile and forced #213's custom build.
+@MainActor
+func helicesScene() {
+    let r = 10.0, pitch = 4.0, turns = 5.0, wire = 1.5
+    guard let spine = Wire.helix(radius: r, pitch: pitch, turns: turns) else { fail("helices: spine") }
+    let tangent = simd_normalize(SIMD3<Double>(0, r, pitch / (2 * .pi)))   // helix tangent at the start
+    guard let profile = Wire.circle(origin: SIMD3(r, 0, 0), normal: tangent, radius: wire) else { fail("helices: profile") }
+    guard let spring = Shape.pipeShell(spine: spine, profile: profile, mode: .correctedFrenet, solid: true) else { fail("helices: spring") }
+    if let b = body(spring, "spring", steel) {
+        render([b], to: "helices-spring.png", width: 560, height: 560, view: .isometric)
+    }
+    exportGLB(spring, "helices-spring.glb", steel)
+}
+
 // Render only the scenes named on the command line after the output dir (default: all).
 let sceneArgs = Set(CommandLine.arguments.dropFirst(2).map { $0.lowercased() })
 func wants(_ name: String) -> Bool { sceneArgs.isEmpty || sceneArgs.contains(name) }
@@ -115,4 +133,5 @@ func wants(_ name: String) -> Bool { sceneArgs.isEmpty || sceneArgs.contains(nam
 MainActor.assumeIsolated {
     if wants("booleans") { booleansThreeOps() }
     if wants("threads")  { threadsScene() }
+    if wants("helices")  { helicesScene() }
 }
