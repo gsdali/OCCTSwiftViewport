@@ -369,6 +369,23 @@ func pointsGridScene() {
     exportGLB(face, "points-grid.glb", blue)
 }
 
+// ── Working with meshes: a custom octahedron built from vertex/index arrays (#210) ──
+@MainActor
+func meshScene() {
+    let s: Float = 8
+    let v: [SIMD3<Float>] = [
+        SIMD3(0, 0, s), SIMD3(s, 0, 0), SIMD3(0, s, 0),
+        SIMD3(-s, 0, 0), SIMD3(0, -s, 0), SIMD3(0, 0, -s),
+    ]
+    let idx: [UInt32] = [0,1,2, 0,2,3, 0,3,4, 0,4,1,  5,2,1, 5,3,2, 5,4,3, 5,1,4]
+    guard let mesh = Mesh(vertices: v, indices: idx),
+          let shape = mesh.toShape(weldTolerance: 1e-4) else { fail("mesh: build") }
+    if let bdy = body(shape, "octa", amber) {
+        render([bdy], to: "mesh-octahedron.png", width: 520, height: 520, view: .isometric)
+    }
+    exportGLB(shape, "mesh-octahedron.glb", amber)
+}
+
 // Render only the scenes named on the command line after the output dir (default: all).
 let sceneArgs = Set(CommandLine.arguments.dropFirst(2).map { $0.lowercased() })
 func wants(_ name: String) -> Bool { sceneArgs.isEmpty || sceneArgs.contains(name) }
@@ -386,4 +403,5 @@ MainActor.assumeIsolated {
     if wants("xcaf")        { xcafScene() }
     if wants("gordon")      { gordonScene() }
     if wants("pointsgrid")  { pointsGridScene() }
+    if wants("mesh")        { meshScene() }
 }
