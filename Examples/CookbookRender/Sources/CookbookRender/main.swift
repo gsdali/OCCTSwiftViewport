@@ -232,6 +232,54 @@ func leadScrewScene() {
     exportGLB(screw, "threadedhole-leadscrew.glb", steel)
 }
 
+// ── Lofting & sweeps: the four hero solids from the lofting-and-sweeps page ──
+// Each built from the same OCCTSwift API the page shows: a swept elbow, a square→round
+// loft, a circle lofted to a vertex (cone), and a multi-section pipe shell (vase).
+@MainActor
+func loftsScene() {
+    // sweep — circular section along a quarter-arc path → pipe elbow.
+    // The section sits at the path start (16,0,0) with its plane square to the path
+    // tangent there (+Y), so the tube isn't edge-on to the sweep.
+    if let section = Wire.circle(origin: SIMD3(16, 0, 0), normal: SIMD3(0, 1, 0), radius: 5),
+       let path = Wire.arc(center: .zero, radius: 16, startAngle: 0, endAngle: .pi / 2),
+       let elbow = Shape.sweep(profile: section, along: path) {
+        if let b = body(elbow, "elbow", blue) {
+            render([b], to: "sweep-pipe.png", width: 520, height: 460, view: .isometric)
+        }
+        exportGLB(elbow, "sweep-pipe.glb", blue)
+    }
+    // loft — square base (z=0) → round top (z=12): a transition duct
+    if let base = Wire.polygon3D([SIMD3(-5, -5, 0), SIMD3(5, -5, 0), SIMD3(5, 5, 0), SIMD3(-5, 5, 0)], closed: true),
+       let top = Wire.circle(origin: SIMD3(0, 0, 12), radius: 4),
+       let frustum = Shape.loft(profiles: [base, top], solid: true) {
+        if let b = body(frustum, "frustum", steel) {
+            render([b], to: "loft-frustum.png", width: 480, height: 520, view: .isometric)
+        }
+        exportGLB(frustum, "loft-frustum.glb", steel)
+    }
+    // loft — single circle lofted to a vertex tip → cone
+    if let circle = Wire.circle(radius: 5),
+       let cone = Shape.loft(profiles: [circle], solid: true, ruled: true, lastVertex: SIMD3(0, 0, 10)) {
+        if let b = body(cone, "cone", amber) {
+            render([b], to: "loft-cone.png", width: 440, height: 520, view: .isometric)
+        }
+        exportGLB(cone, "loft-cone.glb", amber)
+    }
+    // multi-section sweep — three coaxial circles of varying radius along a straight spine → vase
+    if let spine = Wire.line(from: .zero, to: SIMD3(0, 0, 12)) {
+        let stations = zip([0.0, 6.0, 12.0], [4.0, 2.0, 5.0]).compactMap {
+            Wire.circle(origin: SIMD3(0, 0, $0.0), radius: $0.1)
+        }
+        if stations.count == 3,
+           let vase = Shape.pipeShellMultiSection(spine: spine, profiles: stations, mode: .frenet, solid: true) {
+            if let b = body(vase, "vase", blue) {
+                render([b], to: "sweep-vase.png", width: 440, height: 560, view: .isometric)
+            }
+            exportGLB(vase, "sweep-vase.glb", blue)
+        }
+    }
+}
+
 // Render only the scenes named on the command line after the output dir (default: all).
 let sceneArgs = Set(CommandLine.arguments.dropFirst(2).map { $0.lowercased() })
 func wants(_ name: String) -> Bool { sceneArgs.isEmpty || sceneArgs.contains(name) }
@@ -244,4 +292,5 @@ MainActor.assumeIsolated {
     if wants("wingnut")     { wingNutScene() }
     if wants("leadscrew")   { leadScrewScene() }
     if wants("helices")     { helicesScene() }
+    if wants("lofts")       { loftsScene() }
 }
