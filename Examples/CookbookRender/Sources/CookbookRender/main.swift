@@ -280,6 +280,38 @@ func loftsScene() {
     }
 }
 
+// ── Helical sweeps: a standalone helicoid ridge vs. a proper threaded worm (#225) ──
+// helicalSweep produces a standalone helical ridge (an auger flight); to get a real thread,
+// threadedRod composes a custom profile with the core directly (NO boolean) — the boolean
+// compose route is invalid/collapses (#225, #213, #181).
+@MainActor
+func helicalSweepsScene() {
+    let R = 3.0, crest = 6.0, pitch = 4.0
+    // 1) A standalone helical ridge — what helicalSweep makes on its own.
+    if let rib = Wire.polygon3D([SIMD3(R, 0, 0), SIMD3(crest, 0, pitch * 0.4), SIMD3(R, 0, pitch * 0.8)], closed: true),
+       let ridge = Shape.helicalSweep(profile: rib, axisOrigin: .zero, axisDirection: SIMD3(0, 0, 1),
+                                      radius: R, pitch: pitch, turns: 3, clockwise: false, solid: true) {
+        if let b = body(ridge, "ridge", amber) {
+            render([b], to: "helical-ridge.png", width: 460, height: 600, view: .isometric)
+        }
+        exportGLB(ridge, "helical-ridge.glb", amber)
+    }
+    // 2) A smooth worm built the right way — threadedRod from a custom trapezoidal profile.
+    //    Worm-like proportions: shallow tooth (cutDepth 1.8 on r6), pitch 5, several turns.
+    let worm = ThreadProfile(vertices: [
+        .init(axial: 0.000, depth: 1), .init(axial: 0.125, depth: 1),
+        .init(axial: 0.375, depth: 0), .init(axial: 0.625, depth: 0),
+        .init(axial: 0.875, depth: 1), .init(axial: 1.000, depth: 1),
+    ]).flatMap {
+        Shape.threadedRod(customProfile: $0, nominalDiameter: 12, pitch: 5,
+                          cutDepth: 1.8, length: 22)
+    }
+    if let worm, let b = body(worm, "worm", steel) {
+        render([b], to: "helical-worm.png", width: 460, height: 640, view: .isometric)
+        exportGLB(worm, "helical-worm.glb", steel)
+    }
+}
+
 // Render only the scenes named on the command line after the output dir (default: all).
 let sceneArgs = Set(CommandLine.arguments.dropFirst(2).map { $0.lowercased() })
 func wants(_ name: String) -> Bool { sceneArgs.isEmpty || sceneArgs.contains(name) }
@@ -293,4 +325,5 @@ MainActor.assumeIsolated {
     if wants("leadscrew")   { leadScrewScene() }
     if wants("helices")     { helicesScene() }
     if wants("lofts")       { loftsScene() }
+    if wants("helical")     { helicalSweepsScene() }
 }
