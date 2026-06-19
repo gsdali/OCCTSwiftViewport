@@ -2,6 +2,15 @@
 
 All notable changes to OCCTSwiftViewport are documented in this file.
 
+## [1.1.21] — 2026-06-20
+
+### Added
+- **Unlit / flat-colour display mode** (issue #77). New `DisplayMode.unlit` draws each body in its constant base colour with **no lighting, ambient, shadows, fresnel, curvature, or tone mapping** — so vivid, colour-coded **diagnostic / debug renders** stay faithful and distinguishable. Previously `OffscreenRenderer` `.shaded` ran every body through the full PBR path (hemisphere ambient + fresnel rim + curvature; ACES tone map on the interactive post-pass), which desaturated and hue-shifted saturated colours (a bright magenta read as green-ish).
+  - `shaded_fragment` early-returns `bodyUniforms.color` when the new `Uniforms.unlit` flag is set; clip-plane discard and selection tint still apply.
+  - Both `OffscreenRenderer` (`options.displayMode`) and `ViewportRenderer` (`controller.displayMode`) set the flag; `.unlit` routes through the shaded pipeline via `showsSurfaces == true`. The interactive SSAO / ACES tone-map post-pass is skipped for `.unlit` so it can never re-desaturate.
+  - `Uniforms` gains a `uint unlit` field, kept in sync Swift↔Metal by repacking the existing 16-byte clip-pad tail (stride unchanged elsewhere).
+- New `UnlitColorTests`: a magenta panel renders faithfully in `.unlit` (R≈255, G≈38, B≈217) and measurably more saturated than `.shaded`. 161 tests total.
+
 ## [1.1.20] — 2026-06-12
 
 ### Added
