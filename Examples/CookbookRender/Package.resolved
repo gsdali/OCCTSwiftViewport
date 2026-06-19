@@ -6,8 +6,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/gsdali/OCCTSwiftIO.git",
       "state" : {
-        "revision" : "ef7a4ad2d9c057968cda24f08122534e54980f50",
-        "version" : "1.0.0"
+        "revision" : "05881da56a557873d3bd8a1a3b48f997eef504a6",
+        "version" : "1.0.1"
       }
     }
   ],
