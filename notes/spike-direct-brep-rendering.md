@@ -189,10 +189,20 @@ No normal misread, no shading change. **162 tests pass.**
 viewport learned to hold + draw de-interleaved buffers without learning anything about OCCT/B-Rep.
 The change to the headless renderer was ~1 pipeline + ~15 lines in `ensureBuffers`/draw.
 
-**What a production version still needs (not done here — it's a spike):**
-1. **Mirror in the interactive `ViewportRenderer`** (same second pipeline + de-interleaved upload in
-   its `ensureBuffers`; also the transparent / shadow / pick sub-passes if direct bodies must be
-   translucent or pickable-by-GPU — CPU pick already works via the derived `vertices`).
+**Update — `ViewportRenderer` (interactive) now also has the direct path.** Mirrored the same
+`directMeshPipeline` (pos@0 / normal@2) + de-interleaved upload in its `ensureBuffers`; the main
+opaque pass renders direct bodies via `encodeShadedSurface`, and the **shadow / pick / depth / overlay
+sub-passes skip them** (`normalBuffer == nil` guard) since they bind the stride-12 position buffer
+with the stride-6 descriptor. Tessellation/meshlet builders are skipped for direct bodies too. A
+headless test constructs a `ViewportRenderer` with a direct body (proves `directMeshPipeline`
+compiles); `swift build` clean, 163 tests pass. **Live pixel verification (the MTKView draw loop)
+still needs a device/sim run** — it isn't driveable headlessly; the OffscreenRenderer differential
+test covers pixel-correctness for the identical shaders/descriptor/binding.
+
+**What a production version still needs:**
+1. **Live device/sim pass** on the interactive renderer (visual confirm) + GPU-pick / shadow support
+   for direct bodies if needed (today they render but don't cast shadows or GPU-pick; CPU pick works
+   via the derived `vertices`). A position-only shadow/pick pipeline would lift those limits.
 2. **Thin the bridge** in `OCCTSwiftTools.shapeToBodyAndMetadata` to call
    `ViewportBody.directMesh(positions: mesh.vertexData, normals: mesh.normalData, indices: …)` and
    **skip the interleave loop + `NormalSmoothing`**. (Separate repo — out of scope here.)
