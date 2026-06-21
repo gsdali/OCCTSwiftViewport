@@ -32,8 +32,17 @@ public enum NormalSmoothing {
 
         let cosCrease = cos(creaseAngle)
 
-        // --- Step 1: Compute face normals (area-weighted) ---
+        // Snapshot the INPUT per-vertex normals before any in-place write. The fix for #81 is to
+        // average THESE within each crease group — preserving OCCT's accurate analytic B-rep
+        // normals — rather than recomputing from face normals. The face-normal average is
+        // directionally biased on highly anisotropic meshes (long thin triangles along a sweep,
+        // e.g. helical thread flanks) and shows up as fine "brushed" striations. Face normals are
+        // still used below for crease *detection* (hard-edge preservation).
+        let originalNormals: [SIMD3<Float>] = (0..<vertexCount).map { normal(vertexData, $0) }
+
+        // --- Step 1: Compute face normals + triangle areas (areas weight the average) ---
         var faceNormals = [SIMD3<Float>](repeating: .zero, count: triangleCount)
+        var faceAreas = [Float](repeating: 0, count: triangleCount)
         for t in 0..<triangleCount {
             let i0 = Int(indices[t * 3])
             let i1 = Int(indices[t * 3 + 1])
@@ -44,6 +53,7 @@ public enum NormalSmoothing {
             let cross = simd_cross(p1 - p0, p2 - p0)
             let len = simd_length(cross)
             faceNormals[t] = len > 1e-12 ? cross / len : .zero
+            faceAreas[t] = len * 0.5
         }
 
         // --- Step 2: Build spatial hash of vertex positions ---
@@ -93,17 +103,21 @@ public enum NormalSmoothing {
                 cosThreshold: cosCrease
             )
 
-            // For each group, compute averaged normal and assign to member vertices
+            // For each crease group, assign the area-weighted average of the ORIGINAL per-vertex
+            // normals of this position's vertices in the group (#81). For a smooth B-rep mesh those
+            // input normals are ~equal, so the average reproduces them (striations gone); for a flat
+            // mesh each vertex normal == its own face normal, so this reduces to the previous
+            // area-weighted face-normal average (backward-compatible).
             for group in groups {
-                // Area-weighted average of face normals in this group
+                let groupSet = Set(group)
+
                 var sum = SIMD3<Float>.zero
-                for triIdx in group {
-                    sum += faceNormals[triIdx]
+                for entry in entries where groupSet.contains(entry.triIdx) {
+                    sum += faceAreas[entry.triIdx] * originalNormals[entry.vertexIdx]
                 }
                 let averaged = simd_length(sum) > 1e-12 ? simd_normalize(sum) : faceNormals[group[0]]
 
                 // Assign to all vertices at this position that belong to triangles in this group
-                let groupSet = Set(group)
                 for entry in entries where groupSet.contains(entry.triIdx) {
                     let vIdx = entry.vertexIdx
                     if !processed[vIdx] {
@@ -122,6 +136,12 @@ public enum NormalSmoothing {
     /// Extracts position from interleaved vertex data.
     private static func position(_ data: [Float], _ idx: Int) -> SIMD3<Float> {
         let base = idx * 6
+        return SIMD3<Float>(data[base], data[base + 1], data[base + 2])
+    }
+
+    /// Extracts the per-vertex normal from interleaved vertex data.
+    private static func normal(_ data: [Float], _ idx: Int) -> SIMD3<Float> {
+        let base = idx * 6 + 3
         return SIMD3<Float>(data[base], data[base + 1], data[base + 2])
     }
 
