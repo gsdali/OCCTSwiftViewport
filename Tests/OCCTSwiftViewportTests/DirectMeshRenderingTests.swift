@@ -9,6 +9,7 @@
 import Testing
 import simd
 import CoreGraphics
+import SwiftUI
 @testable import OCCTSwiftViewport
 
 @MainActor
@@ -98,6 +99,30 @@ struct DirectMeshRenderingTests {
         #expect(differingPixels * 8 < litPixels,
                 "too many pixels differ (\(differingPixels)/\(litPixels)) — looks like a surface mismatch, not edge AA")
         #expect(litPixels > 800, "render looks blank (\(litPixels) lit pixels in \(w)×\(h))")
+    }
+
+    /// The interactive `ViewportRenderer` builds its `directMeshPipeline` (the new two-buffer
+    /// vertex descriptor) at init and returns nil if any pipeline fails to compile — so a
+    /// successful init with a direct-mesh body on screen proves the live path's GPU objects are
+    /// valid. (Pixel-level correctness of the live draw is covered by the OffscreenRenderer test
+    /// above, which uses the identical shaders / descriptor / buffer binding.)
+    @Test("ViewportRenderer constructs with a direct-mesh body (directMeshPipeline compiles)")
+    func viewportRendererAcceptsDirectMesh() {
+        let controller = ViewportController()
+        let sphere = ViewportBody.sphere(id: "s", radius: 1, color: color)
+        var positions: [Float] = []
+        var normals: [Float] = []
+        let vd = sphere.vertexData
+        var i = 0
+        while i + 5 < vd.count {
+            positions.append(vd[i]); positions.append(vd[i + 1]); positions.append(vd[i + 2])
+            normals.append(vd[i + 3]); normals.append(vd[i + 4]); normals.append(vd[i + 5])
+            i += 6
+        }
+        let bodies = [ViewportBody.directMesh(id: "s", positions: positions, normals: normals,
+                                              indices: sphere.indices, color: color)]
+        let renderer = ViewportRenderer(controller: controller, bodies: .constant(bodies))
+        #expect(renderer != nil, "ViewportRenderer init failed — a render pipeline did not compile")
     }
 
     // MARK: - Helpers

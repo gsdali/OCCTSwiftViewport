@@ -1433,7 +1433,7 @@ public final class ViewportRenderer: NSObject, MTKViewDelegate, Sendable {
                         guard let buffers = bodyBufferCache[body.id] else { continue }
                         // Overlay bodies don't cast shadows — they are UI affordances.
                         if body.renderLayer == .overlay { continue }
-                        let hasMesh = buffers.vertexBuffer != nil && buffers.indexBuffer != nil && buffers.indexCount > 0
+                        let hasMesh = buffers.vertexBuffer != nil && buffers.indexBuffer != nil && buffers.indexCount > 0 && buffers.normalBuffer == nil
 
                         if hasMesh, let vb = buffers.vertexBuffer, let ib = buffers.indexBuffer {
                             var shadowUniforms = ShadowUniformsSwift(
@@ -1578,6 +1578,10 @@ public final class ViewportRenderer: NSObject, MTKViewDelegate, Sendable {
             let selState: UInt32 = selectedIDs.contains(body.id) ? 1 : (hoveredID == body.id ? 2 : 0)
             var bodyUniforms = BodyUniforms(body: body, objectIndex: bodyObjectIndex, isSelected: selState)
 
+            // Main opaque pass — direct-mesh bodies ARE rendered here (encodeShadedSurface picks
+            // the directMeshPipeline when normalBuffer is set). The shadow / pick / depth / overlay
+            // passes above & below keep the `normalBuffer == nil` guard, since they bind the stride-12
+            // position buffer with the stride-6 descriptor and would misread a direct body.
             let hasMesh = buffers.vertexBuffer != nil && buffers.indexBuffer != nil && buffers.indexCount > 0
             let hasEdges = buffers.edgeVertexBuffer != nil && buffers.edgeVertexCount > 0
 
@@ -1858,7 +1862,7 @@ public final class ViewportRenderer: NSObject, MTKViewDelegate, Sendable {
                 uniforms.modelMatrix = body.transform
                 var bodyUniforms = BodyUniforms(body: body, objectIndex: bodyObjectIndex, isSelected: 0)
 
-                let hasMesh = buffers.vertexBuffer != nil && buffers.indexBuffer != nil && buffers.indexCount > 0
+                let hasMesh = buffers.vertexBuffer != nil && buffers.indexBuffer != nil && buffers.indexCount > 0 && buffers.normalBuffer == nil
                 let hasEdges = buffers.edgeVertexBuffer != nil && buffers.edgeVertexCount > 0
 
                 if displayMode.showsSurfaces, hasMesh,
@@ -1936,7 +1940,7 @@ public final class ViewportRenderer: NSObject, MTKViewDelegate, Sendable {
                         // Overlay bodies are picked in the second pick loop (always-pass depth).
                         if body.renderLayer == .overlay { continue }
 
-                        let hasMesh = buffers.vertexBuffer != nil && buffers.indexBuffer != nil && buffers.indexCount > 0
+                        let hasMesh = buffers.vertexBuffer != nil && buffers.indexBuffer != nil && buffers.indexCount > 0 && buffers.normalBuffer == nil
 
                         if hasMesh, let vb = buffers.vertexBuffer, let ib = buffers.indexBuffer {
                             var uniforms = makeUniforms()
@@ -2216,7 +2220,7 @@ public final class ViewportRenderer: NSObject, MTKViewDelegate, Sendable {
                         objectIndex += 1
                         continue
                     }
-                    let hasMesh = buffers.vertexBuffer != nil && buffers.indexBuffer != nil && buffers.indexCount > 0
+                    let hasMesh = buffers.vertexBuffer != nil && buffers.indexBuffer != nil && buffers.indexCount > 0 && buffers.normalBuffer == nil
                     if hasMesh, let vb = buffers.vertexBuffer, let ib = buffers.indexBuffer {
                         var uniforms = makeUniforms()
 
