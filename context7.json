@@ -1,7 +1,7 @@
 {
   "$schema": "https://context7.com/schema/context7.json",
   "projectTitle": "OCCTSwiftViewport",
-  "description": "A reusable Metal-based 3D viewport for CAD apps on iOS and macOS — a geometry-agnostic rendering companion to OCCTSwift with no OCCT dependency. Blinn-Phong shading with shadow maps and environment mapping, orbit/pan/zoom camera, GPU face/vertex picking, clip planes, a view cube, normal smoothing, and SwiftUI integration.",
+  "description": "Reusable Metal 3D viewport for CAD apps on iOS and macOS: geometry-agnostic rendering companion to OCCTSwift, no OCCT dependency. Blinn-Phong shading, shadow/env maps, orbit camera, GPU picking.",
   "folders": [
     "docs",
     "Sources/OCCTSwiftViewport"
