@@ -218,6 +218,11 @@ public final class ViewportRenderer: NSObject, MTKViewDelegate, Sendable {
     private let pickEdgeOrPointDepthState: MTLDepthStencilState
     // Depth-only pipeline for SSAO depth pass
     private let depthOnlyPipeline: MTLRenderPipelineState
+    /// Direct-mesh depth-only pipeline (Option A): `depth_only_vertex` with the two-buffer
+    /// descriptor (position@0 / normal@2) so direct-mesh bodies are written into the SSAO/
+    /// silhouette depth prepass too. The depth shader reads only position; the normal binding
+    /// just satisfies the descriptor's attribute 1.
+    private let depthOnlyDirectPipeline: MTLRenderPipelineState
     // Shadow mapping
     private let shadowPipeline: MTLRenderPipelineState
     /// Direct-mesh shadow pipeline (Option A): `shadow_vertex` with the two-buffer descriptor
@@ -589,6 +594,20 @@ public final class ViewportRenderer: NSObject, MTKViewDelegate, Sendable {
             return nil
         }
         self.depthOnlyPipeline = depthOnlyPipeline
+
+        // Direct-mesh depth-only pipeline (Option A): same depth shaders, two-buffer descriptor.
+        let depthOnlyDirectDesc = MTLRenderPipelineDescriptor()
+        depthOnlyDirectDesc.label = "depth_only_direct"
+        depthOnlyDirectDesc.vertexFunction = library.makeFunction(name: "depth_only_vertex")
+        depthOnlyDirectDesc.fragmentFunction = library.makeFunction(name: "depth_only_fragment")
+        depthOnlyDirectDesc.depthAttachmentPixelFormat = .depth32Float
+        depthOnlyDirectDesc.rasterSampleCount = 1
+        depthOnlyDirectDesc.vertexDescriptor = directVertexDesc
+
+        guard let depthOnlyDirectPipeline = try? device.makeRenderPipelineState(descriptor: depthOnlyDirectDesc) else {
+            return nil
+        }
+        self.depthOnlyDirectPipeline = depthOnlyDirectPipeline
 
         // Shadow map pipeline (depth-only from light perspective)
         let shadowDesc = MTLRenderPipelineDescriptor()
@@ -2246,7 +2265,9 @@ public final class ViewportRenderer: NSObject, MTKViewDelegate, Sendable {
                         objectIndex += 1
                         continue
                     }
-                    let hasMesh = buffers.vertexBuffer != nil && buffers.indexBuffer != nil && buffers.indexCount > 0 && buffers.normalBuffer == nil
+                    // Direct-mesh bodies are written via depthOnlyDirectPipeline (handled in the
+                    // standard branch below), so they are NOT excluded here.
+                    let hasMesh = buffers.vertexBuffer != nil && buffers.indexBuffer != nil && buffers.indexCount > 0
                     if hasMesh, let vb = buffers.vertexBuffer, let ib = buffers.indexBuffer {
                         var uniforms = makeUniforms()
 
@@ -2277,6 +2298,19 @@ public final class ViewportRenderer: NSObject, MTKViewDelegate, Sendable {
                                 patchIndexBufferOffset: 0,
                                 instanceCount: 1,
                                 baseInstance: 0
+                            )
+                        } else if let nb = buffers.normalBuffer {
+                            // Direct-mesh body (Option A): position@0 + normal@2.
+                            depthEncoder.setRenderPipelineState(depthOnlyDirectPipeline)
+                            depthEncoder.setVertexBuffer(vb, offset: 0, index: 0)
+                            depthEncoder.setVertexBuffer(nb, offset: 0, index: 2)
+                            depthEncoder.setVertexBytes(&uniforms, length: MemoryLayout<Uniforms>.size, index: 1)
+                            depthEncoder.drawIndexedPrimitives(
+                                type: .triangle,
+                                indexCount: buffers.indexCount,
+                                indexType: .uint32,
+                                indexBuffer: ib,
+                                indexBufferOffset: 0
                             )
                         } else {
                             depthEncoder.setRenderPipelineState(depthOnlyPipeline)

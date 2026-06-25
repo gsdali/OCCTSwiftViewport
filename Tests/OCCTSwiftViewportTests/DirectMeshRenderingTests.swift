@@ -200,6 +200,26 @@ struct DirectMeshRenderingTests {
         #expect(renderer != nil, "ViewportRenderer init failed — a render pipeline did not compile")
     }
 
+    /// Direct-mesh bodies now flow into the SSAO/silhouette depth prepass via the new
+    /// `depthOnlyDirectPipeline` (Option A, item 1b). The prepass runs only in the interactive
+    /// `ViewportRenderer` with a live drawable (no headless pixel path — OffscreenRenderer has no
+    /// SSAO pass), so the headlessly-checkable invariant is that the renderer constructs with SSAO
+    /// + silhouettes enabled and a direct body on screen — i.e. `depthOnlyDirectPipeline` compiled.
+    /// Draw-time Metal validation of the prepass draw is a live-verification (Phase 4) item.
+    @Test("ViewportRenderer with SSAO + silhouettes constructs with a direct-mesh body (depthOnlyDirectPipeline)")
+    func viewportRendererDirectMeshDepthPrepass() {
+        var lighting = LightingConfiguration.threePoint
+        lighting.enableSSAO = true
+        let config = ViewportConfiguration(lightingConfiguration: lighting, enableSilhouettes: true)
+        let controller = ViewportController(configuration: config)
+        let sphere = ViewportBody.sphere(id: "s", radius: 1, color: color)
+        let (positions, normals) = deinterleave(sphere.vertexData)
+        let bodies = [ViewportBody.directMesh(id: "s", positions: positions, normals: normals,
+                                              indices: sphere.indices, color: color)]
+        let renderer = ViewportRenderer(controller: controller, bodies: .constant(bodies))
+        #expect(renderer != nil, "ViewportRenderer init failed — depthOnlyDirectPipeline did not compile")
+    }
+
     // MARK: - Helpers
 
     /// Split interleaved stride-6 `[px,py,pz,nx,ny,nz, …]` vertex data into the separate
