@@ -1644,8 +1644,8 @@ public final class ViewportRenderer: NSObject, MTKViewDelegate, Sendable {
 
             // Main opaque pass — direct-mesh bodies ARE rendered here (encodeShadedSurface picks
             // the directMeshPipeline when normalBuffer is set). The shadow / pick / depth / overlay
-            // passes above & below keep the `normalBuffer == nil` guard, since they bind the stride-12
-            // position buffer with the stride-6 descriptor and would misread a direct body.
+            // passes above & below now route direct bodies through their own *Direct pipelines
+            // (two-buffer descriptor: position@0 / normal@2) rather than skipping them.
             let hasMesh = buffers.vertexBuffer != nil && buffers.indexBuffer != nil && buffers.indexCount > 0
             let hasEdges = buffers.edgeVertexBuffer != nil && buffers.edgeVertexCount > 0
 
@@ -1926,13 +1926,22 @@ public final class ViewportRenderer: NSObject, MTKViewDelegate, Sendable {
                 uniforms.modelMatrix = body.transform
                 var bodyUniforms = BodyUniforms(body: body, objectIndex: bodyObjectIndex, isSelected: 0)
 
-                let hasMesh = buffers.vertexBuffer != nil && buffers.indexBuffer != nil && buffers.indexCount > 0 && buffers.normalBuffer == nil
+                // Direct-mesh overlay bodies draw via directMeshPipeline (handled below), so
+                // they are NOT excluded here.
+                let hasMesh = buffers.vertexBuffer != nil && buffers.indexBuffer != nil && buffers.indexCount > 0
                 let hasEdges = buffers.edgeVertexBuffer != nil && buffers.edgeVertexCount > 0
 
                 if displayMode.showsSurfaces, hasMesh,
                    let vb = buffers.vertexBuffer, let ib = buffers.indexBuffer {
-                    mainEncoder.setRenderPipelineState(shadedPipeline)
-                    mainEncoder.setVertexBuffer(vb, offset: 0, index: 0)
+                    if let nb = buffers.normalBuffer {
+                        // Direct-mesh body (Option A): position@0 + normal@2, shared shaded shaders.
+                        mainEncoder.setRenderPipelineState(directMeshPipeline)
+                        mainEncoder.setVertexBuffer(vb, offset: 0, index: 0)
+                        mainEncoder.setVertexBuffer(nb, offset: 0, index: 2)
+                    } else {
+                        mainEncoder.setRenderPipelineState(shadedPipeline)
+                        mainEncoder.setVertexBuffer(vb, offset: 0, index: 0)
+                    }
                     mainEncoder.setVertexBytes(&uniforms, length: MemoryLayout<Uniforms>.size, index: 1)
                     mainEncoder.setFragmentBytes(&uniforms, length: MemoryLayout<Uniforms>.size, index: 1)
                     mainEncoder.setFragmentBytes(&bodyUniforms, length: MemoryLayout<BodyUniforms>.size, index: 2)
@@ -2187,8 +2196,15 @@ public final class ViewportRenderer: NSObject, MTKViewDelegate, Sendable {
                             uniforms.modelMatrix = body.transform
                             var bodyUniforms = BodyUniforms(body: body, objectIndex: bodyObjectIndex)
 
-                            pickEncoder.setRenderPipelineState(pickShadedPipeline)
-                            pickEncoder.setVertexBuffer(vb, offset: 0, index: 0)
+                            if let nb = buffers.normalBuffer {
+                                // Direct-mesh overlay body (Option A): position@0 + normal@2.
+                                pickEncoder.setRenderPipelineState(pickShadedDirectPipeline)
+                                pickEncoder.setVertexBuffer(vb, offset: 0, index: 0)
+                                pickEncoder.setVertexBuffer(nb, offset: 0, index: 2)
+                            } else {
+                                pickEncoder.setRenderPipelineState(pickShadedPipeline)
+                                pickEncoder.setVertexBuffer(vb, offset: 0, index: 0)
+                            }
                             pickEncoder.setVertexBytes(&uniforms, length: MemoryLayout<Uniforms>.size, index: 1)
                             pickEncoder.setFragmentBytes(&bodyUniforms, length: MemoryLayout<BodyUniforms>.size, index: 2)
                             pickEncoder.drawIndexedPrimitives(

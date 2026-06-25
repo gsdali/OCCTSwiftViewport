@@ -251,6 +251,24 @@ struct DirectMeshRenderingTests {
         }
     }
 
+    /// Overlay-layer direct bodies (item 1d): the overlay surface draw and the overlay pick loop
+    /// run on the live `ViewportRenderer` (no headless pixel path), and both now route direct
+    /// bodies through directMeshPipeline / pickShadedDirectPipeline instead of skipping them. The
+    /// headlessly-checkable invariant is that the renderer constructs with a direct body marked
+    /// `.overlay`; the overlay draw/pick is live-verified in Phase 4.
+    @Test("ViewportRenderer constructs with a direct-mesh overlay body (1d)")
+    func viewportRendererDirectMeshOverlay() {
+        let controller = ViewportController()
+        let sphere = ViewportBody.sphere(id: "s", radius: 1, color: color)
+        let (positions, normals) = deinterleave(sphere.vertexData)
+        var overlay = ViewportBody.directMesh(id: "s", positions: positions, normals: normals,
+                                              indices: sphere.indices, color: color)
+        overlay.renderLayer = .overlay
+        #expect(overlay.usesDirectMesh, "overlay body should still report usesDirectMesh")
+        let renderer = ViewportRenderer(controller: controller, bodies: .constant([overlay]))
+        #expect(renderer != nil, "ViewportRenderer init failed with a direct-mesh overlay body")
+    }
+
     // MARK: - Helpers
 
     /// Split interleaved stride-6 `[px,py,pz,nx,ny,nz, …]` vertex data into the separate
