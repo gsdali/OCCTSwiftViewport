@@ -124,6 +124,9 @@ public final class OffscreenRenderer: Sendable {
     /// could fail on a degenerate device.
     private let visiblePointPipeline: MTLRenderPipelineState?
     private let shadowPipeline: MTLRenderPipelineState
+    /// Direct-mesh shadow pipeline (Option A): `shadow_vertex` with the two-buffer descriptor
+    /// (position@0 / normal@2) so direct-mesh bodies cast shadows in the headless path too.
+    private let shadowDirectPipeline: MTLRenderPipelineState
     private let shadowMapManager: ShadowMapManager
     private let depthState: MTLDepthStencilState
     private let transparentDepthState: MTLDepthStencilState
@@ -314,6 +317,17 @@ public final class OffscreenRenderer: Sendable {
 
         guard let shadowPipeline = try? device.makeRenderPipelineState(descriptor: shadowDesc) else { return nil }
         self.shadowPipeline = shadowPipeline
+
+        // Direct-mesh shadow pipeline (Option A): same shadow shaders, two-buffer descriptor.
+        let shadowDirectDesc = MTLRenderPipelineDescriptor()
+        shadowDirectDesc.label = "offscreen_shadow_direct"
+        shadowDirectDesc.vertexFunction = library.makeFunction(name: "shadow_vertex")
+        shadowDirectDesc.fragmentFunction = library.makeFunction(name: "depth_only_fragment")
+        shadowDirectDesc.depthAttachmentPixelFormat = .depth32Float
+        shadowDirectDesc.rasterSampleCount = 1
+        shadowDirectDesc.vertexDescriptor = directVertexDesc
+        guard let shadowDirectPipeline = try? device.makeRenderPipelineState(descriptor: shadowDirectDesc) else { return nil }
+        self.shadowDirectPipeline = shadowDirectPipeline
         self.shadowMapManager = ShadowMapManager(device: device)
 
         // Depth stencil state
@@ -510,8 +524,15 @@ public final class OffscreenRenderer: Sendable {
                               let vb = buffers.vertexBuffer, let ib = buffers.indexBuffer,
                               buffers.indexCount > 0 else { continue }
                         var shadowUniforms = ShadowUniformsSwift(lightViewProjectionMatrix: lightVP, modelMatrix: body.transform)
-                        enc.setRenderPipelineState(shadowPipeline)
-                        enc.setVertexBuffer(vb, offset: 0, index: 0)
+                        if let nb = buffers.normalBuffer {
+                            // Direct-mesh body (Option A): position@0 + normal@2.
+                            enc.setRenderPipelineState(shadowDirectPipeline)
+                            enc.setVertexBuffer(vb, offset: 0, index: 0)
+                            enc.setVertexBuffer(nb, offset: 0, index: 2)
+                        } else {
+                            enc.setRenderPipelineState(shadowPipeline)
+                            enc.setVertexBuffer(vb, offset: 0, index: 0)
+                        }
                         enc.setVertexBytes(&shadowUniforms, length: MemoryLayout<ShadowUniformsSwift>.size, index: 1)
                         enc.drawIndexedPrimitives(type: .triangle, indexCount: buffers.indexCount, indexType: .uint32, indexBuffer: ib, indexBufferOffset: 0)
                     }

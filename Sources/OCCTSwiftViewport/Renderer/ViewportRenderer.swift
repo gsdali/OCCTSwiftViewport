@@ -220,6 +220,10 @@ public final class ViewportRenderer: NSObject, MTKViewDelegate, Sendable {
     private let depthOnlyPipeline: MTLRenderPipelineState
     // Shadow mapping
     private let shadowPipeline: MTLRenderPipelineState
+    /// Direct-mesh shadow pipeline (Option A): `shadow_vertex` with the two-buffer descriptor
+    /// (position@0 / normal@2) so direct-mesh bodies cast shadows too. The shadow shader reads only
+    /// position; the normal binding just satisfies the descriptor's attribute 1.
+    private let shadowDirectPipeline: MTLRenderPipelineState
     private let shadowMapManager: ShadowMapManager
     // Selection outline
     private let outlinePipeline: MTLRenderPipelineState
@@ -599,6 +603,19 @@ public final class ViewportRenderer: NSObject, MTKViewDelegate, Sendable {
             return nil
         }
         self.shadowPipeline = shadowPipeline
+
+        // Direct-mesh shadow pipeline (Option A): same shadow shaders, two-buffer descriptor.
+        let shadowDirectDesc = MTLRenderPipelineDescriptor()
+        shadowDirectDesc.label = "shadow_map_direct"
+        shadowDirectDesc.vertexFunction = library.makeFunction(name: "shadow_vertex")
+        shadowDirectDesc.fragmentFunction = library.makeFunction(name: "depth_only_fragment")
+        shadowDirectDesc.depthAttachmentPixelFormat = .depth32Float
+        shadowDirectDesc.rasterSampleCount = 1
+        shadowDirectDesc.vertexDescriptor = directVertexDesc
+        guard let shadowDirectPipeline = try? device.makeRenderPipelineState(descriptor: shadowDirectDesc) else {
+            return nil
+        }
+        self.shadowDirectPipeline = shadowDirectPipeline
         self.shadowMapManager = ShadowMapManager(device: device)
 
         // Selection outline pipeline (MSAA, renders expanded geometry where stencil != 1)
@@ -1433,7 +1450,9 @@ public final class ViewportRenderer: NSObject, MTKViewDelegate, Sendable {
                         guard let buffers = bodyBufferCache[body.id] else { continue }
                         // Overlay bodies don't cast shadows — they are UI affordances.
                         if body.renderLayer == .overlay { continue }
-                        let hasMesh = buffers.vertexBuffer != nil && buffers.indexBuffer != nil && buffers.indexCount > 0 && buffers.normalBuffer == nil
+                        // Direct-mesh bodies cast shadows via shadowDirectPipeline (handled in the
+                        // standard draw branch below), so they are NOT excluded here.
+                        let hasMesh = buffers.vertexBuffer != nil && buffers.indexBuffer != nil && buffers.indexCount > 0
 
                         if hasMesh, let vb = buffers.vertexBuffer, let ib = buffers.indexBuffer {
                             var shadowUniforms = ShadowUniformsSwift(
@@ -1470,8 +1489,15 @@ public final class ViewportRenderer: NSObject, MTKViewDelegate, Sendable {
                                     baseInstance: 0
                                 )
                             } else {
-                                shadowEncoder.setRenderPipelineState(shadowPipeline)
-                                shadowEncoder.setVertexBuffer(vb, offset: 0, index: 0)
+                                if let nb = buffers.normalBuffer {
+                                    // Direct-mesh body (Option A): position@0 + normal@2.
+                                    shadowEncoder.setRenderPipelineState(shadowDirectPipeline)
+                                    shadowEncoder.setVertexBuffer(vb, offset: 0, index: 0)
+                                    shadowEncoder.setVertexBuffer(nb, offset: 0, index: 2)
+                                } else {
+                                    shadowEncoder.setRenderPipelineState(shadowPipeline)
+                                    shadowEncoder.setVertexBuffer(vb, offset: 0, index: 0)
+                                }
                                 shadowEncoder.setVertexBytes(&shadowUniforms, length: MemoryLayout<ShadowUniformsSwift>.size, index: 1)
                                 shadowEncoder.drawIndexedPrimitives(
                                     type: .triangle,
