@@ -251,6 +251,57 @@ struct DirectMeshRenderingTests {
         }
     }
 
+    @Test("Transparent pass renders a direct-mesh body identically to the interleaved body")
+    func directTransparentMatchesInterleaved() throws {
+        guard let renderer = OffscreenRenderer() else {
+            Issue.record("Metal device unavailable; skipping headless render test")
+            return
+        }
+        // Camera at +Z looking down -Z; larger +Z is nearer (matches SurfaceTransparencyTests).
+        let camera = CameraState(rotation: simd_quatf(angle: 0, axis: SIMD3<Float>(0, 0, 1)),
+                                 distance: 10, pivot: .zero)
+
+        // Opaque red box at the origin; a translucent blue panel baked in front of it (+Z).
+        // The panel is the body under test — built interleaved vs direct.
+        func panel(direct: Bool) -> ViewportBody {
+            let half: Float = 3, z: Float = 3
+            func v(_ x: Float, _ y: Float) -> [Float] { [x, y, z, 0, 0, 1] }
+            let verts = v(-half, -half) + v(half, -half) + v(half, half) + v(-half, half)
+            let idx: [UInt32] = [0, 1, 2, 0, 2, 3]
+            let color = SIMD4<Float>(0, 0, 1, 0.4)
+            if direct {
+                let (p, n) = deinterleave(verts)
+                return ViewportBody.directMesh(id: "blue", positions: p, normals: n, indices: idx, color: color)
+            }
+            return ViewportBody(id: "blue", vertexData: verts, indices: idx, edges: [], color: color)
+        }
+        let red = ViewportBody.box(id: "red", width: 2, height: 2, depth: 2,
+                                   color: SIMD4<Float>(1, 0, 0, 1))
+
+        let opts = OffscreenRenderOptions(width: 160, height: 160, cameraState: camera,
+                                          backgroundColor: SIMD4<Float>(0, 0, 0, 1))
+        guard let imgInterleaved = renderer.render(bodies: [red, panel(direct: false)], options: opts),
+              let imgDirect = renderer.render(bodies: [red, panel(direct: true)], options: opts) else {
+            Issue.record("renderer returned nil image")
+            return
+        }
+        let (a, w, h) = readBGRA(imgInterleaved)
+        let (b, _, _) = readBGRA(imgDirect)
+
+        // BGRA little-endian in memory: [p]=B, [p+1]=G, [p+2]=R.
+        var maxDiff = 0, redThrough = 0
+        for p in stride(from: 0, to: a.count, by: 4) {
+            for c in 0..<3 { maxDiff = max(maxDiff, abs(Int(a[p + c]) - Int(b[p + c]))) }
+            // The opaque red box composited under the translucent direct panel reads purple
+            // (R noticeably above B) — proves the direct body actually went through the
+            // transparent (alpha-blended) pass rather than occluding the box opaquely.
+            if Int(b[p + 2]) > 60 && Int(b[p + 2]) > Int(b[p]) + 20 { redThrough += 1 }
+        }
+        #expect(maxDiff <= 6, "direct vs interleaved translucent per-channel max diff \(maxDiff)/255 (expected ≤6 edge AA)")
+        #expect(redThrough > 200,
+                "expected the opaque box to show through the translucent direct panel (\(redThrough) px in \(w)×\(h)) — transparent pass may not be routing the direct body")
+    }
+
     /// Overlay-layer direct bodies (item 1d): the overlay surface draw and the overlay pick loop
     /// run on the live `ViewportRenderer` (no headless pixel path), and both now route direct
     /// bodies through directMeshPipeline / pickShadedDirectPipeline instead of skipping them. The

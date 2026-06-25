@@ -661,7 +661,6 @@ public final class OffscreenRenderer: Sendable {
             let sorted = transparentBodies.sorted { centerDistanceSq($0) > centerDistanceSq($1) }
 
             mainEncoder.setDepthStencilState(transparentDepthState)
-            mainEncoder.setRenderPipelineState(shadedPipeline)
             mainEncoder.setFragmentTexture(matcapTexture, index: 0)
             if shadowEnabled, let shadowTex = shadowMapManager.texture {
                 mainEncoder.setFragmentTexture(shadowTex, index: 1)
@@ -672,7 +671,16 @@ public final class OffscreenRenderer: Sendable {
                 var uniforms = makeUniforms()
                 uniforms.modelMatrix = t.body.transform
                 var bodyUniforms = BodyUniforms(body: t.body, objectIndex: 0, isSelected: 0)
-                mainEncoder.setVertexBuffer(vb, offset: 0, index: 0)
+                // Direct-mesh bodies (Option A) bind position@0 + normal@2 via directMeshPipeline;
+                // both pipelines share the same alpha-blend config so compositing is identical.
+                if let nb = t.buffers.normalBuffer {
+                    mainEncoder.setRenderPipelineState(directMeshPipeline)
+                    mainEncoder.setVertexBuffer(vb, offset: 0, index: 0)
+                    mainEncoder.setVertexBuffer(nb, offset: 0, index: 2)
+                } else {
+                    mainEncoder.setRenderPipelineState(shadedPipeline)
+                    mainEncoder.setVertexBuffer(vb, offset: 0, index: 0)
+                }
                 mainEncoder.setVertexBytes(&uniforms, length: MemoryLayout<Uniforms>.size, index: 1)
                 mainEncoder.setFragmentBytes(&uniforms, length: MemoryLayout<Uniforms>.size, index: 1)
                 mainEncoder.setFragmentBytes(&bodyUniforms, length: MemoryLayout<BodyUniforms>.size, index: 2)
